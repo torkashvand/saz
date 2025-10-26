@@ -1,0 +1,44 @@
+[project]
+name = "saz"
+version = "0.2.0"
+description = "Agentic Workflow Platform - LLM-powered autonomous workflows"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.6.0",
+    "pyyaml>=6.0.1",
+    "sqlalchemy>=2.0.25",
+    "alembic>=1.13.1",
+    "structlog>=24.1.0",
+    "litellm>=1.50.0",
+    "httpx>=0.26.0",
+    "pyjwt>=2.8.0",
+    "jsonschema>=4.20.0",
+    "python-dotenv>=1.0.0",
+    "psycopg[binary]>=3.2,<3.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.4",
+    "httpx>=0.26.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "saz",
+    "saz.agents",
+    "saz.tools",
+    "saz.policies",
+    "saz.db"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

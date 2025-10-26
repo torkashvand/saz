@@ -1,0 +1,30 @@
+# Example form: User registration
+name: UserRegistration
+fields:
+  - name: username
+    type: text
+    required: true
+    regex: "^[a-zA-Z0-9_]{3,20}$"
+    description: "Username (3-20 chars, alphanumeric + underscore)"
+
+  - name: email
+    type: text
+    required: true
+    description: "Email address"
+
+  - name: age
+    type: number
+    required: true
+    min: 18
+    max: 120
+    description: "Age (must be 18+)"
+
+  - name: country
+    type: text
+    required: false
+    description: "Country (optional)"
+
+  - name: newsletter
+    type: boolean
+    required: false
+    description: "Subscribe to newsletter"

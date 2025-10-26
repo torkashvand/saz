@@ -1,0 +1,166 @@
+# AI Planning Workflow: AI proposes tool calls, system validates and executes
+# Demonstrates ai.plan for dynamic workflow generation
+
+flow:
+  name: incident_response_planner
+  version: "1.0"
+  description: AI plans incident response steps based on alert data
+
+form:
+  fields:
+    - name: alert_type
+      type: text
+      required: true
+      description: Type of alert (e.g., high_cpu, disk_full, service_down)
+    - name: service_name
+      type: text
+      required: true
+      description: Affected service name
+    - name: severity
+      type: text
+      required: true
+      description: Severity level (low, medium, high, critical)
+    - name: metrics
+      type: text
+      required: false
+      description: JSON string with current metrics
+
+triggers:
+  manual: true
+  webhook:
+    path: "/incident-alert"
+    method: POST
+
+workflow:
+  steps:
+    # Step 1: AI plans response actions
+    - id: plan_response
+      type: ai.plan
+      instruction: "Based on this incident alert, propose a sequence of tool calls to investigate and remediate. You may use: http_request (to check health endpoints), ansible_run (to restart services or scale resources), webhook_emit (to notify on-call team), artifact_store (to save diagnostic data)."
+      params:
+        data:
+          alert_type: "{{ $form.alert_type }}"
+          service: "{{ $form.service_name }}"
+          severity: "{{ $form.severity }}"
+          metrics: "{{ $form.metrics }}"
+      tools_allowlist:
+        - http_request
+        - ansible_run
+        - webhook_emit
+        - artifact_store
+      temperature: 0.2
+      max_tokens: 2048
+
+    # Step 2: Evaluate plan for safety
+    - id: evaluate_plan
+      type: ai.evaluate
+      instruction: "Check if the proposed plan is safe: no destructive actions without human approval, follows runbook best practices, includes proper diagnostics before remediation."
+      params:
+        data:
+          plan: "{{ $step('plan_response').calls }}"
+          severity: "{{ $form.severity }}"
+      temperature: 0.1
+      max_tokens: 1024
+
+    # Step 3: Execute plan (manual expansion - in production use dynamic executor)
+    # For demo: check if first tool call is http_request and execute it
+    - id: health_check
+      type: tool.call
+      tool: http_request
+      description: Execute health check from AI plan
+      params:
+        method: GET
+        url: "https://api.example.com/health/{{ $form.service_name }}"
+        timeout: 10
+      expect:
+        type: object
+        properties:
+          status:
+            type: string
+      retry:
+        attempts: 2
+        backoff: linear
+        max_delay: 5
+
+    # Step 4: Summarize findings
+    - id: summarize_investigation
+      type: ai.summarize
+      instruction: "Summarize the incident investigation findings in 100 words or less for the incident report."
+      params:
+        data:
+          alert: "{{ $form.alert_type }}"
+          service: "{{ $form.service_name }}"
+          health_check: "{{ $step('health_check') }}"
+          plan_executed: "{{ $step('plan_response').calls }}"
+      word_cap: 100
+      temperature: 0.2
+      max_tokens: 512
+
+    # Step 5: Match incident to known issues
+    - id: match_known_issue
+      type: ai.match
+      instruction: "Find the most similar known issue from our incident database."
+      params:
+        data:
+          current_incident:
+            alert_type: "{{ $form.alert_type }}"
+            service: "{{ $form.service_name }}"
+            summary: "{{ $step('summarize_investigation') }}"
+      candidates:
+        - id: "INC-001"
+          description: "High CPU due to memory leak in payment service"
+          resolution: "Restart service and deploy patch v1.2.3"
+        - id: "INC-002"
+          description: "Disk full on logging server"
+          resolution: "Rotate logs and increase disk quota"
+        - id: "INC-003"
+          description: "Service down due to database connection pool exhaustion"
+          resolution: "Increase pool size and restart"
+      top_k: 1
+      temperature: 0.1
+      max_tokens: 1024
+
+    # Step 6: Store incident report
+    - id: store_incident_report
+      type: artifact.store
+      params:
+        name: "incident_{{ $form.service_name }}_{{ $env('TIMESTAMP') }}"
+        content:
+          alert_type: "{{ $form.alert_type }}"
+          service: "{{ $form.service_name }}"
+          severity: "{{ $form.severity }}"
+          planned_actions: "{{ $step('plan_response').calls }}"
+          plan_evaluation: "{{ $step('evaluate_plan') }}"
+          health_check_result: "{{ $step('health_check') }}"
+          investigation_summary: "{{ $step('summarize_investigation') }}"
+          matched_known_issue: "{{ $step('match_known_issue') }}"
+
+    # Step 7: Notify on-call team
+    - id: notify_oncall
+      type: tool.call
+      tool: webhook_emit
+      description: Send incident notification to on-call team
+      params:
+        url: "{{ $secret('oncall_webhook_url') }}"
+        method: POST
+        body:
+          incident_id: "{{ $step('store_incident_report').artifact_id }}"
+          service: "{{ $form.service_name }}"
+          severity: "{{ $form.severity }}"
+          summary: "{{ $step('summarize_investigation') }}"
+          matched_issue: "{{ $step('match_known_issue').id }}"
+          confidence: "{{ $step('match_known_issue').confidence }}"
+
+policies:
+  budget:
+    max_tokens: 15000
+    max_cost_usd: 1.00
+    max_steps: 30
+    max_time_seconds: 600
+  rate_limits:
+    max_requests_per_minute: 20
+  pii:
+    enforce_redaction: false
+
+credentials:
+  uses: [oncall_webhook_url]

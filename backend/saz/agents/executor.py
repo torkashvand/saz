@@ -1,0 +1,188 @@
+"""Executor Agent - Grounds plans into concrete tool calls with variable substitution."""
+import json
+import re
+import structlog
+from typing import Dict, Any, List
+from .schemas import PlanStep, ToolCall
+
+logger = structlog.get_logger(__name__)
+
+
+class ExecutorAgent:
+    """Grounds plan steps into executable tool calls"""
+
+    def __init__(self):
+        self.logger = logger.bind(agent="executor")
+
+    def ground(
+        self,
+        step: PlanStep,
+        tool_registry: Dict[str, Dict],
+        current_data: Dict[str, Any],
+        run_id: str
+    ) -> ToolCall:
+        """
+        Ground a plan step into a concrete tool call.
+
+        Args:
+            step: PlanStep from execution plan
+            tool_registry: Available tools (indexed by name)
+            current_data: Current workflow state for variable substitution
+            run_id: Current run identifier for idempotency key
+
+        Returns:
+            ToolCall with concrete arguments ready for execution
+
+        Raises:
+            ValueError: If tool not found or arguments invalid
+        """
+        self.logger.info(
+            "grounding_step",
+            step_id=step.step_id,
+            tool_name=step.tool_name,
+            action=step.action.value
+        )
+
+        # Validate tool exists
+        if step.tool_name not in tool_registry:
+            raise ValueError(f"Tool '{step.tool_name}' not found in registry")
+
+        tool_spec = tool_registry[step.tool_name]
+
+        # Substitute variables in input template
+        grounded_args = self._substitute_variables(
+            step.input_template,
+            current_data
+        )
+
+        # Validate against tool schema (basic check)
+        self._validate_arguments(grounded_args, tool_spec)
+
+        # Generate idempotency key
+        idempotency_key = f"{run_id}:{step.step_id}"
+
+        # Build rationale
+        rationale = (
+            f"Executing {step.tool_name} for step {step.step_id}. "
+            f"Reasoning: {step.reasoning}"
+        )
+
+        tool_call = ToolCall(
+            tool=step.tool_name,
+            arguments=grounded_args,
+            idempotency_key=idempotency_key,
+            rationale=rationale
+        )
+
+        self.logger.info(
+            "step_grounded",
+            step_id=step.step_id,
+            tool=tool_call.tool,
+            idempotency_key=tool_call.idempotency_key
+        )
+
+        return tool_call
+
+    def _substitute_variables(
+        self,
+        template: Dict[str, Any],
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Recursively substitute {{variable}} placeholders with actual values.
+
+        Args:
+            template: Input template with {{variable}} placeholders
+            data: Available data for substitution
+
+        Returns:
+            Template with variables substituted
+
+        Raises:
+            ValueError: If referenced variable not found
+        """
+        if isinstance(template, dict):
+            return {
+                key: self._substitute_variables(value, data)
+                for key, value in template.items()
+            }
+        elif isinstance(template, list):
+            return [self._substitute_variables(item, data) for item in template]
+        elif isinstance(template, str):
+            # Match {{variable}} or {{nested.variable}}
+            pattern = r'\{\{([^}]+)\}\}'
+            matches = re.findall(pattern, template)
+
+            if not matches:
+                return template
+
+            # If entire string is a variable, return the value directly (preserving type)
+            if len(matches) == 1 and template == f"{{{{{matches[0]}}}}}":
+                var_path = matches[0].strip()
+                return self._get_nested_value(data, var_path)
+
+            # Otherwise, do string substitution
+            result = template
+            for match in matches:
+                var_path = match.strip()
+                value = self._get_nested_value(data, var_path)
+                result = result.replace(f"{{{{{match}}}}}", str(value))
+
+            return result
+        else:
+            return template
+
+    def _get_nested_value(self, data: Dict, path: str) -> Any:
+        """
+        Get value from nested dictionary using dot notation.
+
+        Args:
+            data: Dictionary to query
+            path: Dot-separated path (e.g., "user.email")
+
+        Returns:
+            Value at path
+
+        Raises:
+            ValueError: If path not found
+        """
+        keys = path.split('.')
+        value = data
+
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                raise ValueError(f"Variable path '{path}' not found in data")
+
+        return value
+
+    def _validate_arguments(
+        self,
+        arguments: Dict[str, Any],
+        tool_spec: Dict[str, Any]
+    ) -> None:
+        """
+        Basic validation that required parameters are present.
+
+        Args:
+            arguments: Grounded arguments
+            tool_spec: Tool specification with inputSchema
+
+        Raises:
+            ValueError: If required parameters missing
+        """
+        input_schema = tool_spec.get('inputSchema', {})
+        required_params = input_schema.get('required', [])
+
+        missing = [p for p in required_params if p not in arguments]
+        if missing:
+            raise ValueError(
+                f"Missing required parameters for {tool_spec['name']}: {missing}"
+            )
+
+        self.logger.debug(
+            "arguments_validated",
+            tool=tool_spec['name'],
+            required_params=required_params
+        )

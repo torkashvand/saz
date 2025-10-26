@@ -1,0 +1,14 @@
+# Example custom workflow (3 steps)
+description: "User onboarding workflow"
+steps:
+  - name: collect_user_info
+    type: input
+
+  - name: validate_data
+    type: step
+
+  - name: create_account
+    type: step
+
+  - name: send_welcome_email
+    type: step

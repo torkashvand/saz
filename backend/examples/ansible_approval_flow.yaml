@@ -1,0 +1,159 @@
+# Example 3: Ansible deployment with dry-run approval
+# Use case: Safe infrastructure deployment with human gate
+
+flow:
+  name: ansible_deployment
+  version: "1.0"
+  description: Deploy infrastructure with Ansible (check mode → approval → apply)
+
+form:
+  fields:
+    - name: playbook_path
+      type: text
+      required: true
+      description: Path to Ansible playbook
+    - name: inventory_path
+      type: text
+      required: true
+      description: Path to inventory file
+    - name: target_hosts
+      type: text
+      required: false
+      description: Limit to specific hosts (optional)
+    - name: extra_vars
+      type: text
+      required: false
+      description: JSON string of extra variables
+
+triggers:
+  manual: true
+  webhook:
+    path: "/deploy"
+    method: POST
+
+workflow:
+  steps:
+    - id: dry_run
+      type: tool.call
+      tool: ansible_run
+      description: Run Ansible in check mode (dry-run)
+      params:
+        mode: check
+        playbook: "{{ $form.playbook_path }}"
+        inventory: "{{ $form.inventory_path }}"
+        limit: "{{ coalesce($form.target_hosts, null) }}"
+        extra_vars: "{{ $form.extra_vars }}"
+        credentials:
+          ssh_key: "{{ $secret('ansible_ssh_key') }}"
+          vault_password: "{{ $secret('ansible_vault_password') }}"
+        verbosity: 2
+      expect:
+        type: object
+        properties:
+          status:
+            type: string
+          recap:
+            type: object
+          artifact_id:
+            type: string
+      retry:
+        attempts: 2
+        backoff: linear
+        max_delay: 10
+
+    - id: store_dry_run_results
+      type: artifact.store
+      description: Store dry-run results for review
+      params:
+        name: "dry_run_{{ $form.playbook_path }}_{{ $env('TIMESTAMP') }}"
+        content:
+          playbook: "{{ $form.playbook_path }}"
+          recap: "{{ $step('dry_run').recap }}"
+          artifact_id: "{{ $step('dry_run').artifact_id }}"
+          changes_detected: "{{ $step('dry_run').changed }}"
+
+    - id: approval_gate
+      type: human.approval
+      description: Approve deployment based on dry-run results
+      params:
+        approval_required_from: "ops_team"
+        message: "Review dry-run results. Approve deployment?\nPlaybook: {{ $form.playbook_path }}\nRecap: {{ $step('dry_run').recap }}\nArtifact: {{ $step('dry_run').artifact_id }}"
+        timeout_seconds: 3600  # 1 hour
+
+    - id: apply_deployment
+      type: tool.call
+      tool: ansible_run
+      description: Apply Ansible playbook (actual deployment)
+      params:
+        mode: apply
+        playbook: "{{ $form.playbook_path }}"
+        inventory: "{{ $form.inventory_path }}"
+        limit: "{{ coalesce($form.target_hosts, null) }}"
+        extra_vars: "{{ $form.extra_vars }}"
+        credentials:
+          ssh_key: "{{ $secret('ansible_ssh_key') }}"
+          vault_password: "{{ $secret('ansible_vault_password') }}"
+        verbosity: 2
+      expect:
+        type: object
+        properties:
+          status:
+            type: string
+          recap:
+            type: object
+          artifact_id:
+            type: string
+      retry:
+        attempts: 1
+        backoff: linear
+        max_delay: 30
+
+    - id: verify_deployment
+      type: condition
+      description: Check if deployment succeeded
+      if: "{{ $step('apply_deployment').recap.failed }} == 0"
+
+    - id: store_deployment_log
+      type: artifact.store
+      description: Store deployment audit log
+      params:
+        name: "deployment_{{ $form.playbook_path }}_{{ $env('TIMESTAMP') }}"
+        content:
+          playbook: "{{ $form.playbook_path }}"
+          inventory: "{{ $form.inventory_path }}"
+          dry_run_recap: "{{ $step('dry_run').recap }}"
+          apply_recap: "{{ $step('apply_deployment').recap }}"
+          dry_run_artifact: "{{ $step('dry_run').artifact_id }}"
+          apply_artifact: "{{ $step('apply_deployment').artifact_id }}"
+          deployed_at: "{{ $env('TIMESTAMP') }}"
+          success: "{{ $step('apply_deployment').recap.failed }} == 0"
+
+    - id: notify_completion
+      type: tool.call
+      tool: webhook_emit
+      description: Notify completion via webhook
+      params:
+        url: "https://hooks.example.com/deployments"
+        method: POST
+        body:
+          status: "completed"
+          playbook: "{{ $form.playbook_path }}"
+          recap: "{{ $step('apply_deployment').recap }}"
+          artifact: "{{ $step('apply_deployment').artifact_id }}"
+
+policies:
+  budget:
+    max_tokens: 10000
+    max_cost_usd: 1.00
+    max_steps: 30
+    max_time_seconds: 7200  # 2 hours
+  rate_limits:
+    max_requests_per_minute: 5
+  pii:
+    enforce_redaction: true
+    allowed_fields: []
+
+credentials:
+  uses:
+    - ansible_ssh_key
+    - ansible_vault_password

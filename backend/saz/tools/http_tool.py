@@ -1,0 +1,185 @@
+"""HTTP Client Tool - Makes HTTP requests with policy enforcement and secret redaction."""
+import httpx
+import structlog
+from typing import Dict, Any, Optional, List
+from datetime import datetime, UTC
+
+logger = structlog.get_logger(__name__)
+
+
+class HttpTool:
+    """
+    MCP-style HTTP client tool with safety features.
+
+    Enforces:
+    - Domain allowlists (if configured)
+    - Header redaction (Authorization, API keys)
+    - Timeout limits
+    - Retry policies
+    """
+
+    def __init__(
+        self,
+        allowed_domains: Optional[List[str]] = None,
+        timeout: int = 30,
+        max_retries: int = 3
+    ):
+        self.allowed_domains = allowed_domains
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.logger = logger.bind(tool="http")
+
+    @property
+    def spec(self) -> Dict[str, Any]:
+        """MCP-style tool specification"""
+        return {
+            "name": "http_request",
+            "description": "Make HTTP requests to external APIs",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                        "description": "HTTP method"
+                    },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Target URL"
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "HTTP headers (Authorization will be redacted in logs)",
+                        "additionalProperties": {"type": "string"}
+                    },
+                    "body": {
+                        "type": "object",
+                        "description": "Request body (for POST/PUT/PATCH)"
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Query parameters",
+                        "additionalProperties": {"type": "string"}
+                    }
+                },
+                "required": ["method", "url"]
+            }
+        }
+
+    async def execute(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        body: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, str]] = None,
+        idempotency_key: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Execute HTTP request with policy enforcement.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Target URL
+            headers: HTTP headers
+            body: Request body
+            params: Query parameters
+            idempotency_key: For deduplication
+
+        Returns:
+            Dict with status_code, headers, body, and metadata
+
+        Raises:
+            ValueError: If domain not allowed
+            httpx.HTTPError: If request fails
+        """
+        # Validate domain allowlist
+        if self.allowed_domains:
+            domain = httpx.URL(url).host
+            if domain not in self.allowed_domains:
+                raise ValueError(
+                    f"Domain '{domain}' not in allowlist: {self.allowed_domains}"
+                )
+
+        # Redact sensitive headers for logging
+        safe_headers = self._redact_headers(headers or {})
+
+        self.logger.info(
+            "http_request_start",
+            method=method,
+            url=url,
+            headers=safe_headers,
+            idempotency_key=idempotency_key
+        )
+
+        start_time = datetime.now(UTC)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=body,
+                    params=params
+                )
+
+                duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
+
+                # Parse response body
+                try:
+                    response_body = response.json()
+                except Exception:
+                    response_body = {"raw": response.text}
+
+                result = {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response_body,
+                    "metadata": {
+                        "duration_ms": duration_ms,
+                        "idempotency_key": idempotency_key,
+                        "timestamp": start_time.isoformat()
+                    }
+                }
+
+                self.logger.info(
+                    "http_request_success",
+                    method=method,
+                    url=url,
+                    status_code=response.status_code,
+                    duration_ms=duration_ms,
+                    idempotency_key=idempotency_key
+                )
+
+                return result
+
+        except httpx.HTTPError as e:
+            duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
+            self.logger.error(
+                "http_request_failed",
+                method=method,
+                url=url,
+                error=str(e),
+                duration_ms=duration_ms,
+                idempotency_key=idempotency_key
+            )
+            raise
+
+    def _redact_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+        """Redact sensitive header values for logging"""
+        sensitive_keys = {
+            "authorization",
+            "api-key",
+            "x-api-key",
+            "apikey",
+            "token",
+            "x-auth-token",
+            "cookie"
+        }
+
+        return {
+            key: "***REDACTED***" if key.lower() in sensitive_keys else value
+            for key, value in headers.items()
+        }

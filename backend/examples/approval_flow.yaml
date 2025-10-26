@@ -1,0 +1,128 @@
+# Example 2: Human approval workflow
+# Use case: User provisioning with manager approval
+
+flow:
+  name: user_provisioning
+  version: "1.0"
+  description: Provision user account with approval gate
+
+form:
+  fields:
+    - name: username
+      type: text
+      required: true
+      regex: "^[a-z0-9_-]{3,16}$"
+      description: Username (lowercase, 3-16 chars)
+    - name: email
+      type: text
+      required: true
+      description: User email address
+    - name: role
+      type: text
+      required: true
+      description: User role (e.g., developer, admin)
+
+triggers:
+  manual: true
+  webhook:
+    path: "/provision-user"
+    method: POST
+
+workflow:
+  steps:
+    - id: validate_user
+      type: tool.call
+      tool: http_request
+      description: Check if user already exists
+      params:
+        method: GET
+        url: "https://api.example.com/users/{{ $form.username }}"
+        headers:
+          Authorization: "Bearer {{ $secret('api_token') }}"
+      expect:
+        type: object
+        properties:
+          exists:
+            type: boolean
+      continue_on_fail: true
+
+    - id: check_duplicate
+      type: condition
+      description: Ensure user doesn't already exist
+      if: "{{ $step('validate_user').exists }} == false"
+
+    - id: request_approval
+      type: human.approval
+      description: Manager must approve user provisioning
+      params:
+        approval_required_from: "manager"
+        message: "Approve provisioning for {{ $form.username }} ({{ $form.email }}) as {{ $form.role }}?"
+        timeout_seconds: 86400  # 24 hours
+
+    - id: create_user
+      type: tool.call
+      tool: http_request
+      description: Create user account via API
+      params:
+        method: POST
+        url: "https://api.example.com/users"
+        headers:
+          Authorization: "Bearer {{ $secret('api_token') }}"
+          Content-Type: "application/json"
+        body:
+          username: "{{ $form.username }}"
+          email: "{{ $form.email }}"
+          role: "{{ $form.role }}"
+      expect:
+        type: object
+        properties:
+          user_id:
+            type: string
+      retry:
+        attempts: 3
+        backoff: exponential
+        max_delay: 30
+
+    - id: send_welcome_email
+      type: tool.call
+      tool: http_request
+      description: Send welcome email to new user
+      params:
+        method: POST
+        url: "https://api.example.com/emails/welcome"
+        headers:
+          Authorization: "Bearer {{ $secret('api_token') }}"
+        body:
+          to: "{{ $form.email }}"
+          username: "{{ $form.username }}"
+          user_id: "{{ $step('create_user').user_id }}"
+
+    - id: log_provisioning
+      type: artifact.store
+      description: Store provisioning audit log
+      params:
+        name: "user_provisioning_{{ $form.username }}"
+        content:
+          username: "{{ $form.username }}"
+          email: "{{ $form.email }}"
+          role: "{{ $form.role }}"
+          user_id: "{{ $step('create_user').user_id }}"
+          provisioned_at: "{{ $env('TIMESTAMP') }}"
+
+policies:
+  budget:
+    max_tokens: 5000
+    max_cost_usd: 0.50
+    max_steps: 20
+    max_time_seconds: 86400  # 24 hours (due to approval)
+  rate_limits:
+    max_requests_per_minute: 10
+  pii:
+    enforce_redaction: true
+    allowed_fields:
+      - email
+      - username
+
+credentials:
+  uses:
+    - api_token

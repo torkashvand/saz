@@ -1,11 +1,11 @@
 import type {
-  RegisterFormsRequest,
-  RegisterFormsResponse,
+  RegisterFlowRequest,
+  RegisterFlowResponse,
+  FlowGraphResponse,
+  RunGraphResponse,
   CreateRunRequest,
   CreateRunResponse,
-  AdvanceRunRequest,
-  AdvanceRunResponse,
-  RunState,
+  RunResponse,
 } from './types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
@@ -51,23 +51,40 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const api = {
-  registerForms: (data: RegisterFormsRequest) =>
-    fetchApi<RegisterFormsResponse>('/register_forms', {
+  // ========== Unified DSL Endpoints ==========
+
+  /**
+   * Register a unified YAML workflow
+   */
+  registerFlow: (data: RegisterFlowRequest) =>
+    fetchApi<RegisterFlowResponse>('/flows/register', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
+  /**
+   * Get workflow graph visualization data
+   */
+  getFlowGraph: (flowId: string) =>
+    fetchApi<FlowGraphResponse>(`/flows/${flowId}/graph`),
+
+  /**
+   * Get run graph with status overlay
+   */
+  getRunGraph: (runId: string) =>
+    fetchApi<RunGraphResponse>(`/runs/${runId}/graph`),
+
+  /**
+   * Get detailed run information with steps, tokens, and costs
+   */
+  getRunDetails: (runId: string) =>
+    fetchApi<RunResponse>(`/runs/${runId}`),
+
+  /**
+   * Create a new run from a registered flow
+   */
   createRun: (data: CreateRunRequest) =>
     fetchApi<CreateRunResponse>('/runs', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  getRun: (runId: string) =>
-    fetchApi<RunState>(`/runs/${runId}`),
-
-  advanceRun: (runId: string, data: AdvanceRunRequest) =>
-    fetchApi<AdvanceRunResponse>(`/runs/${runId}/advance`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

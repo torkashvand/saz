@@ -1,0 +1,114 @@
+# =========================
+# OS / Editors
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# =========================
+# General
+# =========================
+*.log
+logs/
+tmp/
+.cache/
+*.tmp
+
+# =========================
+# Env & Secrets
+# (commit .env.example, ignore real envs)
+# =========================
+.env
+.env.*.local
+*.env.local
+*.secret
+secrets/*.json
+secrets/*.yaml
+
+# =========================
+# Python (backend/)
+# =========================
+# venv / uv
+.venv/
+venv/
+env/
+# bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+# packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+# tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.ipynb_checkpoints/
+# local config
+.python-version
+
+# Alembic noise (keep migrations under versions/)
+alembic/*.log
+alembic/versions/__pycache__/
+
+# =========================
+# Node / Frontend (frontend/)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+# Next.js / Vite / common build
+.next/
+out/
+.nuxt/
+.vite/
+dist/
+build/
+# Turborepo / monorepo tools
+.turbo/
+# Coverage (JS)
+coverage/
+.nyc_output/
+# Framework host tooling
+.vercel/
+.netlify/
+
+# =========================
+# Images / Artifacts
+# =========================
+*.orig
+*.bak
+*.tmp
+*.patch
+
+# =========================
+# Docker / Compose (keep templates checked in)
+# =========================
+docker-data/
+*.local.yml
+
+# =========================
+# Misc
+# =========================
+# lockfiles SHOULD be committed; do NOT ignore:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+# poetry.lock / uv.lock (if you use them), keep.

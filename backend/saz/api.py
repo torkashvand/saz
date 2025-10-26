@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from saz.db import get_db, FlowTable, RunTable, RunStepTable
-from saz.compiler import compile_form_and_workflow
+from saz.compiler import compile_dsl
 from saz.agents import PlannerAgent, ExecutorAgent, CriticAgent, Verdict
 from saz.tools import create_default_registry
 from saz.policies import create_default_policy_engine
@@ -60,15 +60,15 @@ app.add_middleware(
 
 
 # --- Request/Response Models ---
-class RegisterFormRequest(PydanticBase):
-    form_yaml: str
-    workflow_yaml: str | None = None
+class RegisterFlowRequest(PydanticBase):
+    yaml: str
 
 
-class RegisterFormResponse(PydanticBase):
+class RegisterFlowResponse(PydanticBase):
     flow_id: str
     name: str
-    json_schema: dict
+    form_schema: dict
+    workflow_summary: dict
 
 
 class CreateRunRequest(PydanticBase):
@@ -79,27 +79,19 @@ class CreateRunRequest(PydanticBase):
 class CreateRunResponse(PydanticBase):
     run_id: str
     status: str
-    state: dict
-
-
-class AdvanceRunRequest(PydanticBase):
-    event: str | None = None
-    user_input: dict | None = None
-
-
-class AdvanceRunResponse(PydanticBase):
-    run_id: str
-    status: str
-    state: dict
 
 
 class GetRunResponse(PydanticBase):
     run_id: str
     flow_id: str
     status: str
-    state: dict
-    created_at: str
+    started_at: str
     completed_at: str | None
+    totals: dict
+    steps: list[dict]
+    artifacts: list[str]
+    failure_reason: str | None = None
+    failing_step_id: str | None = None
 
 
 class CreateCredentialRequest(PydanticBase):
@@ -125,9 +117,6 @@ class CredentialListItem(PydanticBase):
 
 
 # --- Global Registry ---
-# In-memory store for compiled flows (would use cache in production)
-FLOW_REGISTRY: dict[str, any] = {}
-
 # Initialize global tool registry and policy engine
 TOOL_REGISTRY = create_default_registry(
     callback_base_url="http://localhost:8000",
@@ -229,6 +218,8 @@ async def run_agentic_loop(
 
                 # Extract AI metadata if present
                 ai_metadata = None
+                step_tokens = None
+                step_cost = None
                 if isinstance(result, dict) and "usage" in result and "metadata" in result:
                     ai_metadata = {
                         "op": result["metadata"].get("op"),
@@ -237,6 +228,8 @@ async def run_agentic_loop(
                         "tokens": result["usage"].get("tokens"),
                         "cost_usd": result["usage"].get("cost_usd")
                     }
+                    step_tokens = result["usage"].get("tokens", 0)
+                    step_cost = result["usage"].get("cost_usd", 0.0)
                     # Extract actual output from AI result
                     result = result.get("output", result)
 
@@ -248,7 +241,7 @@ async def run_agentic_loop(
                 if isinstance(result, dict) and "artifact_id" in result:
                     artifacts_list.append(result["artifact_id"])
 
-                # Store step result with AI metadata
+                # Store step result with AI metadata and cost tracking
                 step_record = RunStepTable(
                     run_id=run_id,
                     step_number=len(completed_steps),
@@ -257,9 +250,18 @@ async def run_agentic_loop(
                     input_data=step.input_template,
                     output_data=result if not ai_metadata else {"output": result, "ai": ai_metadata},
                     retry_count=0,
-                    artifacts=artifacts_list if artifacts_list else None
+                    artifacts=artifacts_list if artifacts_list else None,
+                    tokens=step_tokens,
+                    cost_usd=step_cost
                 )
                 db.add(step_record)
+
+                # Update run totals
+                if step_tokens:
+                    run = db.query(RunTable).filter(RunTable.run_id == run_id).first()
+                    run.tokens_used += step_tokens
+                    run.cost_usd += step_cost
+
                 db.commit()
 
                 # Merge result into current data
@@ -327,52 +329,6 @@ async def run_agentic_loop(
 
 
 # --- Endpoints ---
-@app.post("/register_forms", response_model=RegisterFormResponse)
-def register_forms(req: RegisterFormRequest, db: Session = Depends(get_db)):
-    """Register a form and optional agentic workflow from YAML.
-
-    Returns JSON schema for UI rendering.
-    """
-    # Compile form + workflow
-    compiled = compile_form_and_workflow(req.form_yaml, req.workflow_yaml)
-
-    # Check if flow already exists
-    existing_flow = db.query(FlowTable).filter(FlowTable.name == compiled.name).first()
-    if existing_flow:
-        # Return existing flow
-        FLOW_REGISTRY[str(existing_flow.flow_id)] = compiled
-        return RegisterFormResponse(
-            flow_id=str(existing_flow.flow_id),
-            name=compiled.name,
-            json_schema=compiled.json_schema,
-        )
-
-    # Store in database
-    flow = FlowTable(
-        name=compiled.name,
-        description=compiled.workflow_spec.get("description", ""),
-        definition={
-            "form": compiled.form_yaml,
-            "workflow": compiled.workflow_yaml,
-            "workflow_spec": compiled.workflow_spec,
-            "json_schema": compiled.json_schema,
-            "budget": compiled.budget
-        },
-    )
-    db.add(flow)
-    db.commit()
-    db.refresh(flow)
-
-    # Cache compiled flow
-    FLOW_REGISTRY[str(flow.flow_id)] = compiled
-
-    return RegisterFormResponse(
-        flow_id=str(flow.flow_id),
-        name=compiled.name,
-        json_schema=compiled.json_schema,
-    )
-
-
 @app.post("/runs", response_model=CreateRunResponse)
 async def create_run(req: CreateRunRequest, db: Session = Depends(get_db)):
     """Create a new agentic workflow run with initial payload."""
@@ -383,18 +339,22 @@ async def create_run(req: CreateRunRequest, db: Session = Depends(get_db)):
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
 
-    # Get compiled flow (or recompile if not cached)
-    compiled = FLOW_REGISTRY.get(req.flow_id)
-    if not compiled:
-        form_yaml_str = yaml.dump(flow.definition["form"])
-        workflow_yaml_str = yaml.dump(flow.definition["workflow"]) if flow.definition.get("workflow") else None
-        compiled = compile_form_and_workflow(form_yaml_str, workflow_yaml_str)
-        FLOW_REGISTRY[req.flow_id] = compiled
+    # Get workflow spec and form schema from stored definition
+    form_schema = flow.definition.get("form_schema")
+    workflow_spec = flow.definition.get("workflow_spec")
+    policies = flow.definition.get("policies", {})
 
-    # Validate payload against form model
+    if not form_schema or not workflow_spec:
+        raise HTTPException(status_code=500, detail="Flow missing required definition fields")
+
+    # Validate payload against stored form schema
+    # Simple validation: check required fields exist
     try:
-        form_instance = compiled.form_model(**req.payload)
-        validated_payload = form_instance.model_dump()
+        required_fields = form_schema.get("required", [])
+        for field in required_fields:
+            if field not in req.payload:
+                raise ValueError(f"Missing required field: {field}")
+        validated_payload = req.payload
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
 
@@ -411,9 +371,9 @@ async def create_run(req: CreateRunRequest, db: Session = Depends(get_db)):
     # Execute agentic workflow
     final_status, final_state = await run_agentic_loop(
         run_id=run.run_id,
-        workflow_spec=compiled.workflow_spec,
+        workflow_spec=workflow_spec,
         current_data=validated_payload,
-        budget=compiled.budget,
+        budget=policies.get("budget", {}),
         db=db
     )
 
@@ -427,76 +387,65 @@ async def create_run(req: CreateRunRequest, db: Session = Depends(get_db)):
     return CreateRunResponse(
         run_id=str(run.run_id),
         status=run.status.value,
-        state=run.current_state,
-    )
-
-
-@app.post("/runs/{run_id}/advance", response_model=AdvanceRunResponse)
-async def advance_run(run_id: str, req: AdvanceRunRequest, db: Session = Depends(get_db)):
-    """Advance a suspended/waiting run with user input or event."""
-    run_uuid = UUID(run_id)
-    run = db.query(RunTable).filter(RunTable.run_id == run_uuid).first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    if run.status not in [ProcessStatusEnum.SUSPENDED, ProcessStatusEnum.WAITING]:
-        raise HTTPException(status_code=400, detail=f"Cannot advance run in status {run.status}")
-
-    # Get compiled flow
-    flow = run.flow
-    compiled = FLOW_REGISTRY.get(str(flow.flow_id))
-    if not compiled:
-        form_yaml_str = yaml.dump(flow.definition["form"])
-        workflow_yaml_str = yaml.dump(flow.definition["workflow"]) if flow.definition.get("workflow") else None
-        compiled = compile_form_and_workflow(form_yaml_str, workflow_yaml_str)
-        FLOW_REGISTRY[str(flow.flow_id)] = compiled
-
-    # Merge user input into state
-    updated_state = {**run.current_state}
-    if req.user_input:
-        updated_state.update(req.user_input)
-
-    # Resume agentic workflow
-    run.status = ProcessStatusEnum.RUNNING
-    db.commit()
-
-    final_status, final_state = await run_agentic_loop(
-        run_id=run.run_id,
-        workflow_spec=compiled.workflow_spec,
-        current_data=updated_state,
-        budget=compiled.budget,
-        db=db
-    )
-
-    # Update run
-    run.status = ProcessStatusEnum(final_status)
-    run.current_state = final_state
-    if final_status == "completed":
-        run.completed_at = datetime.now(UTC)
-    db.commit()
-
-    return AdvanceRunResponse(
-        run_id=str(run.run_id),
-        status=run.status.value,
-        state=run.current_state,
     )
 
 
 @app.get("/runs/{run_id}", response_model=GetRunResponse)
 def get_run(run_id: str, db: Session = Depends(get_db)):
-    """Get current state of a run."""
+    """Get detailed run information with steps and totals."""
     run_uuid = UUID(run_id)
     run = db.query(RunTable).filter(RunTable.run_id == run_uuid).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    # Build step details
+    steps_detail = []
+    artifacts_list = []
+    total_tokens = 0
+    total_cost = 0.0
+
+    for step in run.steps:
+        duration_ms = None
+        if step.completed_at and step.started_at:
+            duration_ms = int((step.completed_at - step.started_at).total_seconds() * 1000)
+
+        # Extract tokens/cost from step
+        step_tokens = step.tokens or 0
+        step_cost = step.cost_usd or 0.0
+        total_tokens += step_tokens
+        total_cost += step_cost
+
+        step_dict = {
+            "id": step.step_name,
+            "type": step.input_data.get("type", "unknown") if step.input_data else "unknown",
+            "status": step.status,
+            "started_at": step.started_at.isoformat(),
+            "completed_at": step.completed_at.isoformat() if step.completed_at else None,
+            "duration_ms": duration_ms,
+            "input": step.input_data,
+            "output": step.output_data,
+            "error": step.error,
+            "tokens": step_tokens,
+            "cost_usd": step_cost
+        }
+        steps_detail.append(step_dict)
+
+        # Collect artifacts
+        if step.artifacts:
+            artifacts_list.extend(step.artifacts)
+
     return GetRunResponse(
         run_id=str(run.run_id),
         flow_id=str(run.flow_id),
         status=run.status.value,
-        state=run.current_state,
-        created_at=run.created_at.isoformat(),
+        started_at=run.created_at.isoformat(),
         completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        totals={
+            "tokens": total_tokens,
+            "cost_usd": round(total_cost, 6)
+        },
+        steps=steps_detail,
+        artifacts=list(set(artifacts_list))  # Deduplicate
     )
 
 
@@ -550,18 +499,21 @@ async def webhook_trigger(flow_id: str, payload: dict, db: Session = Depends(get
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
 
-    # Get compiled flow
-    compiled = FLOW_REGISTRY.get(flow_id)
-    if not compiled:
-        form_yaml_str = yaml.dump(flow.definition["form"])
-        workflow_yaml_str = yaml.dump(flow.definition["workflow"]) if flow.definition.get("workflow") else None
-        compiled = compile_form_and_workflow(form_yaml_str, workflow_yaml_str)
-        FLOW_REGISTRY[flow_id] = compiled
+    # Get workflow spec and form schema from stored definition
+    form_schema = flow.definition.get("form_schema")
+    workflow_spec = flow.definition.get("workflow_spec")
+    policies = flow.definition.get("policies", {})
 
-    # Validate payload
+    if not form_schema or not workflow_spec:
+        raise HTTPException(status_code=500, detail="Flow missing required definition fields")
+
+    # Validate payload against stored form schema
     try:
-        form_instance = compiled.form_model(**payload)
-        validated_payload = form_instance.model_dump()
+        required_fields = form_schema.get("required", [])
+        for field in required_fields:
+            if field not in payload:
+                raise ValueError(f"Missing required field: {field}")
+        validated_payload = payload
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
 
@@ -579,9 +531,9 @@ async def webhook_trigger(flow_id: str, payload: dict, db: Session = Depends(get
     # For now, execute synchronously - in production use background tasks
     final_status, final_state = await run_agentic_loop(
         run_id=run.run_id,
-        workflow_spec=compiled.workflow_spec,
+        workflow_spec=workflow_spec,
         current_data=validated_payload,
-        budget=compiled.budget,
+        budget=policies.get("budget", {}),
         db=db
     )
 
@@ -610,14 +562,13 @@ async def resume_run_webhook(run_id: str, callback_data: dict, db: Session = Dep
     if run.status != ProcessStatusEnum.WAITING:
         raise HTTPException(status_code=400, detail=f"Run not in waiting status: {run.status}")
 
-    # Get compiled flow
+    # Get workflow spec from stored definition
     flow = run.flow
-    compiled = FLOW_REGISTRY.get(str(flow.flow_id))
-    if not compiled:
-        form_yaml_str = yaml.dump(flow.definition["form"])
-        workflow_yaml_str = yaml.dump(flow.definition["workflow"]) if flow.definition.get("workflow") else None
-        compiled = compile_form_and_workflow(form_yaml_str, workflow_yaml_str)
-        FLOW_REGISTRY[str(flow.flow_id)] = compiled
+    workflow_spec = flow.definition.get("workflow_spec")
+    policies = flow.definition.get("policies", {})
+
+    if not workflow_spec:
+        raise HTTPException(status_code=500, detail="Flow missing workflow_spec")
 
     # Merge callback data
     updated_state = {**run.current_state, "webhook_callback": callback_data}
@@ -628,9 +579,9 @@ async def resume_run_webhook(run_id: str, callback_data: dict, db: Session = Dep
 
     final_status, final_state = await run_agentic_loop(
         run_id=run.run_id,
-        workflow_spec=compiled.workflow_spec,
+        workflow_spec=workflow_spec,
         current_data=updated_state,
-        budget=compiled.budget,
+        budget=policies.get("budget", {}),
         db=db
     )
 
@@ -759,14 +710,13 @@ async def replay_run(
     if from_step >= len(original_steps):
         raise HTTPException(status_code=400, detail=f"Invalid from_step: {from_step}, run has {len(original_steps)} steps")
 
-    # Get compiled flow
+    # Get workflow spec from stored definition
     flow = original_run.flow
-    compiled = FLOW_REGISTRY.get(str(flow.flow_id))
-    if not compiled:
-        form_yaml_str = yaml.dump(flow.definition["form"])
-        workflow_yaml_str = yaml.dump(flow.definition["workflow"]) if flow.definition.get("workflow") else None
-        compiled = compile_form_and_workflow(form_yaml_str, workflow_yaml_str)
-        FLOW_REGISTRY[str(flow.flow_id)] = compiled
+    workflow_spec = flow.definition.get("workflow_spec")
+    policies = flow.definition.get("policies", {})
+
+    if not workflow_spec:
+        raise HTTPException(status_code=500, detail="Flow missing workflow_spec")
 
     # Reconstruct state up to from_step
     replayed_state = {**original_run.current_state}
@@ -791,9 +741,9 @@ async def replay_run(
     # Execute workflow from the replay point
     final_status, final_state = await run_agentic_loop(
         run_id=new_run.run_id,
-        workflow_spec=compiled.workflow_spec,
+        workflow_spec=workflow_spec,
         current_data=replayed_state,
-        budget=compiled.budget,
+        budget=policies.get("budget", {}),
         db=db
     )
 
@@ -809,6 +759,150 @@ async def replay_run(
         "replayed_from_step": from_step,
         "status": new_run.status.value,
         "state": new_run.current_state
+    }
+
+
+@app.post("/flows/register", response_model=RegisterFlowResponse)
+def register_flow(req: RegisterFlowRequest, db: Session = Depends(get_db)):
+    """Register unified YAML DSL workflow."""
+    try:
+        compiled = compile_dsl(req.yaml)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+
+    # Check if flow already exists
+    existing_flow = db.query(FlowTable).filter(FlowTable.name == compiled.flow_name).first()
+    if existing_flow:
+        # Update existing flow
+        existing_flow.description = compiled.flow_description
+        existing_flow.definition = {
+            "dsl": compiled.raw_dsl,
+            "workflow_spec": compiled.workflow_spec,
+            "form_schema": compiled.form_schema,
+            "policies": compiled.policies,
+            "triggers": compiled.triggers,
+            "credentials": compiled.credentials
+        }
+        existing_flow.updated_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(existing_flow)
+
+        return RegisterFlowResponse(
+            flow_id=str(existing_flow.flow_id),
+            name=compiled.flow_name,
+            form_schema=compiled.form_schema,
+            workflow_summary={
+                "steps_count": len(compiled.workflow_spec["steps"]),
+                "ai_steps": sum(1 for s in compiled.workflow_spec["steps"] if s.get("type", "").startswith("ai.")),
+                "credentials_required": compiled.credentials if isinstance(compiled.credentials, list) else []
+            }
+        )
+
+    # Create new flow
+    flow = FlowTable(
+        name=compiled.flow_name,
+        description=compiled.flow_description,
+        definition={
+            "dsl": compiled.raw_dsl,
+            "workflow_spec": compiled.workflow_spec,
+            "form_schema": compiled.form_schema,
+            "policies": compiled.policies,
+            "triggers": compiled.triggers,
+            "credentials": compiled.credentials
+        }
+    )
+    db.add(flow)
+    db.commit()
+    db.refresh(flow)
+
+    return RegisterFlowResponse(
+        flow_id=str(flow.flow_id),
+        name=compiled.flow_name,
+        form_schema=compiled.form_schema,
+        workflow_summary={
+            "steps_count": len(compiled.workflow_spec["steps"]),
+            "ai_steps": sum(1 for s in compiled.workflow_spec["steps"] if s.get("type", "").startswith("ai.")),
+            "credentials_required": compiled.credentials if isinstance(compiled.credentials, list) else []
+        }
+    )
+
+
+@app.get("/flows/{flow_id}/graph")
+def get_flow_graph(flow_id: str, db: Session = Depends(get_db)):
+    """Get workflow graph visualization data."""
+    flow_uuid = UUID(flow_id)
+    flow = db.query(FlowTable).filter(FlowTable.flow_id == flow_uuid).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow not found")
+
+    workflow_spec = flow.definition.get("workflow_spec", {})
+    steps = workflow_spec.get("steps", [])
+
+    nodes = []
+    edges = []
+
+    # Build nodes
+    for idx, step in enumerate(steps):
+        step_id = step.get("id", f"step_{idx}")
+        step_type = step.get("type", "unknown")
+
+        nodes.append({
+            "id": step_id,
+            "label": step.get("description", step_id),
+            "type": step_type
+        })
+
+    # Build edges (linear by default)
+    for idx in range(len(steps) - 1):
+        from_step = steps[idx].get("id", f"step_{idx}")
+        to_step = steps[idx + 1].get("id", f"step_{idx + 1}")
+        edges.append({
+            "from": from_step,
+            "to": to_step
+        })
+
+    # Add branch edges for ai.route steps
+    for step in steps:
+        if step.get("type") == "ai.route":
+            step_id = step.get("id")
+            branches = step.get("branches_enum", [])
+            for branch in branches:
+                edges.append({
+                    "from": step_id,
+                    "to": f"{step_id}_branch_{branch}",
+                    "label": branch
+                })
+
+    return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/runs/{run_id}/graph")
+def get_run_graph(run_id: str, db: Session = Depends(get_db)):
+    """Get run graph with status overlay."""
+    run_uuid = UUID(run_id)
+    run = db.query(RunTable).filter(RunTable.run_id == run_uuid).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Get base flow graph
+    flow_graph = get_flow_graph(str(run.flow_id), db)
+
+    # Build status map from run steps
+    status_map = {}
+    for step in run.steps:
+        status_map[step.step_name] = step.status
+
+    # Mark pending steps
+    workflow_spec = run.flow.definition.get("workflow_spec", {})
+    for step_def in workflow_spec.get("steps", []):
+        step_id = step_def.get("id")
+        if step_id not in status_map:
+            status_map[step_id] = "pending"
+
+    return {
+        "nodes": flow_graph["nodes"],
+        "edges": flow_graph["edges"],
+        "status": status_map
     }
 
 

@@ -1,7 +1,7 @@
 """Minimal database models (no Product/Subscription domain concepts)."""
 from datetime import datetime, UTC
 from uuid import uuid4
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum as SQLEnum, JSON, Integer, LargeBinary
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum as SQLEnum, JSON, Integer, LargeBinary, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 import enum
@@ -59,6 +59,9 @@ class RunTable(Base):
     status = Column(SQLEnum(ProcessStatusEnum), nullable=False, default=ProcessStatusEnum.CREATED)
     current_state = Column(JSON, nullable=False, default=dict)
     created_by = Column(String(255), nullable=True)
+    # Cost tracking (aggregated from steps)
+    tokens_used = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -81,6 +84,9 @@ class RunStepTable(Base):
     error = Column(Text, nullable=True)  # Error message if failed
     retry_count = Column(Integer, nullable=False, default=0)  # Number of retry attempts
     artifacts = Column(JSON, nullable=True)  # List of artifact IDs produced by this step
+    # Cost tracking (for AI operations)
+    tokens = Column(Integer, nullable=True)  # Tokens used for this step (AI ops only)
+    cost_usd = Column(Float, nullable=True)  # Cost in USD for this step (AI ops only)
     started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     completed_at = Column(DateTime(timezone=True), nullable=True)
 

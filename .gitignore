@@ -1,22 +1,40 @@
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-.venv
-*.egg-info/
-dist/
-build/
-*.egg
-.pytest_cache/
-.coverage
-htmlcov/
-*.db
-*.sqlite
+# ---- OS / Editors (repo-wide) ----
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.orig
+*.bak
+*.tmp
+*.patch
 .idea/
 .vscode/
+*.code-workspace
+
+# Keep recommended workspace settings if you use them
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ---- Generic logs & cache ----
 *.log
+logs/
+tmp/
+.cache/
+
+# ---- Env & secrets (commit .env.example instead) ----
+.env
+.env.*.local
+*.env.local
+*.secret
+secrets/
+secrets/*.json
+secrets/*.yaml
+
+# ---- Local runtime/data (repo-wide) ----
+docker-data/
+*.local.yml
+
+# ---- Keep these tracked (don’t ignore) ----
+!**/package-lock.json
+!**/yarn.lock
+!**/pnpm-lock.yaml

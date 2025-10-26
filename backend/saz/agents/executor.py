@@ -2,8 +2,9 @@
 import json
 import re
 import structlog
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Callable
 from .schemas import PlanStep, ToolCall
+from saz.engine.templating import resolve_template
 
 logger = structlog.get_logger(__name__)
 
@@ -11,8 +12,9 @@ logger = structlog.get_logger(__name__)
 class ExecutorAgent:
     """Grounds plan steps into executable tool calls"""
 
-    def __init__(self):
+    def __init__(self, secret_resolver: Optional[Callable[[str], str]] = None):
         self.logger = logger.bind(agent="executor")
+        self.secret_resolver = secret_resolver
 
     def ground(
         self,
@@ -49,10 +51,16 @@ class ExecutorAgent:
 
         tool_spec = tool_registry[step.tool_name]
 
-        # Substitute variables in input template
-        grounded_args = self._substitute_variables(
+        # Substitute variables in input template using new templating engine
+        # Extract form data and step results from current_data
+        form_data = {k: v for k, v in current_data.items() if not k.endswith('_result')}
+        step_results = {k: v for k, v in current_data.items() if k.endswith('_result') or k in [s.step_id for s in []]}
+
+        grounded_args = resolve_template(
             step.input_template,
-            current_data
+            form_data=form_data,
+            step_results=step_results,
+            secret_resolver=self.secret_resolver
         )
 
         # Validate against tool schema (basic check)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import functools
-import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum

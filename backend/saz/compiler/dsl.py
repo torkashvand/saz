@@ -1,4 +1,4 @@
-"""Unified YAML DSL Compiler for Saz.
+"""YAML DSL Compiler for Saz.
 
 Parses single-file YAML with sections:
 - flow: metadata (name, version, description)
@@ -22,8 +22,8 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-class UnifiedDSLCompiled:
-    """Result of compiling a unified DSL YAML."""
+class DSLCompiled:
+    """Result of compiling a DSL YAML."""
 
     def __init__(
         self,
@@ -55,8 +55,8 @@ class UnifiedDSLCompiled:
         return self.form_schema
 
 
-def parse_unified_yaml(yaml_content: str) -> dict:
-    """Parse unified YAML and validate structure.
+def parse_yaml(yaml_content: str) -> dict:
+    """Parse YAML and validate structure.
 
     Args:
         yaml_content: YAML string content
@@ -92,7 +92,7 @@ def parse_unified_yaml(yaml_content: str) -> dict:
         raise ValueError("workflow.steps is required")
 
     logger.info(
-        "unified_dsl_parsed",
+        "dsl_parsed",
         flow_name=dsl["flow"]["name"],
         fields_count=len(dsl["form"]["fields"]),
         steps_count=len(dsl["workflow"]["steps"])
@@ -105,7 +105,7 @@ def compile_form_model(form_def: dict) -> tuple[type[BaseModel], dict]:
     """Compile form definition to Pydantic model and JSON Schema.
 
     Args:
-        form_def: Form section from unified YAML
+        form_def: Form section from YAML
 
     Returns:
         Tuple of (Pydantic model class, JSON Schema dict)
@@ -167,7 +167,7 @@ def compile_workflow_spec(workflow_def: dict, flow_name: str) -> dict:
     """Compile workflow definition to execution spec.
 
     Args:
-        workflow_def: Workflow section from unified YAML
+        workflow_def: Workflow section from YAML
         flow_name: Flow name for default workflow name
 
     Returns:
@@ -183,7 +183,7 @@ def compile_policies(policies_def: Optional[dict]) -> dict:
     """Compile policies section with defaults.
 
     Args:
-        policies_def: Policies section from unified YAML
+        policies_def: Policies section from YAML
 
     Returns:
         Policy configuration dict
@@ -227,20 +227,20 @@ def compile_policies(policies_def: Optional[dict]) -> dict:
     }
 
 
-def compile_dsl(yaml_content: str) -> UnifiedDSLCompiled:
-    """Compile unified YAML DSL to executable components.
+def compile_dsl(yaml_content: str) -> DSLCompiled:
+    """Compile YAML DSL to executable components.
 
     Args:
-        yaml_content: Unified YAML string
+        yaml_content: YAML string
 
     Returns:
-        UnifiedDSLCompiled object with all compiled components
+        DSLCompiled object with all compiled components
 
     Raises:
         ValueError: If YAML is invalid
     """
     # Parse and validate
-    dsl = parse_unified_yaml(yaml_content)
+    dsl = parse_yaml(yaml_content)
 
     # Extract sections
     flow = dsl["flow"]
@@ -256,14 +256,14 @@ def compile_dsl(yaml_content: str) -> UnifiedDSLCompiled:
     policy_config = compile_policies(policies)
 
     logger.info(
-        "unified_dsl_compiled",
+        "dsl_compiled",
         flow_name=flow["name"],
         form_fields=len(form["fields"]),
         workflow_steps=len(workflow["steps"]),
         credentials=len(credentials)
     )
 
-    return UnifiedDSLCompiled(
+    return DSLCompiled(
         flow_name=flow["name"],
         flow_version=flow.get("version"),
         flow_description=flow.get("description"),

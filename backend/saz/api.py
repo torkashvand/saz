@@ -764,7 +764,7 @@ async def replay_run(
 
 @app.post("/flows/register", response_model=RegisterFlowResponse)
 def register_flow(req: RegisterFlowRequest, db: Session = Depends(get_db)):
-    """Register unified YAML DSL workflow."""
+    """Register YAML DSL workflow."""
     try:
         compiled = compile_dsl(req.yaml)
     except ValueError as e:

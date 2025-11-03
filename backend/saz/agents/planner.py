@@ -3,7 +3,7 @@ import json
 import structlog
 from typing import Dict, Any, List
 from litellm import completion
-from .schemas import ExecutionPlan, PlanStep, StepAction, ErrorHandling
+from .schemas import ExecutionPlan
 
 logger = structlog.get_logger(__name__)
 

@@ -1,10 +1,17 @@
-"""Additional API endpoints for unified DSL support.
+"""Additional API endpoints for DSL support.
 
 Add these to the main api.py file.
 """
+import datetime
+from datetime import UTC
+from uuid import UUID
+
 from fastapi import HTTPException
 from pydantic import BaseModel as PydanticBase
+from sqlalchemy.orm import Session
+
 from saz.compiler import compile_dsl
+from saz.db import FlowTable, RunTable
 
 
 class RegisterFlowRequest(PydanticBase):
@@ -50,7 +57,7 @@ class EnhancedRunResponse(PydanticBase):
 
 
 def register_flow_endpoint(req: RegisterFlowRequest, db: Session):
-    """POST /flows/register - Register unified YAML DSL."""
+    """POST /flows/register - Register YAML DSL."""
     try:
         compiled = compile_dsl(req.yaml)
     except ValueError as e:

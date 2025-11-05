@@ -51,6 +51,15 @@ Generate a JSON execution plan with this EXACT structure:
   "reasoning": "<overall plan justification>"
 }}
 
+## Valid error_handling Values
+IMPORTANT: error_handling MUST be one of these exact values:
+- "retry": Retry the step on failure (use for transient errors)
+- "fail": Fail the entire workflow on error (use for critical steps)
+- "escalate": Stop and require human intervention (use for approval steps)
+- "continue": Continue workflow even if step fails (use for optional steps)
+
+DO NOT use "manual" or any other values - they are invalid!
+
 ## Template Variable Syntax
 - For form data: {{{{ $form.field_name }}}}
 - For previous step results: {{{{ $step('step_id').output_field }}}}

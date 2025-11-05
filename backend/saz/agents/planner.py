@@ -39,7 +39,7 @@ Generate a JSON execution plan with this EXACT structure:
       "step_id": "<string matching workflow YAML>",
       "action": "tool_call",
       "tool_name": "<exact tool name from registry>",
-      "input_template": {{"key": "{{{{variable}}}}"}},
+      "input_template": {{"key": "{{{{ $form.field_name }}}}"}},
       "expected_output_schema": {{"type": "object", "properties": {{}}}},
       "error_handling": "retry",
       "max_retries": 3,
@@ -51,12 +51,18 @@ Generate a JSON execution plan with this EXACT structure:
   "reasoning": "<overall plan justification>"
 }}
 
+## Template Variable Syntax
+- For form data: {{{{ $form.field_name }}}}
+- For previous step results: {{{{ $step('step_id').output_field }}}}
+- For environment variables: {{{{ $env('VAR_NAME') }}}}
+- For secrets: {{{{ $secret('SECRET_NAME') }}}}
+
 ## Critical Rules
 - NEVER invent tools not in registry
 - NEVER skip validation
 - ALWAYS provide reasoning
 - If unclear, use "human_approval" action
-- Use {{{{variable}}}} syntax for templates
+- ALWAYS use correct template syntax with $form. prefix for form data
 
 Generate the plan now."""
 

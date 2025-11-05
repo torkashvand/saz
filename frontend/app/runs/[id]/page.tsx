@@ -1,26 +1,35 @@
 'use client'
 
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
 import { useRunDetails, useRunGraph } from '@/lib/hooks'
-import { Loader2, CheckCircle2, XCircle, Clock, Play } from 'lucide-react'
+import { api } from '@/lib/api'
+import { useToast } from '@/hooks/use-toast'
+import { Loader2, CheckCircle2, XCircle, Clock, Play, RefreshCw, Rewind, AlertCircle } from 'lucide-react'
 import { WorkflowGraph } from '@/components/workflow-graph'
 import { CollapsibleJson } from '@/components/json-view'
-import type { Step, StepStatus } from '@/lib/types'
+import type { Step, StepStatus, WSEvent } from '@/lib/types'
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
   pending: <Clock className="h-5 w-5 text-slate-400" />,
+  queued: <Clock className="h-5 w-5 text-slate-400" />,
   running: <Play className="h-5 w-5 text-blue-500 animate-pulse" />,
   success: <CheckCircle2 className="h-5 w-5 text-green-500" />,
+  completed: <CheckCircle2 className="h-5 w-5 text-green-500" />,
   failed: <XCircle className="h-5 w-5 text-red-500" />,
   suspended: <Clock className="h-5 w-5 text-amber-500" />,
 }
 
 const STATUS_COLORS: Record<StepStatus, string> = {
   pending: 'bg-slate-200',
+  queued: 'bg-slate-200',
   running: 'bg-blue-500',
   success: 'bg-green-500',
+  completed: 'bg-green-500',
   failed: 'bg-red-500',
   suspended: 'bg-amber-500',
 }
@@ -101,7 +110,7 @@ function StepTimeline({ steps }: { steps: Step[] }) {
                 {step.error && !step.failure && (
                   <div className="border-l-4 border-red-500 bg-red-50 p-3 rounded">
                     <p className="text-xs font-medium text-red-900 mb-1">Error</p>
-                    <p className="text-xs text-red-700">{step.error}</p>
+                    <p className="text-xs text-red-700 whitespace-pre-wrap">{step.error}</p>
                   </div>
                 )}
               </div>
@@ -115,10 +124,94 @@ function StepTimeline({ steps }: { steps: Step[] }) {
 
 export default function RunDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const runId = params.id as string
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+
+  const [wsConnected, setWsConnected] = useState(false)
+  const [wsEvents, setWsEvents] = useState<WSEvent[]>([])
 
   const { data: run, isLoading: isLoadingRun } = useRunDetails(runId)
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId)
+
+  // WebSocket connection
+  useEffect(() => {
+    if (!runId) return
+
+    // Only connect if run is active
+    const isActive = run?.status === 'running' || run?.status === 'created'
+    if (!isActive && run) return
+
+    const ws = api.connectRunWebSocket(
+      runId,
+      (event: WSEvent) => {
+        setWsEvents((prev) => [...prev, event])
+
+        // Invalidate queries on status change
+        if (event.type === 'run.status' || event.type === 'step.finished') {
+          queryClient.invalidateQueries({ queryKey: ['run', runId] })
+          queryClient.invalidateQueries({ queryKey: ['runGraph', runId] })
+        }
+      },
+      (error) => {
+        console.error('WebSocket error:', error)
+        setWsConnected(false)
+      },
+      () => {
+        setWsConnected(false)
+      }
+    )
+
+    ws.onopen = () => {
+      setWsConnected(true)
+    }
+
+    return () => {
+      ws.close()
+    }
+  }, [runId, run?.status, queryClient])
+
+  // Retry mutation
+  const retryMutation = useMutation({
+    mutationFn: () => api.retryRun(runId),
+    onSuccess: (data) => {
+      toast({
+        title: 'Run Retried',
+        description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
+      })
+      router.push(`/runs/${data.new_run_id}`)
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Retry Failed',
+        description: error.message || 'Failed to retry run',
+        variant: 'destructive',
+      })
+    },
+  })
+
+  // Replay mutation
+  const [replayStep, setReplayStep] = useState<number | null>(null)
+  const replayMutation = useMutation({
+    mutationFn: (fromStep: number) => api.replayRun(runId, fromStep),
+    onSuccess: (data) => {
+      toast({
+        title: 'Run Replayed',
+        description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
+      })
+      router.push(`/runs/${data.new_run_id}`)
+      setReplayStep(null)
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Replay Failed',
+        description: error.message || 'Failed to replay run',
+        variant: 'destructive',
+      })
+      setReplayStep(null)
+    },
+  })
 
   if (isLoadingRun) {
     return (
@@ -144,6 +237,8 @@ export default function RunDetailPage() {
   }
 
   const isRunning = run.status === 'running' || run.status === 'pending'
+  const isFailed = run.status === 'failed'
+  const isSuspended = run.status === 'suspended'
 
   // Determine status display
   const getStatusLabel = (status: string) => {
@@ -151,6 +246,7 @@ export default function RunDetailPage() {
       case 'failed': return 'Failed'
       case 'suspended': return 'Needs Review'
       case 'success': return 'Succeeded'
+      case 'completed': return 'Completed'
       case 'running': return 'Running'
       case 'pending': return 'Pending'
       default: return status
@@ -162,6 +258,7 @@ export default function RunDetailPage() {
       case 'failed': return 'bg-red-100 text-red-800 border-red-300'
       case 'suspended': return 'bg-amber-100 text-amber-800 border-amber-300'
       case 'success': return 'bg-green-100 text-green-800 border-green-300'
+      case 'completed': return 'bg-green-100 text-green-800 border-green-300'
       case 'running': return 'bg-blue-100 text-blue-800 border-blue-300'
       case 'pending': return 'bg-slate-100 text-slate-800 border-slate-300'
       default: return 'bg-slate-100 text-slate-800 border-slate-300'
@@ -174,28 +271,74 @@ export default function RunDetailPage() {
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-3xl font-bold">Run Details</h1>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(run.status)}`}>
-            {getStatusLabel(run.status)}
+          <div className="flex items-center gap-2">
+            {wsConnected && (
+              <span className="text-xs text-green-600 flex items-center gap-1">
+                <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                Live
+              </span>
+            )}
+            <div className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(run.status)}`}>
+              {getStatusLabel(run.status)}
+            </div>
           </div>
         </div>
         <p className="text-sm text-muted-foreground font-mono">{runId}</p>
 
         {run.failure_reason && (
           <div className="mt-2 p-3 bg-red-50 border-l-4 border-red-500 rounded">
-            <p className="text-sm font-medium text-red-900">Run Failed</p>
-            <p className="text-sm text-red-700 mt-1">{run.failure_reason}</p>
-            {run.failing_step_id && (
-              <p className="text-xs text-red-600 mt-1">Failed at step: {run.failing_step_id}</p>
-            )}
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-red-900">Run Failed</p>
+                <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{run.failure_reason}</p>
+                {run.failing_step_id && (
+                  <p className="text-xs text-red-600 mt-1">Failed at step: {run.failing_step_id}</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        {isRunning && (
-          <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Polling for updates every 2 seconds...
-          </p>
-        )}
+        {/* Action Buttons */}
+        <div className="mt-4 flex gap-2">
+          {isFailed && (
+            <Button
+              onClick={() => retryMutation.mutate()}
+              disabled={retryMutation.isPending}
+              size="sm"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry from Failing Step
+            </Button>
+          )}
+          {!isRunning && run.steps.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                const step = prompt(`Enter step number to replay from (0-${run.steps.length - 1}):`)
+                if (step !== null) {
+                  const stepNum = parseInt(step, 10)
+                  if (!isNaN(stepNum) && stepNum >= 0 && stepNum < run.steps.length) {
+                    setReplayStep(stepNum)
+                    replayMutation.mutate(stepNum)
+                  } else {
+                    toast({
+                      title: 'Invalid Step',
+                      description: `Please enter a number between 0 and ${run.steps.length - 1}`,
+                      variant: 'destructive',
+                    })
+                  }
+                }
+              }}
+              disabled={replayMutation.isPending}
+              size="sm"
+            >
+              <Rewind className="h-4 w-4 mr-2" />
+              Replay from Step...
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -234,11 +377,32 @@ export default function RunDetailPage() {
                 ? formatDuration(
                     new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()
                   )
+                : isRunning
+                ? formatDuration(Date.now() - new Date(run.started_at || Date.now()).getTime())
                 : '-'}
             </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* WebSocket Events Log (Debug) */}
+      {wsEvents.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-sm">Live Events ({wsEvents.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1 max-h-40 overflow-y-auto font-mono text-xs">
+              {wsEvents.slice(-10).map((event, i) => (
+                <div key={i} className="text-gray-600">
+                  <span className="text-blue-600">{event.type}</span>:{' '}
+                  {JSON.stringify(event.data)}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="timeline" className="w-full">
@@ -276,7 +440,7 @@ export default function RunDetailPage() {
                 <WorkflowGraph
                   nodes={runGraph.nodes}
                   edges={runGraph.edges}
-                  status={runGraph.status}
+                  status={runGraph.status_by_step || runGraph.status}
                 />
               ) : (
                 <p className="text-center py-12 text-muted-foreground">

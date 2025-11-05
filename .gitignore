@@ -38,3 +38,6 @@ docker-data/
 !**/package-lock.json
 !**/yarn.lock
 !**/pnpm-lock.yaml
+
+output.xml
+backend/*.db

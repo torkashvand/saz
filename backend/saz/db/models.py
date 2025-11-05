@@ -1,93 +1,99 @@
-"""Minimal database models (no Product/Subscription domain concepts)."""
+"""SQLAlchemy 2.0 ORM models."""
 from datetime import datetime, UTC
 from uuid import uuid4
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum as SQLEnum, JSON, Integer, LargeBinary, Float
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base, relationship
-import enum
-
-Base = declarative_base()
+from typing import Optional
+from sqlalchemy import String, Integer, LargeBinary, JSON, ForeignKey, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
-class ProcessStatusEnum(str, enum.Enum):
-    CREATED = "created"
-    RUNNING = "running"
-    SUSPENDED = "suspended"
-    WAITING = "waiting"
-    FAILED = "failed"
-    COMPLETED = "completed"
+class Base(DeclarativeBase):
+    """Base class for all models."""
+    pass
 
 
-class CredentialTable(Base):
-    """Encrypted credentials storage."""
-
-    __tablename__ = "credentials"
-
-    credential_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(255), nullable=False, unique=True)
-    description = Column(Text, nullable=True)
-    # Encrypted JSON blob containing credential data
-    encrypted_data = Column(LargeBinary, nullable=False)
-    credential_type = Column(String(50), nullable=False)  # ssh_key, api_token, password, etc.
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
-
-
-class FlowTable(Base):
-    """Registered form/workflow definitions."""
-
+class Flow(Base):
+    """Flow aggregate - workflow definition."""
     __tablename__ = "flows"
 
-    flow_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(255), nullable=False, unique=True)
-    description = Column(Text, nullable=True)
-    # Stored as JSON: {form: {}, workflow: {}, json_schema: {}, budget: {}, triggers: {}, policies: {}, credentials: []}
-    definition = Column(JSON, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    definition: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
 
-    runs = relationship("RunTable", back_populates="flow", cascade="all, delete-orphan")
+    # Relationship
+    runs: Mapped[list["Run"]] = relationship("Run", back_populates="flow", cascade="all, delete-orphan")
 
 
-class RunTable(Base):
-    """Workflow run instances."""
-
+class Run(Base):
+    """Run aggregate - workflow execution instance."""
     __tablename__ = "runs"
 
-    run_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    flow_id = Column(UUID(as_uuid=True), ForeignKey("flows.flow_id"), nullable=False)
-    status = Column(SQLEnum(ProcessStatusEnum), nullable=False, default=ProcessStatusEnum.CREATED)
-    current_state = Column(JSON, nullable=False, default=dict)
-    created_by = Column(String(255), nullable=True)
-    # Cost tracking (aggregated from steps)
-    tokens_used = Column(Integer, nullable=False, default=0)
-    cost_usd = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    flow_id: Mapped[str] = mapped_column(String(36), ForeignKey("flows.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
+    # queued, running, suspended, failed, completed
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False, index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
-    flow = relationship("FlowTable", back_populates="runs")
-    steps = relationship("RunStepTable", back_populates="run", cascade="all, delete-orphan", order_by="RunStepTable.step_number")
+    # Relationships
+    flow: Mapped["Flow"] = relationship("Flow", back_populates="runs")
+    steps: Mapped[list["Step"]] = relationship("Step", back_populates="run", cascade="all, delete-orphan", order_by="Step.number")
+    artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")
 
 
-class RunStepTable(Base):
-    """Individual step executions within a run."""
+class Step(Base):
+    """Step entity - individual execution step within a run."""
+    __tablename__ = "steps"
 
-    __tablename__ = "run_steps"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    # queued, running, suspended, failed, completed
+    start_ts: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    end_ts: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
-    step_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    run_id = Column(UUID(as_uuid=True), ForeignKey("runs.run_id"), nullable=False)
-    step_number = Column(Integer, nullable=False)
-    step_name = Column(String(255), nullable=False)
-    status = Column(String(50), nullable=False)
-    input_data = Column(JSON, nullable=True)  # Step input (redacted)
-    output_data = Column(JSON, nullable=True)  # Step output (redacted)
-    error = Column(Text, nullable=True)  # Error message if failed
-    retry_count = Column(Integer, nullable=False, default=0)  # Number of retry attempts
-    artifacts = Column(JSON, nullable=True)  # List of artifact IDs produced by this step
-    # Cost tracking (for AI operations)
-    tokens = Column(Integer, nullable=True)  # Tokens used for this step (AI ops only)
-    cost_usd = Column(Float, nullable=True)  # Cost in USD for this step (AI ops only)
-    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    # Relationships
+    run: Mapped["Run"] = relationship("Run", back_populates="steps")
+    artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="step", cascade="all, delete-orphan")
 
-    run = relationship("RunTable", back_populates="steps")
+    def __repr__(self) -> str:
+        return f"<Step {self.number}:{self.name} status={self.status}>"
+
+
+class Artifact(Base):
+    """Artifact entity - generated outputs from steps."""
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("steps.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    blob_ref: Mapped[str] = mapped_column(String(1000), nullable=False)  # file path or storage ref
+    meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
+
+    # Relationships
+    run: Mapped["Run"] = relationship("Run", back_populates="artifacts")
+    step: Mapped[Optional["Step"]] = relationship("Step", back_populates="artifacts")
+
+
+class Credential(Base):
+    """Credential aggregate - encrypted secrets."""
+    __tablename__ = "credentials"
+
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)  # api_token, ssh_key, password, etc.
+    description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    data_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)

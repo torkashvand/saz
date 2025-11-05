@@ -28,16 +28,34 @@ export default function RootLayout({
                   <Link href="/" className="text-xl font-bold">
                     Saz
                   </Link>
-                  <div className="flex gap-4">
+                  <div className="flex gap-6">
+                    <Link
+                      href="/flows"
+                      className="text-sm hover:underline hover:text-blue-600"
+                    >
+                      Flows
+                    </Link>
+                    <Link
+                      href="/runs"
+                      className="text-sm hover:underline hover:text-blue-600"
+                    >
+                      Runs
+                    </Link>
+                    <Link
+                      href="/credentials"
+                      className="text-sm hover:underline hover:text-blue-600"
+                    >
+                      Credentials
+                    </Link>
                     <Link
                       href="/register"
-                      className="text-sm hover:underline"
+                      className="text-sm hover:underline hover:text-blue-600"
                     >
-                      Register Form
+                      Register Flow
                     </Link>
                     <Link
                       href="/runs/new"
-                      className="text-sm hover:underline"
+                      className="text-sm hover:underline hover:text-blue-600"
                     >
                       New Run
                     </Link>

@@ -1,9 +1,9 @@
 """Critic Agent - Validates step execution results and decides next action using LLM."""
 import json
 import structlog
-from typing import Dict, Any
-from litellm import completion
+from typing import Dict, Any, Optional
 from .schemas import Critique, Verdict, PlanStep
+from .llm_port import LLMPort, get_llm_port
 
 logger = structlog.get_logger(__name__)
 
@@ -71,8 +71,9 @@ Generate the critique now."""
 class CriticAgent:
     """LLM-powered step result validator"""
 
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "gpt-4o", llm_port: Optional[LLMPort] = None):
         self.model = model
+        self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="critic")
 
     async def critique(
@@ -121,7 +122,7 @@ class CriticAgent:
 
         # Call LLM with structured output
         try:
-            response = completion(
+            response = await self.llm_port.complete(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
@@ -131,7 +132,7 @@ class CriticAgent:
                 temperature=0.2  # Slightly higher for nuanced evaluation
             )
 
-            critique_json = json.loads(response.choices[0].message.content)
+            critique_json = json.loads(response.content)
 
             # Validate with Pydantic
             critique = Critique.model_validate(critique_json)
@@ -143,7 +144,7 @@ class CriticAgent:
                 confidence=critique.confidence,
                 issues_count=len(critique.issues),
                 safety_flags_count=len(critique.safety_flags),
-                tokens_used=response.usage.total_tokens
+                tokens_used=response.total_tokens
             )
 
             # Log warnings for safety flags

@@ -1,9 +1,9 @@
 """Planner Agent - Generates execution plans from workflow specifications using LLM."""
 import json
 import structlog
-from typing import Dict, Any, List
-from litellm import completion
+from typing import Dict, Any, List, Optional
 from .schemas import ExecutionPlan
+from .llm_port import LLMPort, get_llm_port
 
 logger = structlog.get_logger(__name__)
 
@@ -64,8 +64,9 @@ Generate the plan now."""
 class PlannerAgent:
     """LLM-powered workflow planner"""
 
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "gpt-4o", llm_port: Optional[LLMPort] = None):
         self.model = model
+        self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="planner")
 
     async def plan(
@@ -117,7 +118,7 @@ class PlannerAgent:
 
         # Call LLM with structured output
         try:
-            response = completion(
+            response = await self.llm_port.complete(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
@@ -127,7 +128,7 @@ class PlannerAgent:
                 temperature=0.1  # Low temperature for determinism
             )
 
-            plan_json = json.loads(response.choices[0].message.content)
+            plan_json = json.loads(response.content)
 
             # Validate with Pydantic
             plan = ExecutionPlan.model_validate(plan_json)
@@ -138,7 +139,7 @@ class PlannerAgent:
                 steps_count=len(plan.steps),
                 estimated_cost=plan.estimated_cost_usd,
                 estimated_time=plan.estimated_time_seconds,
-                tokens_used=response.usage.total_tokens
+                tokens_used=response.total_tokens
             )
 
             return plan

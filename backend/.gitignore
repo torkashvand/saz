@@ -112,3 +112,6 @@ docker-data/
 # yarn.lock
 # pnpm-lock.yaml
 # poetry.lock / uv.lock (if you use them), keep.
+
+output.xml
+test.db

@@ -21,6 +21,12 @@ from saz.policies import create_default_policy_engine
 from saz.db.models import ProcessStatusEnum
 from saz.db.credentials import get_vault
 from saz.triggers import TriggerScheduler
+from saz.api_helpers import (
+    build_flow_graph,
+    build_run_status_map,
+    validate_form_payload,
+    extract_step_details
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -348,15 +354,10 @@ async def create_run(req: CreateRunRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Flow missing required definition fields")
 
     # Validate payload against stored form schema
-    # Simple validation: check required fields exist
-    try:
-        required_fields = form_schema.get("required", [])
-        for field in required_fields:
-            if field not in req.payload:
-                raise ValueError(f"Missing required field: {field}")
-        validated_payload = req.payload
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
+    is_valid, error_msg = validate_form_payload(req.payload, form_schema)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid payload: {error_msg}")
+    validated_payload = req.payload
 
     # Create run in database
     run = RunTable(
@@ -399,40 +400,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Run not found")
 
     # Build step details
-    steps_detail = []
-    artifacts_list = []
-    total_tokens = 0
-    total_cost = 0.0
-
-    for step in run.steps:
-        duration_ms = None
-        if step.completed_at and step.started_at:
-            duration_ms = int((step.completed_at - step.started_at).total_seconds() * 1000)
-
-        # Extract tokens/cost from step
-        step_tokens = step.tokens or 0
-        step_cost = step.cost_usd or 0.0
-        total_tokens += step_tokens
-        total_cost += step_cost
-
-        step_dict = {
-            "id": step.step_name,
-            "type": step.input_data.get("type", "unknown") if step.input_data else "unknown",
-            "status": step.status,
-            "started_at": step.started_at.isoformat(),
-            "completed_at": step.completed_at.isoformat() if step.completed_at else None,
-            "duration_ms": duration_ms,
-            "input": step.input_data,
-            "output": step.output_data,
-            "error": step.error,
-            "tokens": step_tokens,
-            "cost_usd": step_cost
-        }
-        steps_detail.append(step_dict)
-
-        # Collect artifacts
-        if step.artifacts:
-            artifacts_list.extend(step.artifacts)
+    steps_detail, artifacts_list, total_tokens, total_cost = extract_step_details(run.steps)
 
     return GetRunResponse(
         run_id=str(run.run_id),
@@ -836,44 +804,7 @@ def get_flow_graph(flow_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Flow not found")
 
     workflow_spec = flow.definition.get("workflow_spec", {})
-    steps = workflow_spec.get("steps", [])
-
-    nodes = []
-    edges = []
-
-    # Build nodes
-    for idx, step in enumerate(steps):
-        step_id = step.get("id", f"step_{idx}")
-        step_type = step.get("type", "unknown")
-
-        nodes.append({
-            "id": step_id,
-            "label": step.get("description", step_id),
-            "type": step_type
-        })
-
-    # Build edges (linear by default)
-    for idx in range(len(steps) - 1):
-        from_step = steps[idx].get("id", f"step_{idx}")
-        to_step = steps[idx + 1].get("id", f"step_{idx + 1}")
-        edges.append({
-            "from": from_step,
-            "to": to_step
-        })
-
-    # Add branch edges for ai.route steps
-    for step in steps:
-        if step.get("type") == "ai.route":
-            step_id = step.get("id")
-            branches = step.get("branches_enum", [])
-            for branch in branches:
-                edges.append({
-                    "from": step_id,
-                    "to": f"{step_id}_branch_{branch}",
-                    "label": branch
-                })
-
-    return {"nodes": nodes, "edges": edges}
+    return build_flow_graph(workflow_spec)
 
 
 @app.get("/runs/{run_id}/graph")
@@ -888,16 +819,8 @@ def get_run_graph(run_id: str, db: Session = Depends(get_db)):
     flow_graph = get_flow_graph(str(run.flow_id), db)
 
     # Build status map from run steps
-    status_map = {}
-    for step in run.steps:
-        status_map[step.step_name] = step.status
-
-    # Mark pending steps
     workflow_spec = run.flow.definition.get("workflow_spec", {})
-    for step_def in workflow_spec.get("steps", []):
-        step_id = step_def.get("id")
-        if step_id not in status_map:
-            status_map[step_id] = "pending"
+    status_map = build_run_status_map(run.steps, workflow_spec)
 
     return {
         "nodes": flow_graph["nodes"],
@@ -908,4 +831,4 @@ def get_run_graph(run_id: str, db: Session = Depends(get_db)):
 
 @app.get("/")
 def root():
-    return {"message": "Saz Agentic Workflow API", "version": "0.2.0"}
+    return {"message": "Saz Agentic Workflow API", "version": "0.0.1"}

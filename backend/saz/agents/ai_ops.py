@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Literal
 from enum import Enum
 import structlog
-from litellm import completion
+from .llm_port import LLMPort, get_llm_port
 
 logger = structlog.get_logger(__name__)
 
@@ -242,7 +242,8 @@ class AIOperationsRunner:
     def __init__(
         self,
         default_model: Optional[str] = None,
-        cost_per_1m_tokens: float = 0.15  # Default for gpt-4o-mini
+        cost_per_1m_tokens: float = 0.15,  # Default for gpt-4o-mini
+        llm_port: Optional[LLMPort] = None
     ):
         """
         Initialize AI ops runner.
@@ -250,9 +251,11 @@ class AIOperationsRunner:
         Args:
             default_model: Default LLM model (from env if not provided)
             cost_per_1m_tokens: Cost estimate per 1M tokens
+            llm_port: LLM client port (defaults to LiteLLM)
         """
         self.default_model = default_model or os.getenv("LLM_MODEL", "gpt-4o-mini")
         self.cost_per_1m_tokens = cost_per_1m_tokens
+        self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(component="ai_ops")
 
     async def run_ai_op(
@@ -315,7 +318,7 @@ class AIOperationsRunner:
 
             response_format = {"type": "json_object"} if spec.output_format == "json" else None
 
-            response = completion(
+            response = await self.llm_port.complete(
                 model=model,
                 messages=messages,
                 temperature=temperature,
@@ -324,8 +327,8 @@ class AIOperationsRunner:
                 timeout=30
             )
 
-            content = response.choices[0].message.content
-            tokens = response.usage.total_tokens
+            content = response.content
+            tokens = response.total_tokens
             cost_usd = (tokens / 1_000_000) * self.cost_per_1m_tokens
 
             # Parse and validate output

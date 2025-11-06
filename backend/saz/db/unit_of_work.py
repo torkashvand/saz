@@ -51,7 +51,7 @@ class UnitOfWork:
         """Context manager exit - cleanup."""
         if exc_type is not None:
             self.rollback()
-        self._session.close()
+        # Don't close session - let the session owner handle that
 
     def commit(self) -> None:
         """Commit transaction."""

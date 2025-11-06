@@ -138,6 +138,19 @@ class CredentialResponse(BaseModel):
     type: str
 
 
+class CompileFlowRequest(BaseModel):
+    yaml: str
+
+
+class CompileFlowResponse(BaseModel):
+    flow_name: str
+    flow_version: str | None = None
+    flow_description: str | None = None
+    form_schema: dict
+    workflow_summary: WorkflowSummary
+    warnings: list[str] = []
+
+
 # ========== Flow Endpoints ==========
 
 
@@ -166,11 +179,55 @@ def list_flows(
     )
 
 
+@app.post("/api/v1/flows/compile", response_model=CompileFlowResponse)
+def compile_flow(req: CompileFlowRequest) -> CompileFlowResponse:
+    """Compile and validate YAML DSL without registering.
+
+    This endpoint tests YAML validity, form schema generation,
+    and workflow structure before registration.
+    """
+    from saz.compiler import compile_dsl
+
+    try:
+        compiled = compile_dsl(req.yaml)
+
+        # Extract workflow info
+        workflow_steps = compiled.workflow_spec.get("steps", [])
+        ai_step_types = {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
+        ai_steps_count = sum(1 for step in workflow_steps if step.get("type") in ai_step_types)
+
+        workflow_summary = WorkflowSummary(
+            steps_count=len(workflow_steps),
+            ai_steps=ai_steps_count,
+            credentials=compiled.credentials,
+        )
+
+        return CompileFlowResponse(
+            flow_name=compiled.flow_name,
+            flow_version=compiled.flow_version,
+            flow_description=compiled.flow_description,
+            form_schema=compiled.form_schema,
+            workflow_summary=workflow_summary,
+            warnings=[],
+        )
+    except ValueError as e:
+        raise ValueError(f"Compilation failed: {str(e)}") from None
+
+
 @app.post("/api/v1/flows", response_model=RegisterFlowResponse)
 def register_flow(
     req: RegisterFlowRequest, uow: UnitOfWork = Depends(get_uow)
 ) -> RegisterFlowResponse:
     """Register a new flow from YAML DSL."""
+    from saz.compiler import compile_dsl
+
+    # Compile YAML first (validates structure)
+    try:
+        compiled = compile_dsl(req.yaml)
+    except ValueError as e:
+        raise ValueError(f"Invalid flow definition: {str(e)}") from None
+
+    # Register flow with compiled artifacts
     service = FlowService(uow)
     flow_id = service.register(req.yaml)
     flow_detail = service.get(flow_id)
@@ -178,60 +235,16 @@ def register_flow(
     if not flow_detail:
         raise NotFoundError("Flow was created but not found")
 
-    # Compute workflow summary
-    workflow_steps = flow_detail.definition.get("workflow", {}).get("steps", [])
-    ai_step_types = {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
-    ai_steps_count = sum(1 for step in workflow_steps if step.get("type") in ai_step_types)
-    credentials = flow_detail.definition.get("credentials", [])
-    if isinstance(credentials, dict):
-        credentials = list(credentials.keys())
-
+    # Use compiled workflow summary
     workflow_summary = WorkflowSummary(
-        steps_count=len(workflow_steps),
-        ai_steps=ai_steps_count,
-        credentials=credentials if isinstance(credentials, list) else [],
+        steps_count=len(compiled.workflow_spec.get("steps", [])),
+        ai_steps=sum(
+            1
+            for step in compiled.workflow_spec.get("steps", [])
+            if step.get("type") in {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
+        ),
+        credentials=compiled.credentials,
     )
-
-    # Convert form definition to JSON Schema format
-    form_def = flow_detail.definition.get("form", {})
-    fields = form_def.get("fields", [])
-
-    # Build JSON Schema properties and required array
-    properties = {}
-    required = []
-
-    for field in fields:
-        field_name = field.get("name")
-        if not field_name:
-            continue
-
-        # Map form field types to JSON Schema types
-        field_type = field.get("type", "text")
-        json_schema_type = {
-            "text": "string",
-            "number": "number",
-            "integer": "integer",
-            "boolean": "boolean",
-            "email": "string",
-            "url": "string",
-        }.get(field_type, "string")
-
-        field_schema = {"type": json_schema_type, "description": field.get("description", "")}
-
-        # Add validation constraints if present
-        if "min" in field:
-            field_schema["minimum"] = field["min"]
-        if "max" in field:
-            field_schema["maximum"] = field["max"]
-        if "regex" in field:
-            field_schema["pattern"] = field["regex"]
-
-        properties[field_name] = field_schema
-
-        if field.get("required", False):
-            required.append(field_name)
-
-    form_schema = {"properties": properties, "required": required}
 
     return RegisterFlowResponse(
         id=flow_id,
@@ -240,7 +253,7 @@ def register_flow(
         description=flow_detail.description,
         created_at=flow_detail.created_at.isoformat(),
         workflow_summary=workflow_summary,
-        form_schema=form_schema,
+        form_schema=compiled.form_schema,
     )
 
 

@@ -83,20 +83,20 @@ def parse_yaml(yaml_content: str) -> dict:
     if "name" not in dsl["flow"]:
         raise ValueError("flow.name is required")
 
-    if "form" not in dsl:
-        raise ValueError("Missing required section: form")
-    if "fields" not in dsl["form"]:
-        raise ValueError("form.fields is required")
+    # Form section is optional
+    if "form" in dsl and "fields" not in dsl["form"]:
+        raise ValueError("form.fields is required when form section is present")
 
     if "workflow" not in dsl:
         raise ValueError("Missing required section: workflow")
     if "steps" not in dsl["workflow"]:
         raise ValueError("workflow.steps is required")
 
+    fields_count = len(dsl.get("form", {}).get("fields", []))
     logger.info(
         "dsl_parsed",
         flow_name=dsl["flow"]["name"],
-        fields_count=len(dsl["form"]["fields"]),
+        fields_count=fields_count,
         steps_count=len(dsl["workflow"]["steps"]),
     )
 
@@ -237,7 +237,7 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
 
     # Extract sections
     flow = dsl["flow"]
-    form = dsl["form"]
+    form = dsl.get("form", {"fields": []})
     workflow = dsl["workflow"]
     triggers = dsl.get("triggers", {"manual": True})
     policies = dsl.get("policies")
@@ -251,7 +251,7 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     logger.info(
         "dsl_compiled",
         flow_name=flow["name"],
-        form_fields=len(form["fields"]),
+        form_fields=len(form.get("fields", [])),
         workflow_steps=len(workflow["steps"]),
         credentials=len(credentials),
     )

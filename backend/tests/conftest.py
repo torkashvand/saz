@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Set test DATABASE_URL before importing saz modules
+# Set test DATABASE_URL before importing saz modules (will be updated per test)
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from saz.api import app
@@ -19,28 +19,27 @@ from saz.db.models import Base
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.events import DomainEvent
 
-# Test database (in-memory SQLite)
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-
 
 @pytest.fixture(scope="function")
 def db_engine():
-    """Create test database engine."""
-    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(bind=engine)
-    yield engine
-    Base.metadata.drop_all(bind=engine)
+    """Create test database engine using temporary file."""
+    import tempfile
 
+    # Use a temporary file for each test to avoid threading issues
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
+        db_path = tmp_file.name
 
-@pytest.fixture(scope="function")
-def db_session(db_engine):
-    """Create test database session."""
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
-    session = TestingSessionLocal()
     try:
-        yield session
+        database_url = f"sqlite:///{db_path}"
+        engine = create_engine(database_url, connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        yield engine
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
     finally:
-        session.close()
+        # Clean up the temporary file
+        if os.path.exists(db_path):
+            os.unlink(db_path)
 
 
 @pytest.fixture(scope="function")
@@ -57,9 +56,12 @@ def event_collector():
 
 
 @pytest.fixture(scope="function")
-def sync_executor(db_session):
+def sync_executor(db_engine):
     """Override scheduler to use synchronous execution for tests."""
     from saz.engine.scheduler import RunScheduler, _scheduler_lock
+
+    # Get the database URL from the engine
+    database_url = str(db_engine.url)
 
     # Create a single-thread executor for deterministic testing
     class SyncScheduler(RunScheduler):
@@ -73,7 +75,7 @@ def sync_executor(db_session):
             self.max_workers = 1
             # Single thread executor for deterministic testing
             self.executor = ThreadPoolExecutor(max_workers=1)
-            self.engine = db_session.get_bind()
+            self.engine = db_engine
             self.SessionLocal = sessionmaker(bind=self.engine)
             self._running_runs = set()
             import threading
@@ -85,7 +87,7 @@ def sync_executor(db_session):
         import saz.engine.scheduler as sched_module
 
         original_scheduler = sched_module._scheduler
-        sched_module._scheduler = SyncScheduler(SQLALCHEMY_DATABASE_URL)
+        sched_module._scheduler = SyncScheduler(database_url)
 
         yield sched_module._scheduler
 
@@ -99,14 +101,19 @@ def sync_executor(db_session):
 
 
 @pytest.fixture(scope="function")
-def app_client(db_session, sync_executor, event_collector):
+def app_client(db_engine, sync_executor, event_collector):
     """Create FastAPI test client with UnitOfWork override."""
+    # Create a session factory bound to the test engine
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
 
     def override_get_uow():
+        # Create a NEW session for each request (like production)
+        session = TestingSessionLocal()
         try:
-            yield UnitOfWork(db_session)
+            with UnitOfWork(session) as uow:
+                yield uow
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_uow] = override_get_uow
 

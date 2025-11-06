@@ -1,11 +1,11 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface JsonViewProps {
-  data: any
-  collapsed?: boolean
+  data: any;
+  collapsed?: boolean;
 }
 
 export function JsonView({ data, collapsed = false }: JsonViewProps) {
@@ -13,17 +13,17 @@ export function JsonView({ data, collapsed = false }: JsonViewProps) {
     <pre className="text-xs bg-muted p-4 rounded overflow-auto max-h-96 font-mono">
       {JSON.stringify(data, null, 2)}
     </pre>
-  )
+  );
 }
 
 interface CollapsibleJsonProps {
-  label: string
-  data: any
-  defaultOpen?: boolean
+  label: string;
+  data: any;
+  defaultOpen?: boolean;
 }
 
 export function CollapsibleJson({ label, data, defaultOpen = false }: CollapsibleJsonProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -40,5 +40,5 @@ export function CollapsibleJson({ label, data, defaultOpen = false }: Collapsibl
         </div>
       )}
     </div>
-  )
+  );
 }

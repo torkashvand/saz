@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import Link from 'next/link'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import Link from 'next/link';
 
 const STATUS_COLORS: Record<string, string> = {
   running: 'bg-blue-100 text-blue-800',
@@ -16,15 +16,15 @@ const STATUS_COLORS: Record<string, string> = {
   suspended: 'bg-yellow-100 text-yellow-800',
   waiting: 'bg-purple-100 text-purple-800',
   created: 'bg-gray-100 text-gray-800',
-}
+};
 
 export default function RunsPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [page, setPage] = useState(0)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [flowIdFilter, setFlowIdFilter] = useState('')
-  const limit = 20
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [flowIdFilter, setFlowIdFilter] = useState('');
+  const limit = 20;
 
   const { data: runs, isLoading } = useQuery({
     queryKey: ['runs', page, statusFilter, flowIdFilter],
@@ -36,38 +36,36 @@ export default function RunsPage() {
         flow_id: flowIdFilter || undefined,
       }),
     // No polling - WebSocket events handle all updates
-  })
+  });
 
-  const totalPages = runs ? Math.ceil(runs.total / limit) : 0
+  const totalPages = runs ? Math.ceil(runs.total / limit) : 0;
 
   const handleStatusChange = (status: string) => {
-    setStatusFilter(status)
-    setPage(0)
-  }
+    setStatusFilter(status);
+    setPage(0);
+  };
 
   const handleFlowIdChange = (flowId: string) => {
-    setFlowIdFilter(flowId)
-    setPage(0)
-  }
+    setFlowIdFilter(flowId);
+    setPage(0);
+  };
 
   const getDuration = (created: string, completed?: string) => {
-    const start = new Date(created).getTime()
-    const end = completed ? new Date(completed).getTime() : Date.now()
-    const seconds = Math.floor((end - start) / 1000)
+    const start = new Date(created).getTime();
+    const end = completed ? new Date(completed).getTime() : Date.now();
+    const seconds = Math.floor((end - start) / 1000);
 
-    if (seconds < 60) return `${seconds}s`
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-  }
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  };
 
   return (
     <div className="container mx-auto py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Runs</h1>
-          <p className="text-gray-600 mt-1">
-            Workflow execution history
-          </p>
+          <p className="text-gray-600 mt-1">Workflow execution history</p>
         </div>
         <Link href="/runs/new">
           <Button>+ New Run</Button>
@@ -78,9 +76,7 @@ export default function RunsPage() {
       <Card className="p-4 mb-6">
         <div className="flex gap-4 items-end">
           <div className="flex-1">
-            <label className="text-sm font-medium mb-1 block">
-              Filter by Status
-            </label>
+            <label className="text-sm font-medium mb-1 block">Filter by Status</label>
             <select
               className="w-full border rounded-md p-2"
               value={statusFilter}
@@ -95,9 +91,7 @@ export default function RunsPage() {
             </select>
           </div>
           <div className="flex-1">
-            <label className="text-sm font-medium mb-1 block">
-              Filter by Flow ID
-            </label>
+            <label className="text-sm font-medium mb-1 block">Filter by Flow ID</label>
             <Input
               placeholder="Enter flow ID..."
               value={flowIdFilter}
@@ -107,9 +101,9 @@ export default function RunsPage() {
           <Button
             variant="outline"
             onClick={() => {
-              setStatusFilter('')
-              setFlowIdFilter('')
-              setPage(0)
+              setStatusFilter('');
+              setFlowIdFilter('');
+              setPage(0);
             }}
           >
             Clear Filters
@@ -158,8 +152,7 @@ export default function RunsPage() {
                     </div>
                     <div className="text-sm text-gray-600 space-y-1">
                       <div>
-                        <span className="font-medium">Flow ID:</span>{' '}
-                        {run.flow_id.slice(0, 8)}...
+                        <span className="font-medium">Flow ID:</span> {run.flow_id.slice(0, 8)}...
                       </div>
                       <div>
                         <span className="font-medium">Started:</span>{' '}
@@ -182,8 +175,8 @@ export default function RunsPage() {
                       variant="outline"
                       size="sm"
                       onClick={(e) => {
-                        e.stopPropagation()
-                        router.push(`/runs/${run.id}`)
+                        e.stopPropagation();
+                        router.push(`/runs/${run.id}`);
                       }}
                     >
                       View Details
@@ -222,9 +215,7 @@ export default function RunsPage() {
       ) : (
         <Card className="p-12 text-center">
           <p className="text-gray-500 mb-4">
-            {statusFilter || flowIdFilter
-              ? 'No runs match your filters'
-              : 'No runs yet'}
+            {statusFilter || flowIdFilter ? 'No runs match your filters' : 'No runs yet'}
           </p>
           {!statusFilter && !flowIdFilter && (
             <Link href="/runs/new">
@@ -234,5 +225,5 @@ export default function RunsPage() {
         </Card>
       )}
     </div>
-  )
+  );
 }

@@ -1,18 +1,27 @@
-'use client'
+'use client';
 
-import { useParams, useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
-import { useRunDetails, useRunGraph } from '@/lib/hooks'
-import { api } from '@/lib/api'
-import { useToast } from '@/components/ui/use-toast'
-import { Loader2, CheckCircle2, XCircle, Clock, Play, RefreshCw, Rewind, AlertCircle } from 'lucide-react'
-import { WorkflowGraph } from '@/components/workflow-graph'
-import { CollapsibleJson } from '@/components/json-view'
-import type { RunStep, StepStatus } from '@/lib/types'
+import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { useRunDetails, useRunGraph } from '@/lib/hooks';
+import { api } from '@/lib/api';
+import { useToast } from '@/components/ui/use-toast';
+import {
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Play,
+  RefreshCw,
+  Rewind,
+  AlertCircle,
+} from 'lucide-react';
+import { WorkflowGraph } from '@/components/workflow-graph';
+import { CollapsibleJson } from '@/components/json-view';
+import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
   pending: <Clock className="h-5 w-5 text-slate-400" />,
@@ -22,7 +31,7 @@ const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
   completed: <CheckCircle2 className="h-5 w-5 text-green-500" />,
   failed: <XCircle className="h-5 w-5 text-red-500" />,
   suspended: <Clock className="h-5 w-5 text-amber-500" />,
-}
+};
 
 const STATUS_COLORS: Record<StepStatus, string> = {
   pending: 'bg-slate-200',
@@ -32,18 +41,18 @@ const STATUS_COLORS: Record<StepStatus, string> = {
   completed: 'bg-green-500',
   failed: 'bg-red-500',
   suspended: 'bg-amber-500',
-}
+};
 
 function formatDuration(ms?: number): string {
-  if (!ms) return '-'
-  if (ms < 1000) return `${ms}ms`
-  const seconds = (ms / 1000).toFixed(2)
-  return `${seconds}s`
+  if (!ms) return '-';
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = (ms / 1000).toFixed(2);
+  return `${seconds}s`;
 }
 
 function formatCost(cost?: number): string {
-  if (!cost) return '-'
-  return `$${cost.toFixed(4)}`
+  if (!cost) return '-';
+  return `$${cost.toFixed(4)}`;
 }
 
 function StepTimeline({ steps }: { steps: RunStep[] }) {
@@ -58,9 +67,7 @@ function StepTimeline({ steps }: { steps: RunStep[] }) {
 
           <div className="flex items-start gap-3">
             {/* Status indicator */}
-            <div className="relative z-10 flex-shrink-0">
-              {STATUS_ICONS[step.status]}
-            </div>
+            <div className="relative z-10 flex-shrink-0">{STATUS_ICONS[step.status]}</div>
 
             {/* Step content */}
             <div className="flex-1 border rounded-lg overflow-hidden">
@@ -79,7 +86,7 @@ function StepTimeline({ steps }: { steps: RunStep[] }) {
                 {step.output && Object.keys(step.output).length > 0 && (
                   <div className="border-l-4 border-green-500 bg-green-50 p-3 rounded">
                     <p className="text-xs font-medium text-green-900 mb-2">Output</p>
-                    <CollapsibleJson data={step.output} />
+                    <CollapsibleJson label="Details" data={step.output} />
                   </div>
                 )}
 
@@ -111,16 +118,16 @@ function StepTimeline({ steps }: { steps: RunStep[] }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 export default function RunDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const runId = params.id as string
-  const { toast } = useToast()
-  const { data: run, isLoading: isLoadingRun } = useRunDetails(runId)
-  const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId)
+  const params = useParams();
+  const router = useRouter();
+  const runId = params.id as string;
+  const { toast } = useToast();
+  const { data: run, isLoading: isLoadingRun } = useRunDetails(runId);
+  const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -129,46 +136,46 @@ export default function RunDetailPage() {
       toast({
         title: 'Run Retried',
         description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
-      })
-      router.push(`/runs/${data.new_run_id}`)
+      });
+      router.push(`/runs/${data.new_run_id}`);
     },
     onError: (error: any) => {
       toast({
         title: 'Retry Failed',
         description: error.message || 'Failed to retry run',
         variant: 'destructive',
-      })
+      });
     },
-  })
+  });
 
   // Replay mutation
-  const [replayStep, setReplayStep] = useState<number | null>(null)
+  const [replayStep, setReplayStep] = useState<number | null>(null);
   const replayMutation = useMutation({
     mutationFn: (fromStep: number) => api.replayRun(runId, fromStep),
     onSuccess: (data) => {
       toast({
         title: 'Run Replayed',
         description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
-      })
-      router.push(`/runs/${data.new_run_id}`)
-      setReplayStep(null)
+      });
+      router.push(`/runs/${data.new_run_id}`);
+      setReplayStep(null);
     },
     onError: (error: any) => {
       toast({
         title: 'Replay Failed',
         description: error.message || 'Failed to replay run',
         variant: 'destructive',
-      })
-      setReplayStep(null)
+      });
+      setReplayStep(null);
     },
-  })
+  });
 
   if (isLoadingRun) {
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
-    )
+    );
   }
 
   if (!run) {
@@ -183,37 +190,51 @@ export default function RunDetailPage() {
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
-  const isRunning = run.status === 'running' || run.status === 'pending'
-  const isFailed = run.status === 'failed'
-  const isSuspended = run.status === 'suspended'
+  const isRunning = run.status === 'running' || run.status === 'pending';
+  const isFailed = run.status === 'failed';
+  const isSuspended = run.status === 'suspended';
 
   // Determine status display
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'failed': return 'Failed'
-      case 'suspended': return 'Needs Review'
-      case 'success': return 'Succeeded'
-      case 'completed': return 'Completed'
-      case 'running': return 'Running'
-      case 'pending': return 'Pending'
-      default: return status
+      case 'failed':
+        return 'Failed';
+      case 'suspended':
+        return 'Needs Review';
+      case 'success':
+        return 'Succeeded';
+      case 'completed':
+        return 'Completed';
+      case 'running':
+        return 'Running';
+      case 'pending':
+        return 'Pending';
+      default:
+        return status;
     }
-  }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'failed': return 'bg-red-100 text-red-800 border-red-300'
-      case 'suspended': return 'bg-amber-100 text-amber-800 border-amber-300'
-      case 'success': return 'bg-green-100 text-green-800 border-green-300'
-      case 'completed': return 'bg-green-100 text-green-800 border-green-300'
-      case 'running': return 'bg-blue-100 text-blue-800 border-blue-300'
-      case 'pending': return 'bg-slate-100 text-slate-800 border-slate-300'
-      default: return 'bg-slate-100 text-slate-800 border-slate-300'
+      case 'failed':
+        return 'bg-red-100 text-red-800 border-red-300';
+      case 'suspended':
+        return 'bg-amber-100 text-amber-800 border-amber-300';
+      case 'success':
+        return 'bg-green-100 text-green-800 border-green-300';
+      case 'completed':
+        return 'bg-green-100 text-green-800 border-green-300';
+      case 'running':
+        return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'pending':
+        return 'bg-slate-100 text-slate-800 border-slate-300';
+      default:
+        return 'bg-slate-100 text-slate-800 border-slate-300';
     }
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -222,7 +243,9 @@ export default function RunDetailPage() {
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-3xl font-bold">Run Details</h1>
           <div className="flex items-center gap-2">
-            <div className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(run.status)}`}>
+            <div
+              className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(run.status)}`}
+            >
               {getStatusLabel(run.status)}
             </div>
           </div>
@@ -273,18 +296,20 @@ export default function RunDetailPage() {
             <Button
               variant="outline"
               onClick={() => {
-                const step = prompt(`Enter step number to replay from (0-${run.steps.length - 1}):`)
+                const step = prompt(
+                  `Enter step number to replay from (0-${run.steps.length - 1}):`,
+                );
                 if (step !== null) {
-                  const stepNum = parseInt(step, 10)
+                  const stepNum = parseInt(step, 10);
                   if (!isNaN(stepNum) && stepNum >= 0 && stepNum < run.steps.length) {
-                    setReplayStep(stepNum)
-                    replayMutation.mutate(stepNum)
+                    setReplayStep(stepNum);
+                    replayMutation.mutate(stepNum);
                   } else {
                     toast({
                       title: 'Invalid Step',
                       description: `Please enter a number between 0 and ${run.steps.length - 1}`,
                       variant: 'destructive',
-                    })
+                    });
                   }
                 }
               }}
@@ -332,11 +357,11 @@ export default function RunDetailPage() {
             <p className="text-lg font-bold">
               {run.started_at && run.completed_at
                 ? formatDuration(
-                    new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()
+                    new Date(run.completed_at).getTime() - new Date(run.started_at).getTime(),
                   )
                 : isRunning
-                ? formatDuration(Date.now() - new Date(run.started_at || Date.now()).getTime())
-                : '-'}
+                  ? formatDuration(Date.now() - new Date(run.started_at || Date.now()).getTime())
+                  : '-'}
             </p>
           </CardContent>
         </Card>
@@ -345,12 +370,18 @@ export default function RunDetailPage() {
       {/* Tabs */}
       <Tabs defaultValue="timeline" className="w-full">
         <TabsList className="w-full">
-          <TabsTrigger value="timeline" className="flex-1">Timeline</TabsTrigger>
-          <TabsTrigger value="graph" className="flex-1">Graph</TabsTrigger>
+          <TabsTrigger value="timeline" className="flex-1">
+            Timeline
+          </TabsTrigger>
+          <TabsTrigger value="graph" className="flex-1">
+            Graph
+          </TabsTrigger>
           <TabsTrigger value="artifacts" className="flex-1">
             Artifacts {run.artifacts && run.artifacts.length > 0 && `(${run.artifacts.length})`}
           </TabsTrigger>
-          <TabsTrigger value="cost" className="flex-1">Cost Breakdown</TabsTrigger>
+          <TabsTrigger value="cost" className="flex-1">
+            Cost Breakdown
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="timeline" className="mt-6">
@@ -381,9 +412,7 @@ export default function RunDetailPage() {
                   status={runGraph.status_by_step || {}}
                 />
               ) : (
-                <p className="text-center py-12 text-muted-foreground">
-                  Graph data not available
-                </p>
+                <p className="text-center py-12 text-muted-foreground">Graph data not available</p>
               )}
             </CardContent>
           </Card>
@@ -404,9 +433,7 @@ export default function RunDetailPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-center py-12 text-muted-foreground">
-                  No artifacts generated
-                </p>
+                <p className="text-center py-12 text-muted-foreground">No artifacts generated</p>
               )}
             </CardContent>
           </Card>
@@ -421,9 +448,7 @@ export default function RunDetailPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-4 border-b">
                   <span className="text-lg font-medium">Total</span>
-                  <span className="text-2xl font-bold">
-                    {formatCost(run.totals.cost_usd)}
-                  </span>
+                  <span className="text-2xl font-bold">{formatCost(run.totals.cost_usd)}</span>
                 </div>
 
                 <div className="space-y-2">
@@ -455,5 +480,5 @@ export default function RunDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

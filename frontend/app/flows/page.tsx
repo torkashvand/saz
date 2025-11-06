@@ -1,33 +1,31 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import Link from 'next/link'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import Link from 'next/link';
 
 export default function FlowsPage() {
-  const router = useRouter()
-  const [page, setPage] = useState(0)
-  const limit = 20
+  const router = useRouter();
+  const [page, setPage] = useState(0);
+  const limit = 20;
 
   const { data: flows, isLoading } = useQuery({
     queryKey: ['flows', page],
     queryFn: () => api.listFlows({ limit, offset: page * limit }),
-  })
+  });
 
-  const totalPages = flows ? Math.ceil(flows.total / limit) : 0
+  const totalPages = flows ? Math.ceil(flows.total / limit) : 0;
 
   return (
     <div className="container mx-auto py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Flows</h1>
-          <p className="text-gray-600 mt-1">
-            Registered workflow definitions
-          </p>
+          <p className="text-gray-600 mt-1">Registered workflow definitions</p>
         </div>
         <Link href="/register">
           <Button>+ Register Flow</Button>
@@ -51,13 +49,9 @@ export default function FlowsPage() {
                         </span>
                       )}
                     </div>
-                    {flow.description && (
-                      <p className="text-gray-600 mt-1">{flow.description}</p>
-                    )}
+                    {flow.description && <p className="text-gray-600 mt-1">{flow.description}</p>}
                     <div className="flex gap-4 mt-2 text-sm text-gray-500">
-                      <span>
-                        Created: {new Date(flow.created_at).toLocaleDateString()}
-                      </span>
+                      <span>Created: {new Date(flow.created_at).toLocaleDateString()}</span>
                       <span>ID: {flow.id.slice(0, 8)}...</span>
                     </div>
                   </div>
@@ -72,8 +66,8 @@ export default function FlowsPage() {
                     <Button
                       size="sm"
                       onClick={() => {
-                        localStorage.setItem('lastFlowId', flow.id)
-                        router.push('/runs/new')
+                        localStorage.setItem('lastFlowId', flow.id);
+                        router.push('/runs/new');
                       }}
                     >
                       Create Run
@@ -118,5 +112,5 @@ export default function FlowsPage() {
         </Card>
       )}
     </div>
-  )
+  );
 }

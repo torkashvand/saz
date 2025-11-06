@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import { useCallback } from 'react'
+import { useCallback } from 'react';
 import {
   ReactFlow,
   Node,
@@ -11,14 +11,14 @@ import {
   useNodesState,
   useEdgesState,
   MarkerType,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
-import type { GraphNode, GraphEdge, StepStatus } from '@/lib/types'
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import type { GraphNode, GraphEdge, StepStatus } from '@/lib/types';
 
 interface WorkflowGraphProps {
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-  status?: Record<string, StepStatus>
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  status?: Record<string, StepStatus>;
 }
 
 const STATUS_COLORS: Record<StepStatus, string> = {
@@ -29,7 +29,7 @@ const STATUS_COLORS: Record<StepStatus, string> = {
   completed: '#22c55e', // green-500
   failed: '#ef4444', // red-500
   suspended: '#f59e0b', // amber-500
-}
+};
 
 const NODE_TYPES: Record<string, { color: string; bg: string }> = {
   'ai.extract': { color: '#8b5cf6', bg: '#f3e8ff' },
@@ -48,19 +48,23 @@ const NODE_TYPES: Record<string, { color: string; bg: string }> = {
   'tool.call': { color: '#06b6d4', bg: '#cffafe' },
   'artifact.store': { color: '#10b981', bg: '#d1fae5' },
   'artifact.retrieve': { color: '#10b981', bg: '#d1fae5' },
-}
+};
 
-export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges, status }: WorkflowGraphProps) {
+export function WorkflowGraph({
+  nodes: graphNodes,
+  edges: graphEdges,
+  status,
+}: WorkflowGraphProps) {
   // Convert graph nodes to React Flow nodes
   const convertedNodes: Node[] = graphNodes.map((node, idx) => {
-    const nodeType = NODE_TYPES[node.type] || { color: '#64748b', bg: '#f1f5f9' }
-    const nodeStatus = status?.[node.id]
-    const statusColor = nodeStatus ? STATUS_COLORS[nodeStatus] : undefined
+    const nodeType = NODE_TYPES[node.type] || { color: '#64748b', bg: '#f1f5f9' };
+    const nodeStatus = status?.[node.id];
+    const statusColor = nodeStatus ? STATUS_COLORS[nodeStatus] : undefined;
 
     // Stronger styling for failed/suspended nodes
-    const isFailed = nodeStatus === 'failed'
-    const isSuspended = nodeStatus === 'suspended'
-    const borderWidth = isFailed || isSuspended ? '3px' : '2px'
+    const isFailed = nodeStatus === 'failed';
+    const isSuspended = nodeStatus === 'suspended';
+    const borderWidth = isFailed || isSuspended ? '3px' : '2px';
 
     return {
       id: node.id,
@@ -77,8 +81,8 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges, status }: 
         color: statusColor ? '#fff' : nodeType.color,
         boxShadow: isFailed ? '0 0 0 2px rgba(239, 68, 68, 0.3)' : undefined,
       },
-    }
-  })
+    };
+  });
 
   // Convert graph edges to React Flow edges
   const convertedEdges: Edge[] = graphEdges.map((edge, idx) => ({
@@ -100,10 +104,10 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges, status }: 
       fill: '#f59e0b',
       fontWeight: 600,
     },
-  }))
+  }));
 
-  const [nodes, , onNodesChange] = useNodesState(convertedNodes)
-  const [edges, , onEdgesChange] = useEdgesState(convertedEdges)
+  const [nodes, , onNodesChange] = useNodesState(convertedNodes);
+  const [edges, , onEdgesChange] = useEdgesState(convertedEdges);
 
   return (
     <div className="w-full h-[500px] border rounded-lg">
@@ -121,5 +125,5 @@ export function WorkflowGraph({ nodes: graphNodes, edges: graphEdges, status }: 
         <MiniMap />
       </ReactFlow>
     </div>
-  )
+  );
 }

@@ -1,159 +1,159 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { useToast } from '@/components/ui/use-toast'
-import type { CredentialResponse, CreateCredentialRequest, UpdateCredentialRequest } from '@/lib/types'
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/components/ui/use-toast';
+import type {
+  CredentialResponse,
+  CreateCredentialRequest,
+  UpdateCredentialRequest,
+} from '@/lib/types';
 
 export default function CredentialsPage() {
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-  const [isCreating, setIsCreating] = useState(false)
-  const [editingCredential, setEditingCredential] = useState<string | null>(null)
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isCreating, setIsCreating] = useState(false);
+  const [editingCredential, setEditingCredential] = useState<string | null>(null);
 
   // Form state
-  const [name, setName] = useState('')
-  const [credentialType, setCredentialType] = useState('api_token')
-  const [description, setDescription] = useState('')
-  const [dataJson, setDataJson] = useState('{}')
+  const [name, setName] = useState('');
+  const [credentialType, setCredentialType] = useState('api_token');
+  const [description, setDescription] = useState('');
+  const [dataJson, setDataJson] = useState('{}');
 
   // Fetch credentials
   const { data: credentials, isLoading } = useQuery({
     queryKey: ['credentials'],
     queryFn: () => api.listCredentials(),
-  })
+  });
 
   // Create credential mutation
   const createMutation = useMutation({
     mutationFn: (data: CreateCredentialRequest) => api.createCredential(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] })
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
       toast({
         title: 'Success',
         description: 'Credential created successfully',
-      })
-      resetForm()
+      });
+      resetForm();
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to create credential',
         variant: 'destructive',
-      })
+      });
     },
-  })
+  });
 
   // Update credential mutation
   const updateMutation = useMutation({
     mutationFn: ({ name, data }: { name: string; data: UpdateCredentialRequest }) =>
       api.updateCredential(name, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] })
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
       toast({
         title: 'Success',
         description: 'Credential updated successfully',
-      })
-      resetForm()
+      });
+      resetForm();
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to update credential',
         variant: 'destructive',
-      })
+      });
     },
-  })
+  });
 
   // Delete credential mutation
   const deleteMutation = useMutation({
     mutationFn: (name: string) => api.deleteCredential(name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] })
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
       toast({
         title: 'Success',
         description: 'Credential deleted successfully',
-      })
+      });
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to delete credential',
         variant: 'destructive',
-      })
+      });
     },
-  })
+  });
 
   const resetForm = () => {
-    setIsCreating(false)
-    setEditingCredential(null)
-    setName('')
-    setCredentialType('api_token')
-    setDescription('')
-    setDataJson('{}')
-  }
+    setIsCreating(false);
+    setEditingCredential(null);
+    setName('');
+    setCredentialType('api_token');
+    setDescription('');
+    setDataJson('{}');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    let data: Record<string, any>
+    let data: Record<string, any>;
     try {
-      data = JSON.parse(dataJson)
+      data = JSON.parse(dataJson);
     } catch {
       toast({
         title: 'Error',
         description: 'Invalid JSON in data field',
         variant: 'destructive',
-      })
-      return
+      });
+      return;
     }
 
     if (editingCredential) {
       updateMutation.mutate({
         name: editingCredential,
         data: { data, description },
-      })
+      });
     } else {
       createMutation.mutate({
         name,
         credential_type: credentialType,
         data,
         description,
-      })
+      });
     }
-  }
+  };
 
   const handleEdit = (credential: CredentialResponse) => {
-    setEditingCredential(credential.name)
-    setName(credential.name)
-    setCredentialType(credential.type)
-    setDescription(credential.description || '')
-    setDataJson('{}') // Can't show actual data
-    setIsCreating(true)
-  }
+    setEditingCredential(credential.name);
+    setName(credential.name);
+    setCredentialType(credential.type);
+    setDescription(credential.description || '');
+    setDataJson('{}'); // Can't show actual data
+    setIsCreating(true);
+  };
 
   const handleDelete = (name: string) => {
     if (confirm(`Are you sure you want to delete credential "${name}"?`)) {
-      deleteMutation.mutate(name)
+      deleteMutation.mutate(name);
     }
-  }
+  };
 
   return (
     <div className="container mx-auto py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Credentials</h1>
-          <p className="text-gray-600 mt-1">
-            Manage encrypted credentials for workflows
-          </p>
+          <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
         </div>
-        <Button onClick={() => setIsCreating(true)}>
-          + New Credential
-        </Button>
+        <Button onClick={() => setIsCreating(true)}>+ New Credential</Button>
       </div>
 
       {/* Create/Edit Form */}
@@ -255,11 +255,7 @@ export default function CredentialsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEdit(credential)}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => handleEdit(credential)}>
                     Edit
                   </Button>
                   <Button
@@ -278,11 +274,9 @@ export default function CredentialsPage() {
       ) : (
         <Card className="p-12 text-center">
           <p className="text-gray-500 mb-4">No credentials yet</p>
-          <Button onClick={() => setIsCreating(true)}>
-            Create Your First Credential
-          </Button>
+          <Button onClick={() => setIsCreating(true)}>Create Your First Credential</Button>
         </Card>
       )}
     </div>
-  )
+  );
 }

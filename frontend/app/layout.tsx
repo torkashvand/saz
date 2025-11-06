@@ -1,21 +1,21 @@
-import type { Metadata } from "next"
-import { Inter } from "next/font/google"
-import "./globals.css"
-import { Providers } from "./providers"
-import { Toaster } from "@/components/ui/toaster"
-import Link from "next/link"
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { Providers } from './providers';
+import { Toaster } from '@/components/ui/toaster';
+import Link from 'next/link';
 
-const inter = Inter({ subsets: ["latin"] })
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Saz UI",
-  description: "YAML Forms & Workflow Engine",
-}
+  title: 'Saz UI',
+  description: 'YAML Forms & Workflow Engine',
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
     <html lang="en">
@@ -29,16 +29,10 @@ export default function RootLayout({
                     Saz
                   </Link>
                   <div className="flex gap-6">
-                    <Link
-                      href="/flows"
-                      className="text-sm hover:underline hover:text-blue-600"
-                    >
+                    <Link href="/flows" className="text-sm hover:underline hover:text-blue-600">
                       Flows
                     </Link>
-                    <Link
-                      href="/runs"
-                      className="text-sm hover:underline hover:text-blue-600"
-                    >
+                    <Link href="/runs" className="text-sm hover:underline hover:text-blue-600">
                       Runs
                     </Link>
                     <Link
@@ -47,16 +41,10 @@ export default function RootLayout({
                     >
                       Credentials
                     </Link>
-                    <Link
-                      href="/register"
-                      className="text-sm hover:underline hover:text-blue-600"
-                    >
+                    <Link href="/register" className="text-sm hover:underline hover:text-blue-600">
                       Register Flow
                     </Link>
-                    <Link
-                      href="/runs/new"
-                      className="text-sm hover:underline hover:text-blue-600"
-                    >
+                    <Link href="/runs/new" className="text-sm hover:underline hover:text-blue-600">
                       New Run
                     </Link>
                   </div>
@@ -69,5 +57,5 @@ export default function RootLayout({
         </Providers>
       </body>
     </html>
-  )
+  );
 }

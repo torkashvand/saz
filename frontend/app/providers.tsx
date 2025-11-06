@@ -1,12 +1,12 @@
-'use client'
+'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useState } from 'react'
-import { useGlobalEvents } from '@/lib/use-events'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useGlobalEvents } from '@/lib/use-events';
 
 function EventsProvider() {
-  useGlobalEvents()
-  return null
+  useGlobalEvents();
+  return null;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -19,13 +19,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
             retry: 1,
           },
         },
-      })
-  )
+      }),
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
       <EventsProvider />
       {children}
     </QueryClientProvider>
-  )
+  );
 }

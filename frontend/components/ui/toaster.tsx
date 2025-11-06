@@ -1,9 +1,9 @@
-"use client"
+'use client';
 
-import { useToast } from "./use-toast"
+import { useToast } from './use-toast';
 
 export function Toaster() {
-  const { toasts } = useToast()
+  const { toasts } = useToast();
 
   return (
     <div className="fixed top-0 right-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:flex-col md:max-w-[420px]">
@@ -23,5 +23,5 @@ export function Toaster() {
         </div>
       ))}
     </div>
-  )
+  );
 }

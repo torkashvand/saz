@@ -113,7 +113,7 @@ class Artifact(Base):
 
     # Relationships
     run: Mapped["Run"] = relationship("Run", back_populates="artifacts")
-    step: Mapped["Step" | None] = relationship("Step", back_populates="artifacts")
+    step: Mapped["Step"] = relationship("Step", back_populates="artifacts")
 
 
 class Credential(Base):

@@ -1,0 +1,79 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/pyproject.toml'
+              - 'backend/**/*.py'
+              - 'backend/.pre-commit-config.yaml'
+              - 'backend/saz/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            frontend:
+              - 'frontend/**'
+              - '.eslintrc*'
+              - '.prettierrc*'
+              - '.prettierignore'
+
+  backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+      - name: Sync deps
+        run: uv sync
+      - name: Pre-commit (all files)
+        run: uv run pre-commit run --all-files
+      - name: Mypy
+        run: uv run mypy .
+
+  frontend:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Build
+        run: npm run build

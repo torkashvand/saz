@@ -1,6 +1,6 @@
-import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function HomePage() {
   return (
@@ -31,9 +31,7 @@ export default function HomePage() {
           <Card>
             <CardHeader>
               <CardTitle>2. Create a Run</CardTitle>
-              <CardDescription>
-                Fill out your form and create a workflow execution
-              </CardDescription>
+              <CardDescription>Fill out your form and create a workflow execution</CardDescription>
             </CardHeader>
             <CardContent>
               <Link href="/runs/new">
@@ -66,5 +64,5 @@ export default function HomePage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

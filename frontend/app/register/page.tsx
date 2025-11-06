@@ -1,19 +1,19 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import dynamic from 'next/dynamic'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useRegisterFlow, useFlowGraph } from '@/lib/hooks'
-import { useToast } from '@/components/ui/use-toast'
-import { JsonView } from '@/components/json-view'
-import { WorkflowGraph } from '@/components/workflow-graph'
-import type { RegisterFlowResponse } from '@/lib/types'
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRegisterFlow, useFlowGraph } from '@/lib/hooks';
+import { useToast } from '@/components/ui/use-toast';
+import { JsonView } from '@/components/json-view';
+import { WorkflowGraph } from '@/components/workflow-graph';
+import type { RegisterFlowResponse } from '@/lib/types';
 
 // Dynamically import Monaco editor to avoid SSR issues
-const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })
+const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 const EXAMPLE_YAML = `flow:
   name: simple_support_ticket
@@ -65,29 +65,29 @@ workflow:
 policies:
   budget:
     max_tokens: 5000
-    max_cost_usd: 0.25`
+    max_cost_usd: 0.25`;
 
 export default function RegisterPage() {
-  const router = useRouter()
-  const { toast } = useToast()
-  const registerMutation = useRegisterFlow()
+  const router = useRouter();
+  const { toast } = useToast();
+  const registerMutation = useRegisterFlow();
 
-  const [yaml, setYaml] = useState('')
-  const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null)
+  const [yaml, setYaml] = useState('');
+  const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null);
 
-  const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null)
+  const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('last_yaml')
-    if (saved) setYaml(saved)
+    const saved = localStorage.getItem('last_yaml');
+    if (saved) setYaml(saved);
 
-    const savedFlow = localStorage.getItem('last_registered_flow')
+    const savedFlow = localStorage.getItem('last_registered_flow');
     if (savedFlow) {
       try {
-        setRegisteredFlow(JSON.parse(savedFlow))
+        setRegisteredFlow(JSON.parse(savedFlow));
       } catch {}
     }
-  }, [])
+  }, []);
 
   const handleRegister = async () => {
     if (!yaml.trim()) {
@@ -95,29 +95,29 @@ export default function RegisterPage() {
         title: 'Error',
         description: 'YAML content is required',
         variant: 'destructive',
-      })
-      return
+      });
+      return;
     }
 
     try {
-      const result = await registerMutation.mutateAsync({ yaml })
+      const result = await registerMutation.mutateAsync({ yaml });
 
-      setRegisteredFlow(result)
-      localStorage.setItem('last_yaml', yaml)
-      localStorage.setItem('last_registered_flow', JSON.stringify(result))
+      setRegisteredFlow(result);
+      localStorage.setItem('last_yaml', yaml);
+      localStorage.setItem('last_registered_flow', JSON.stringify(result));
 
       toast({
         title: 'Success',
         description: `Flow "${result.name}" registered successfully`,
-      })
+      });
     } catch (error: any) {
       toast({
         title: 'Registration Failed',
         description: error.message || 'An error occurred',
         variant: 'destructive',
-      })
+      });
     }
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -127,10 +127,7 @@ export default function RegisterPage() {
           <p className="text-muted-foreground">Define your workflow in unified YAML DSL</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            onClick={handleRegister}
-            disabled={registerMutation.isPending}
-          >
+          <Button onClick={handleRegister} disabled={registerMutation.isPending}>
             {registerMutation.isPending ? 'Registering...' : 'Register Flow'}
           </Button>
           {registeredFlow && (
@@ -149,11 +146,7 @@ export default function RegisterPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setYaml(EXAMPLE_YAML)}
-              >
+              <Button size="sm" variant="outline" onClick={() => setYaml(EXAMPLE_YAML)}>
                 Load Example
               </Button>
               <div className="border rounded overflow-hidden">
@@ -184,9 +177,15 @@ export default function RegisterPage() {
             {registeredFlow ? (
               <Tabs defaultValue="summary" className="w-full">
                 <TabsList className="w-full">
-                  <TabsTrigger value="summary" className="flex-1">Summary</TabsTrigger>
-                  <TabsTrigger value="form" className="flex-1">Form Schema</TabsTrigger>
-                  <TabsTrigger value="graph" className="flex-1">Workflow Graph</TabsTrigger>
+                  <TabsTrigger value="summary" className="flex-1">
+                    Summary
+                  </TabsTrigger>
+                  <TabsTrigger value="form" className="flex-1">
+                    Form Schema
+                  </TabsTrigger>
+                  <TabsTrigger value="graph" className="flex-1">
+                    Workflow Graph
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="summary" className="space-y-3">
@@ -197,11 +196,15 @@ export default function RegisterPage() {
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Total Steps</div>
-                      <div className="text-2xl font-bold mt-1">{registeredFlow.workflow_summary.steps_count}</div>
+                      <div className="text-2xl font-bold mt-1">
+                        {registeredFlow.workflow_summary.steps_count}
+                      </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">AI Steps</div>
-                      <div className="text-2xl font-bold mt-1">{registeredFlow.workflow_summary.ai_steps}</div>
+                      <div className="text-2xl font-bold mt-1">
+                        {registeredFlow.workflow_summary.ai_steps}
+                      </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Credentials</div>
@@ -211,18 +214,23 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   {registeredFlow.workflow_summary.credentials &&
-                   registeredFlow.workflow_summary.credentials.length > 0 && (
-                    <div className="border rounded p-3">
-                      <div className="text-xs text-muted-foreground mb-2">Required Credentials</div>
-                      <div className="flex flex-wrap gap-1">
-                        {registeredFlow.workflow_summary.credentials.map((cred) => (
-                          <span key={cred} className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
-                            {cred}
-                          </span>
-                        ))}
+                    registeredFlow.workflow_summary.credentials.length > 0 && (
+                      <div className="border rounded p-3">
+                        <div className="text-xs text-muted-foreground mb-2">
+                          Required Credentials
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {registeredFlow.workflow_summary.credentials.map((cred) => (
+                            <span
+                              key={cred}
+                              className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded"
+                            >
+                              {cred}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </TabsContent>
 
                 <TabsContent value="form">
@@ -248,5 +256,5 @@ export default function RegisterPage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

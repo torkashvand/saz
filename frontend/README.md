@@ -110,6 +110,7 @@ Expects these endpoints:
 Run the setup script or manually create component files.
 
 **API errors:**
+
 1. Check backend is running on port 8000
 2. Verify `.env.local` has correct URL
 3. Check browser console for CORS errors
@@ -120,6 +121,7 @@ Monaco loads async, try refreshing.
 ## Next Steps
 
 After setup works:
+
 1. Test with backend running
 2. Try example forms
 3. Create custom workflows

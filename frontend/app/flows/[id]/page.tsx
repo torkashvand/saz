@@ -1,23 +1,23 @@
-'use client'
+'use client';
 
-import { useQuery } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { JsonView } from '@/components/json-view'
-import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { JsonView } from '@/components/json-view';
+import Link from 'next/link';
 
 export default function FlowDetailPage({ params }: { params: { id: string } }) {
-  const router = useRouter()
+  const router = useRouter();
 
   const { data: flow, isLoading } = useQuery({
     queryKey: ['flow', params.id],
     queryFn: () => api.getFlow(params.id),
-  })
+  });
 
   if (isLoading) {
-    return <div className="container mx-auto py-8 text-center">Loading flow...</div>
+    return <div className="container mx-auto py-8 text-center">Loading flow...</div>;
   }
 
   if (!flow) {
@@ -28,7 +28,7 @@ export default function FlowDetailPage({ params }: { params: { id: string } }) {
           <Button>Back to Flows</Button>
         </Link>
       </div>
-    )
+    );
   }
 
   return (
@@ -52,15 +52,13 @@ export default function FlowDetailPage({ params }: { params: { id: string } }) {
                 </span>
               )}
             </div>
-            {flow.description && (
-              <p className="text-gray-600 mt-2">{flow.description}</p>
-            )}
+            {flow.description && <p className="text-gray-600 mt-2">{flow.description}</p>}
           </div>
           <div className="flex gap-2">
             <Button
               onClick={() => {
-                localStorage.setItem('lastFlowId', flow.id)
-                router.push('/runs/new')
+                localStorage.setItem('lastFlowId', flow.id);
+                router.push('/runs/new');
               }}
             >
               Create Run
@@ -91,23 +89,16 @@ export default function FlowDetailPage({ params }: { params: { id: string } }) {
         {flow.definition.workflow_spec?.steps && (
           <div className="space-y-2">
             {flow.definition.workflow_spec.steps.map((step: any, idx: number) => (
-              <div
-                key={idx}
-                className="p-3 bg-gray-50 rounded border border-gray-200"
-              >
+              <div key={idx} className="p-3 bg-gray-50 rounded border border-gray-200">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-gray-500">
-                    {idx + 1}.
-                  </span>
+                  <span className="text-sm font-mono text-gray-500">{idx + 1}.</span>
                   <span className="font-semibold">{step.id || step.name}</span>
                   <span className="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
                     {step.type}
                   </span>
                 </div>
                 {step.instruction && (
-                  <p className="text-sm text-gray-600 mt-1 ml-6">
-                    {step.instruction}
-                  </p>
+                  <p className="text-sm text-gray-600 mt-1 ml-6">{step.instruction}</p>
                 )}
               </div>
             ))}
@@ -142,14 +133,12 @@ export default function FlowDetailPage({ params }: { params: { id: string } }) {
       {/* Full Definition (Collapsed by default) */}
       <Card className="p-6">
         <details>
-          <summary className="text-xl font-semibold cursor-pointer">
-            Full Definition (JSON)
-          </summary>
+          <summary className="text-xl font-semibold cursor-pointer">Full Definition (JSON)</summary>
           <div className="mt-4">
             <JsonView data={flow.definition} />
           </div>
         </details>
       </Card>
     </div>
-  )
+  );
 }

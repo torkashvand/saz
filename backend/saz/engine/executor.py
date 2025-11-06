@@ -21,7 +21,14 @@ from saz.agents.rule_planner import RulePlanner
 from saz.agents.schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
 from saz.api.websocket import broadcast_events
 from saz.db.unit_of_work import UnitOfWork
-from saz.domain.events import RunCompleted, RunFailed, StepCompleted, StepFailed, StepStarted
+from saz.domain.events import (
+    RunCompleted,
+    RunFailed,
+    RunStarted,
+    StepCompleted,
+    StepFailed,
+    StepStarted,
+)
 from saz.engine.templating import TemplateContext
 from saz.policies.budget_tracker import BudgetTracker
 from saz.tools.registry import ToolRegistry, create_default_registry
@@ -83,7 +90,12 @@ class WorkflowExecutor:
             # Mark run as running
             assert self.uow.runs is not None
             self.uow.runs.mark_running(run_id)
+            self.uow.add_event(RunStarted(run_id, flow.id))
             self.uow.commit()
+
+            # Broadcast run started event
+            events = self.uow.collect_events()
+            await broadcast_events(events)
 
             logger.info(f"Starting agentic execution for run {run_id} (flow: {flow.name})")
 

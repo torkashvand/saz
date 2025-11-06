@@ -83,10 +83,7 @@ check_untyped_defs = true
 strict_equality = true
 ignore_missing_imports = true
 exclude = '''
-^(alembic|migrations|tests|build|dist|scripts|docs)(/|$)
+^(alembic|migrations|build|dist|scripts|docs)(/|$)
 |.*/generated/
 '''
 
-[[tool.mypy.overrides]]
-module = ["alembic.*", "migrations.*", "tests.*"]
-ignore_errors = true

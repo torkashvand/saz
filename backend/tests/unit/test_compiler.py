@@ -52,14 +52,16 @@ form:
     with pytest.raises(ValueError, match="Missing required section: flow"):
         parse_yaml(yaml_missing_flow)
 
-    yaml_missing_form = """
+    # Form section is optional, so no error when missing
+    yaml_without_form = """
 flow:
   name: Test
 workflow:
   steps: []
 """
-    with pytest.raises(ValueError, match="Missing required section: form"):
-        parse_yaml(yaml_missing_form)
+    result = parse_yaml(yaml_without_form)
+    assert result["flow"]["name"] == "Test"
+    assert "form" not in result
 
 
 def test_compile_form_model_text_field():

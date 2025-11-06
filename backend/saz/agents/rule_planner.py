@@ -89,7 +89,7 @@ class RulePlanner:
                 plan_step = self._parse_artifact_retrieve(step_def)
             else:
                 # Default: treat as tool call
-                plan_step = self._parse_tool_call(step_def, tool_registry)
+                raise RuntimeError(f"unknown step type: {step_type}")
 
             plan_steps.append(plan_step)
 

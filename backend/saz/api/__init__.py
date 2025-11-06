@@ -1,6 +1,7 @@
 """Clean v1 API with Repository + UnitOfWork + Service architecture."""
 
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -24,12 +25,30 @@ from saz.services.credential_service import CredentialService
 from saz.services.flow_service import FlowService
 from saz.services.run_service import RunService
 
-# Create app
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown using FastAPI lifespan (replaces deprecated on_event)."""
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        # Initialize scheduler on startup
+        get_scheduler(database_url)
+    yield
+    # Shutdown scheduler gracefully
+    try:
+        scheduler = get_scheduler()
+        scheduler.shutdown(wait=False)
+    except Exception:
+        pass
+
+
+# Create app (with lifespan)
 app = FastAPI(
     title="Saz Workflow API",
     version="2.0.0",
     docs_url="/api/v1/docs",
     openapi_url="/api/v1/openapi.json",
+    lifespan=lifespan,
 )
 
 # Exception handlers
@@ -45,26 +64,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# Startup/shutdown handlers
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize scheduler on startup."""
-    database_url = os.environ.get("DATABASE_URL")
-    if database_url:
-        get_scheduler(database_url)
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Shutdown scheduler gracefully."""
-    try:
-        scheduler = get_scheduler()
-        scheduler.shutdown(wait=False)
-    except Exception:
-        pass
-
 
 # ========== Request/Response Models ==========
 
@@ -514,9 +513,7 @@ def get_run_graph(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]
             edges.append({"from": prev_step_id, "to": step_id})
 
     # Build status map from run steps
-    status_by_step = {}
-    for step in run.steps:
-        status_by_step[step.name] = step.status
+    status_by_step = {s.name: s.status for s in run.steps}
 
     return {"nodes": nodes, "edges": edges, "status_by_step": status_by_step}
 

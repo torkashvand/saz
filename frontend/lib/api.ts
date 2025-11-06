@@ -3,6 +3,8 @@ import type {
   FlowListResponse,
   RegisterFlowRequest,
   RegisterFlowResponse,
+  CompileFlowRequest,
+  CompileFlowResponse,
   FlowDetailResponse,
   // Runs
   RunListResponse,
@@ -112,6 +114,15 @@ export const api = {
     if (params?.offset) query.set('offset', params.offset.toString());
     return fetchApi<FlowListResponse>(`/api/v1/flows?${query}`);
   },
+
+  /**
+   * Compile and validate YAML DSL without registering
+   */
+  compileFlow: (data: CompileFlowRequest) =>
+    fetchApi<CompileFlowResponse>('/api/v1/flows/compile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   /**
    * Register a new flow from YAML DSL

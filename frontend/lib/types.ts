@@ -32,6 +32,22 @@ export interface RegisterFlowResponse {
   };
 }
 
+export interface CompileFlowRequest {
+  yaml: string;
+}
+
+export interface CompileFlowResponse {
+  flow_name: string;
+  flow_version?: string;
+  flow_description?: string;
+  form_schema: {
+    properties?: Record<string, any>;
+    required?: string[];
+  };
+  workflow_summary: WorkflowSummary;
+  warnings: string[];
+}
+
 export interface FlowDetailResponse {
   id: string;
   name: string;

@@ -6,11 +6,11 @@ import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useRegisterFlow, useFlowGraph } from '@/lib/hooks';
+import { useCompileFlow, useRegisterFlow, useFlowGraph } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
 import { JsonView } from '@/components/json-view';
 import { WorkflowGraph } from '@/components/workflow-graph';
-import type { RegisterFlowResponse } from '@/lib/types';
+import type { RegisterFlowResponse, CompileFlowResponse } from '@/lib/types';
 
 // Dynamically import Monaco editor to avoid SSR issues
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
@@ -70,10 +70,13 @@ policies:
 export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const compileMutation = useCompileFlow();
   const registerMutation = useRegisterFlow();
 
   const [yaml, setYaml] = useState('');
+  const [compiledFlow, setCompiledFlow] = useState<CompileFlowResponse | null>(null);
   const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null);
 
@@ -89,6 +92,50 @@ export default function RegisterPage() {
     }
   }, []);
 
+  const handleValidate = async () => {
+    if (!yaml.trim()) {
+      const errorMsg = 'YAML content is required';
+      setValidationError(errorMsg);
+      toast({
+        title: 'Error',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Clear previous errors
+    setValidationError(null);
+
+    try {
+      const result = await compileMutation.mutateAsync({ yaml });
+      setCompiledFlow(result);
+
+      if (result.warnings && result.warnings.length > 0) {
+        toast({
+          title: 'Validation Warnings',
+          description: result.warnings.join(', '),
+          variant: 'default',
+        });
+      } else {
+        toast({
+          title: 'Validation Successful',
+          description: `Flow "${result.flow_name}" is valid`,
+        });
+      }
+    } catch (error: any) {
+      console.error('Validation error:', error);
+      const errorMsg = error.message || 'Invalid YAML syntax or structure';
+      setValidationError(errorMsg);
+      toast({
+        title: 'Validation Failed',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+      setCompiledFlow(null);
+    }
+  };
+
   const handleRegister = async () => {
     if (!yaml.trim()) {
       toast({
@@ -103,6 +150,7 @@ export default function RegisterPage() {
       const result = await registerMutation.mutateAsync({ yaml });
 
       setRegisteredFlow(result);
+      setCompiledFlow(null); // Clear compiled preview after registration
       localStorage.setItem('last_yaml', yaml);
       localStorage.setItem('last_registered_flow', JSON.stringify(result));
 
@@ -146,15 +194,29 @@ export default function RegisterPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <Button size="sm" variant="outline" onClick={() => setYaml(EXAMPLE_YAML)}>
-                Load Example
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setYaml(EXAMPLE_YAML)}>
+                  Load Example
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleValidate}
+                  disabled={compileMutation.isPending}
+                >
+                  {compileMutation.isPending ? 'Validating...' : 'Validate YAML'}
+                </Button>
+              </div>
               <div className="border rounded overflow-hidden">
                 <MonacoEditor
                   height="500px"
                   language="yaml"
                   value={yaml}
-                  onChange={(value) => setYaml(value || '')}
+                  onChange={(value) => {
+                    setYaml(value || '');
+                    // Clear validation error when user edits
+                    if (validationError) setValidationError(null);
+                  }}
                   theme="vs-dark"
                   options={{
                     minimap: { enabled: false },
@@ -174,7 +236,22 @@ export default function RegisterPage() {
             <CardTitle>Preview</CardTitle>
           </CardHeader>
           <CardContent>
-            {registeredFlow ? (
+            {validationError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="text-red-600 text-xl">✕</div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-red-800 mb-1">
+                      Validation Failed
+                    </div>
+                    <div className="text-xs text-red-700 font-mono whitespace-pre-wrap break-words">
+                      {validationError}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {(registeredFlow || compiledFlow) ? (
               <Tabs defaultValue="summary" className="w-full">
                 <TabsList className="w-full">
                   <TabsTrigger value="summary" className="flex-1">
@@ -183,73 +260,100 @@ export default function RegisterPage() {
                   <TabsTrigger value="form" className="flex-1">
                     Form Schema
                   </TabsTrigger>
-                  <TabsTrigger value="graph" className="flex-1">
-                    Workflow Graph
-                  </TabsTrigger>
+                  {registeredFlow && (
+                    <TabsTrigger value="graph" className="flex-1">
+                      Workflow Graph
+                    </TabsTrigger>
+                  )}
                 </TabsList>
 
                 <TabsContent value="summary" className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="border rounded p-3">
-                      <div className="text-xs text-muted-foreground">Flow ID</div>
-                      <div className="text-sm font-mono mt-1 truncate">{registeredFlow.id}</div>
+                  {registeredFlow && (
+                    <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded">
+                      <div className="text-xs font-medium text-green-800">✓ Flow Registered</div>
+                      <div className="text-xs text-green-600 mt-1 font-mono truncate">
+                        {registeredFlow.id}
+                      </div>
                     </div>
+                  )}
+                  {compiledFlow && !registeredFlow && (
+                    <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                      <div className="text-xs font-medium text-blue-800">
+                        ✓ Validation Successful
+                      </div>
+                      <div className="text-xs text-blue-600 mt-1">
+                        Ready to register: {compiledFlow.flow_name}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    {!compiledFlow && registeredFlow && (
+                      <div className="border rounded p-3">
+                        <div className="text-xs text-muted-foreground">Flow ID</div>
+                        <div className="text-sm font-mono mt-1 truncate">{registeredFlow.id}</div>
+                      </div>
+                    )}
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Total Steps</div>
                       <div className="text-2xl font-bold mt-1">
-                        {registeredFlow.workflow_summary.steps_count}
+                        {(registeredFlow || compiledFlow)!.workflow_summary.steps_count}
                       </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">AI Steps</div>
                       <div className="text-2xl font-bold mt-1">
-                        {registeredFlow.workflow_summary.ai_steps}
+                        {(registeredFlow || compiledFlow)!.workflow_summary.ai_steps}
                       </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Credentials</div>
                       <div className="text-sm mt-1">
-                        {registeredFlow.workflow_summary.credentials?.length || 'None'}
+                        {(registeredFlow || compiledFlow)!.workflow_summary.credentials?.length ||
+                          'None'}
                       </div>
                     </div>
                   </div>
-                  {registeredFlow.workflow_summary.credentials &&
-                    registeredFlow.workflow_summary.credentials.length > 0 && (
+                  {(registeredFlow || compiledFlow)!.workflow_summary.credentials &&
+                    (registeredFlow || compiledFlow)!.workflow_summary.credentials.length > 0 && (
                       <div className="border rounded p-3">
                         <div className="text-xs text-muted-foreground mb-2">
                           Required Credentials
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {registeredFlow.workflow_summary.credentials.map((cred) => (
-                            <span
-                              key={cred}
-                              className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded"
-                            >
-                              {cred}
-                            </span>
-                          ))}
+                          {(registeredFlow || compiledFlow)!.workflow_summary.credentials.map(
+                            (cred) => (
+                              <span
+                                key={cred}
+                                className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded"
+                              >
+                                {cred}
+                              </span>
+                            ),
+                          )}
                         </div>
                       </div>
                     )}
                 </TabsContent>
 
                 <TabsContent value="form">
-                  <JsonView data={registeredFlow.form_schema} />
+                  <JsonView data={(registeredFlow || compiledFlow)!.form_schema} />
                 </TabsContent>
 
-                <TabsContent value="graph">
-                  {flowGraph ? (
-                    <WorkflowGraph nodes={flowGraph.nodes} edges={flowGraph.edges} />
-                  ) : (
-                    <div className="flex items-center justify-center py-12">
-                      <p className="text-sm text-muted-foreground">Loading graph...</p>
-                    </div>
-                  )}
-                </TabsContent>
+                {registeredFlow && (
+                  <TabsContent value="graph">
+                    {flowGraph ? (
+                      <WorkflowGraph nodes={flowGraph.nodes} edges={flowGraph.edges} />
+                    ) : (
+                      <div className="flex items-center justify-center py-12">
+                        <p className="text-sm text-muted-foreground">Loading graph...</p>
+                      </div>
+                    )}
+                  </TabsContent>
+                )}
               </Tabs>
             ) : (
               <p className="text-center py-12 text-muted-foreground">
-                Register a workflow to see preview
+                Validate or register a workflow to see preview
               </p>
             )}
           </CardContent>

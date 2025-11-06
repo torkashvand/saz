@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
-import type { RegisterFlowRequest, CreateRunRequest } from './types';
+import type { RegisterFlowRequest, CompileFlowRequest, CreateRunRequest } from './types';
 
 // ========== Unified DSL Hooks ==========
+
+export function useCompileFlow() {
+  return useMutation({
+    mutationFn: (data: CompileFlowRequest) => api.compileFlow(data),
+  });
+}
 
 export function useRegisterFlow() {
   return useMutation({

@@ -1,15 +1,19 @@
 """Tool Registry - Central registry for MCP-style tool discovery and execution."""
+
+from collections.abc import Callable
+from typing import Any, cast
+
 import structlog
-from typing import Dict, Any, List, Callable, Optional
+
+from .ansible_tool import AnsibleTool
+from .artifact_tool import ArtifactTool
 from .http_tool import HttpTool
 from .webhook_tool import WebhookTool
-from .artifact_tool import ArtifactTool
-from .ansible_tool import AnsibleTool
 
 logger = structlog.get_logger(__name__)
 
 
-def _create_ai_tool_spec(op_name: str, op_spec: Any) -> Dict[str, Any]:
+def _create_ai_tool_spec(op_name: str, op_spec: Any) -> dict[str, Any]:
     """Create MCP-style tool spec for an AI operation."""
     return {
         "name": op_name,
@@ -17,32 +21,32 @@ def _create_ai_tool_spec(op_name: str, op_spec: Any) -> Dict[str, Any]:
         "input_schema": {
             "type": "object",
             "properties": {
-                "instruction": {
-                    "type": "string",
-                    "description": "Task instruction or prompt"
-                },
+                "instruction": {"type": "string", "description": "Task instruction or prompt"},
                 "data": {
                     "type": "object",
                     "description": "Input data context",
-                    "additionalProperties": True
+                    "additionalProperties": True,
                 },
                 "expected_schema": {
                     "type": "object",
                     "description": "Override default output schema (for JSON ops)",
-                    "additionalProperties": True
+                    "additionalProperties": True,
                 },
                 "temperature_override": {
                     "type": "number",
-                    "description": "Override default temperature"
+                    "description": "Override default temperature",
                 },
                 "max_tokens_override": {
                     "type": "integer",
-                    "description": "Override default max tokens"
+                    "description": "Override default max tokens",
                 },
-                **{k: {"type": "string", "description": f"{k} parameter"} for k in op_spec.input_extras.keys()}
+                **{
+                    k: {"type": "string", "description": f"{k} parameter"}
+                    for k in op_spec.input_extras.keys()
+                },
             },
-            "required": ["instruction"]
-        }
+            "required": ["instruction"],
+        },
     }
 
 
@@ -58,14 +62,14 @@ class ToolRegistry:
 
     def __init__(
         self,
-        http_tool: Optional[HttpTool] = None,
-        webhook_tool: Optional[WebhookTool] = None,
-        artifact_tool: Optional[ArtifactTool] = None,
-        ansible_tool: Optional[AnsibleTool] = None
+        http_tool: HttpTool | None = None,
+        webhook_tool: WebhookTool | None = None,
+        artifact_tool: ArtifactTool | None = None,
+        ansible_tool: AnsibleTool | None = None,
     ):
         self.logger = logger.bind(component="tool_registry")
-        self._tools: Dict[str, Dict[str, Any]] = {}
-        self._executors: Dict[str, Callable] = {}
+        self._tools: dict[str, dict[str, Any]] = {}
+        self._executors: dict[str, Callable] = {}
 
         # Register core tools
         if http_tool:
@@ -125,9 +129,11 @@ class ToolRegistry:
             self._tools[op_name] = tool_spec
 
             # Create executor wrapper with proper closure
-            def make_executor(op_name_capture=op_name):
-                async def executor(**kwargs):
-                    return await ai_runner.run_ai_op(op_name_capture, **kwargs)
+            def make_executor(op_name_capture: str = op_name) -> Callable:
+                async def executor(**kwargs: Any) -> dict[str, Any]:
+                    result = await ai_runner.run_ai_op(op_name_capture, **kwargs)
+                    return cast(dict[str, Any], result)
+
                 return executor
 
             self._executors[op_name] = make_executor()
@@ -135,12 +141,7 @@ class ToolRegistry:
 
         self.logger.info("all_ai_ops_registered", count=len(AI_OPS))
 
-    def register_custom_tool(
-        self,
-        name: str,
-        spec: Dict[str, Any],
-        executor: Callable
-    ) -> None:
+    def register_custom_tool(self, name: str, spec: dict[str, Any], executor: Callable) -> None:
         """
         Register a custom tool.
 
@@ -153,7 +154,7 @@ class ToolRegistry:
         self._executors[name] = executor
         self.logger.info("custom_tool_registered", tool=name)
 
-    def get_tool_specs(self) -> List[Dict[str, Any]]:
+    def get_tool_specs(self) -> list[dict[str, Any]]:
         """
         Get all tool specifications for planner agent.
 
@@ -162,7 +163,7 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
-    def get_tool_specs_dict(self) -> Dict[str, Dict[str, Any]]:
+    def get_tool_specs_dict(self) -> dict[str, dict[str, Any]]:
         """
         Get tool specifications as dict (indexed by name).
 
@@ -174,11 +175,11 @@ class ToolRegistry:
     async def execute_tool(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         idempotency_key: str = "",
         run_id: str = "",
-        step_id: str = ""
-    ) -> Dict[str, Any]:
+        step_id: str = "",
+    ) -> dict[str, Any]:
         """
         Execute a tool by name.
 
@@ -205,7 +206,7 @@ class ToolRegistry:
             tool=tool_name,
             run_id=run_id,
             step_id=step_id,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
 
         try:
@@ -221,13 +222,10 @@ class ToolRegistry:
             result = await executor(**exec_args)
 
             self.logger.info(
-                "tool_execution_success",
-                tool=tool_name,
-                run_id=run_id,
-                step_id=step_id
+                "tool_execution_success", tool=tool_name, run_id=run_id, step_id=step_id
             )
 
-            return result
+            return cast(dict[str, Any], result)
 
         except Exception as e:
             self.logger.error(
@@ -235,26 +233,26 @@ class ToolRegistry:
                 tool=tool_name,
                 error=str(e),
                 run_id=run_id,
-                step_id=step_id
+                step_id=step_id,
             )
             raise
 
-    def list_tools(self) -> List[str]:
+    def list_tools(self) -> list[str]:
         """Get list of registered tool names"""
         return list(self._tools.keys())
 
-    def get_tool_spec(self, tool_name: str) -> Optional[Dict[str, Any]]:
+    def get_tool_spec(self, tool_name: str) -> dict[str, Any] | None:
         """Get specification for a specific tool"""
         return self._tools.get(tool_name)
 
 
 def create_default_registry(
-    allowed_domains: Optional[List[str]] = None,
+    allowed_domains: list[str] | None = None,
     callback_base_url: str = "http://localhost:8000",
     artifact_storage_path: str = "/tmp/saz/artifacts",
-    allowed_playbook_roots: Optional[List[str]] = None,
-    allowed_inventories: Optional[List[str]] = None,
-    enable_ai_ops: bool = True
+    allowed_playbook_roots: list[str] | None = None,
+    allowed_inventories: list[str] | None = None,
+    enable_ai_ops: bool = True,
 ) -> ToolRegistry:
     """
     Create a default tool registry with standard tools.
@@ -276,26 +274,25 @@ def create_default_registry(
     ansible_tool = AnsibleTool(
         allowed_playbook_roots=allowed_playbook_roots,
         allowed_inventories=allowed_inventories,
-        artifact_storage_path=artifact_storage_path
+        artifact_storage_path=artifact_storage_path,
     )
 
     registry = ToolRegistry(
         http_tool=http_tool,
         webhook_tool=webhook_tool,
         artifact_tool=artifact_tool,
-        ansible_tool=ansible_tool
+        ansible_tool=ansible_tool,
     )
 
     # Register AI operations
     if enable_ai_ops:
         from saz.agents.ai_ops import get_ai_runner
+
         ai_runner = get_ai_runner()
         registry.register_ai_ops(ai_runner)
 
     logger.info(
-        "default_registry_created",
-        tools=registry.list_tools(),
-        ai_ops_enabled=enable_ai_ops
+        "default_registry_created", tools=registry.list_tools(), ai_ops_enabled=enable_ai_ops
     )
 
     return registry

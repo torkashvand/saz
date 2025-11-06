@@ -2,6 +2,12 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useGlobalEvents } from '@/lib/use-events'
+
+function EventsProvider() {
+  useGlobalEvents()
+  return null
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -18,6 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <EventsProvider />
       {children}
     </QueryClientProvider>
   )

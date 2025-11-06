@@ -1,9 +1,12 @@
 """Planner Agent - Generates execution plans from workflow specifications using LLM."""
+
 import json
+from typing import Any
+
 import structlog
-from typing import Dict, Any, List, Optional
-from .schemas import ExecutionPlan
+
 from .llm_port import LLMPort, get_llm_port
+from .schemas import ExecutionPlan
 
 logger = structlog.get_logger(__name__)
 
@@ -11,7 +14,8 @@ logger = structlog.get_logger(__name__)
 PLANNER_SYSTEM_PROMPT = """You are an autonomous workflow planner.
 
 ## Your Role
-Generate a detailed, executable plan from a workflow specification. You have access to tools via an MCP-style registry. Your plan must be deterministic, auditable, and respect safety constraints.
+Generate a detailed, executable plan from a workflow specification. You have access to tools via
+an MCP-style registry. Your plan must be deterministic, auditable, and respect safety constraints.
 
 ## Available Tools
 {tool_registry_json}
@@ -79,19 +83,19 @@ Generate the plan now."""
 class PlannerAgent:
     """LLM-powered workflow planner"""
 
-    def __init__(self, model: str = "gpt-4o", llm_port: Optional[LLMPort] = None):
+    def __init__(self, model: str = "gpt-4o", llm_port: LLMPort | None = None):
         self.model = model
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="planner")
 
     async def plan(
         self,
-        workflow_spec: Dict[str, Any],
-        tool_registry: List[Dict],
+        workflow_spec: dict[str, Any],
+        tool_registry: list[dict],
         run_id: str,
-        completed_steps: List[str],
-        current_data: Dict,
-        budget: Dict
+        completed_steps: list[str],
+        current_data: dict,
+        budget: dict,
     ) -> ExecutionPlan:
         """
         Generate execution plan from workflow spec.
@@ -113,7 +117,7 @@ class PlannerAgent:
             "planning_workflow",
             workflow=workflow_spec.get('name'),
             run_id=run_id,
-            tools_count=len(tool_registry)
+            tools_count=len(tool_registry),
         )
 
         # Format prompt
@@ -128,7 +132,7 @@ class PlannerAgent:
             remaining_cost=budget.get('remaining_cost', 0),
             max_cost_usd=budget.get('max_cost_usd', 10),
             remaining_steps=budget.get('remaining_steps', 0),
-            max_steps=budget.get('max_steps', 50)
+            max_steps=budget.get('max_steps', 50),
         )
 
         # Call LLM with structured output
@@ -137,10 +141,10 @@ class PlannerAgent:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": "Generate the execution plan."}
+                    {"role": "user", "content": "Generate the execution plan."},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1  # Low temperature for determinism
+                temperature=0.1,  # Low temperature for determinism
             )
 
             plan_json = json.loads(response.content)
@@ -154,7 +158,7 @@ class PlannerAgent:
                 steps_count=len(plan.steps),
                 estimated_cost=plan.estimated_cost_usd,
                 estimated_time=plan.estimated_time_seconds,
-                tokens_used=response.total_tokens
+                tokens_used=response.total_tokens,
             )
 
             return plan

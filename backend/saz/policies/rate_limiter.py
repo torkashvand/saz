@@ -1,8 +1,9 @@
 """Rate Limiter - Prevents excessive tool calls."""
-import structlog
-from typing import Dict
-from datetime import datetime, timedelta, UTC
+
 from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+
+import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -18,10 +19,7 @@ class RateLimiter:
     """
 
     def __init__(
-        self,
-        calls_per_minute: int = 10,
-        calls_per_hour: int = 100,
-        burst_allowance: int = 5
+        self, calls_per_minute: int = 10, calls_per_hour: int = 100, burst_allowance: int = 5
     ):
         self.calls_per_minute = calls_per_minute
         self.calls_per_hour = calls_per_hour
@@ -29,14 +27,10 @@ class RateLimiter:
         self.logger = logger.bind(policy="rate_limiter")
 
         # Storage: {key -> [(timestamp, count)]}
-        self._minute_buckets: Dict[str, list] = defaultdict(list)
-        self._hour_buckets: Dict[str, list] = defaultdict(list)
+        self._minute_buckets: dict[str, list] = defaultdict(list)
+        self._hour_buckets: dict[str, list] = defaultdict(list)
 
-    def check_and_record(
-        self,
-        tool_name: str,
-        run_id: str
-    ) -> tuple[bool, str]:
+    def check_and_record(self, tool_name: str, run_id: str) -> tuple[bool, str]:
         """
         Check if call is allowed and record it.
 
@@ -52,10 +46,7 @@ class RateLimiter:
         # Check per-tool per-minute limit
         tool_key = f"tool:{tool_name}"
         if not self._check_bucket(
-            self._minute_buckets[tool_key],
-            now,
-            timedelta(minutes=1),
-            self.calls_per_minute
+            self._minute_buckets[tool_key], now, timedelta(minutes=1), self.calls_per_minute
         ):
             reason = f"Tool '{tool_name}' exceeded {self.calls_per_minute} calls/minute"
             self.logger.warning(
@@ -63,17 +54,14 @@ class RateLimiter:
                 tool=tool_name,
                 run_id=run_id,
                 limit_type="per_minute",
-                limit=self.calls_per_minute
+                limit=self.calls_per_minute,
             )
             return False, reason
 
         # Check per-workflow per-hour limit
         run_key = f"run:{run_id}"
         if not self._check_bucket(
-            self._hour_buckets[run_key],
-            now,
-            timedelta(hours=1),
-            self.calls_per_hour
+            self._hour_buckets[run_key], now, timedelta(hours=1), self.calls_per_hour
         ):
             reason = f"Workflow exceeded {self.calls_per_hour} calls/hour"
             self.logger.warning(
@@ -81,7 +69,7 @@ class RateLimiter:
                 tool=tool_name,
                 run_id=run_id,
                 limit_type="per_hour",
-                limit=self.calls_per_hour
+                limit=self.calls_per_hour,
             )
             return False, reason
 
@@ -89,21 +77,11 @@ class RateLimiter:
         self._minute_buckets[tool_key].append(now)
         self._hour_buckets[run_key].append(now)
 
-        self.logger.debug(
-            "rate_limit_check_passed",
-            tool=tool_name,
-            run_id=run_id
-        )
+        self.logger.debug("rate_limit_check_passed", tool=tool_name, run_id=run_id)
 
         return True, "ok"
 
-    def _check_bucket(
-        self,
-        bucket: list,
-        now: datetime,
-        window: timedelta,
-        limit: int
-    ) -> bool:
+    def _check_bucket(self, bucket: list, now: datetime, window: timedelta, limit: int) -> bool:
         """
         Check if bucket has capacity.
 
@@ -123,7 +101,7 @@ class RateLimiter:
         # Check if under limit
         return len(bucket) < limit
 
-    def get_stats(self, run_id: str) -> Dict[str, int]:
+    def get_stats(self, run_id: str) -> dict[str, int]:
         """
         Get rate limit stats for a run.
 
@@ -144,7 +122,7 @@ class RateLimiter:
         return {
             "calls_last_hour": len(hour_bucket),
             "limit_per_hour": self.calls_per_hour,
-            "remaining_calls": max(0, self.calls_per_hour - len(hour_bucket))
+            "remaining_calls": max(0, self.calls_per_hour - len(hour_bucket)),
         }
 
     def reset(self, run_id: str) -> None:

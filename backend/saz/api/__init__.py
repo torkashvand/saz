@@ -1,28 +1,35 @@
 """Clean v1 API with Repository + UnitOfWork + Service architecture."""
-from typing import Optional
-from fastapi import FastAPI, Depends, Query
+
+import os
+from datetime import datetime
+from typing import Any
+
+from fastapi import Depends, FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from saz.db.dependencies import get_uow
-from saz.db.unit_of_work import UnitOfWork
-from saz.services.run_service import RunService
-from saz.services.flow_service import FlowService
-from saz.services.credential_service import CredentialService
 from saz.api.errors import (
-    ServiceError,
     NotFoundError,
+    ServiceError,
+    generic_error_handler,
     service_error_handler,
     value_error_handler,
-    generic_error_handler
 )
+from saz.api.websocket import broadcast_events, websocket_endpoint
+from saz.db.dependencies import get_uow
+from saz.db.unit_of_work import UnitOfWork
+from saz.engine.scheduler import get_scheduler
+from saz.services.credential_service import CredentialService
+from saz.services.flow_service import FlowService
+from saz.services.run_service import RunService
 
 # Create app
 app = FastAPI(
     title="Saz Workflow API",
     version="2.0.0",
     docs_url="/api/v1/docs",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
 )
 
 # Exception handlers
@@ -40,15 +47,46 @@ app.add_middleware(
 )
 
 
+# Startup/shutdown handlers
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Initialize scheduler on startup."""
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        get_scheduler(database_url)
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """Shutdown scheduler gracefully."""
+    try:
+        scheduler = get_scheduler()
+        scheduler.shutdown(wait=False)
+    except Exception:
+        pass
+
+
 # ========== Request/Response Models ==========
+
 
 class RegisterFlowRequest(BaseModel):
     yaml: str
 
 
+class WorkflowSummary(BaseModel):
+    steps_count: int
+    ai_steps: int
+    credentials: list[str]
+
+
 class RegisterFlowResponse(BaseModel):
     id: str
     name: str
+    version: str | None = None
+    description: str | None = None
+    created_at: str
+    workflow_summary: WorkflowSummary
+    form_schema: dict
 
 
 class FlowListResponse(BaseModel):
@@ -87,12 +125,12 @@ class CreateCredentialRequest(BaseModel):
     name: str
     credential_type: str
     data: dict
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class UpdateCredentialRequest(BaseModel):
     data: dict
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class CredentialResponse(BaseModel):
@@ -102,12 +140,13 @@ class CredentialResponse(BaseModel):
 
 # ========== Flow Endpoints ==========
 
+
 @app.get("/api/v1/flows", response_model=FlowListResponse)
 def list_flows(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    uow: UnitOfWork = Depends(get_uow)
-):
+    uow: UnitOfWork = Depends(get_uow),
+) -> FlowListResponse:
     """List all flows."""
     service = FlowService(uow)
     items, total = service.list(limit, offset)
@@ -119,16 +158,18 @@ def list_flows(
                 "name": item.name,
                 "version": item.version,
                 "description": item.description,
-                "created_at": item.created_at.isoformat()
+                "created_at": item.created_at.isoformat(),
             }
             for item in items
         ],
-        total=total
+        total=total,
     )
 
 
 @app.post("/api/v1/flows", response_model=RegisterFlowResponse)
-def register_flow(req: RegisterFlowRequest, uow: UnitOfWork = Depends(get_uow)):
+def register_flow(
+    req: RegisterFlowRequest, uow: UnitOfWork = Depends(get_uow)
+) -> RegisterFlowResponse:
     """Register a new flow from YAML DSL."""
     service = FlowService(uow)
     flow_id = service.register(req.yaml)
@@ -137,11 +178,74 @@ def register_flow(req: RegisterFlowRequest, uow: UnitOfWork = Depends(get_uow)):
     if not flow_detail:
         raise NotFoundError("Flow was created but not found")
 
-    return RegisterFlowResponse(id=flow_id, name=flow_detail.name)
+    # Compute workflow summary
+    workflow_steps = flow_detail.definition.get("workflow", {}).get("steps", [])
+    ai_step_types = {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
+    ai_steps_count = sum(1 for step in workflow_steps if step.get("type") in ai_step_types)
+    credentials = flow_detail.definition.get("credentials", [])
+    if isinstance(credentials, dict):
+        credentials = list(credentials.keys())
+
+    workflow_summary = WorkflowSummary(
+        steps_count=len(workflow_steps),
+        ai_steps=ai_steps_count,
+        credentials=credentials if isinstance(credentials, list) else [],
+    )
+
+    # Convert form definition to JSON Schema format
+    form_def = flow_detail.definition.get("form", {})
+    fields = form_def.get("fields", [])
+
+    # Build JSON Schema properties and required array
+    properties = {}
+    required = []
+
+    for field in fields:
+        field_name = field.get("name")
+        if not field_name:
+            continue
+
+        # Map form field types to JSON Schema types
+        field_type = field.get("type", "text")
+        json_schema_type = {
+            "text": "string",
+            "number": "number",
+            "integer": "integer",
+            "boolean": "boolean",
+            "email": "string",
+            "url": "string",
+        }.get(field_type, "string")
+
+        field_schema = {"type": json_schema_type, "description": field.get("description", "")}
+
+        # Add validation constraints if present
+        if "min" in field:
+            field_schema["minimum"] = field["min"]
+        if "max" in field:
+            field_schema["maximum"] = field["max"]
+        if "regex" in field:
+            field_schema["pattern"] = field["regex"]
+
+        properties[field_name] = field_schema
+
+        if field.get("required", False):
+            required.append(field_name)
+
+    form_schema = {"properties": properties, "required": required}
+
+    return RegisterFlowResponse(
+        id=flow_id,
+        name=flow_detail.name,
+        version=flow_detail.version,
+        description=flow_detail.description,
+        created_at=flow_detail.created_at.isoformat(),
+        workflow_summary=workflow_summary,
+        form_schema=form_schema,
+    )
 
 
 @app.get("/api/v1/flows/{id}")
-def get_flow(id: str, uow: UnitOfWork = Depends(get_uow)):
+def get_flow(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
     """Get flow detail."""
     service = FlowService(uow)
     flow = service.get(id)
@@ -155,20 +259,59 @@ def get_flow(id: str, uow: UnitOfWork = Depends(get_uow)):
         "version": flow.version,
         "description": flow.description,
         "definition": flow.definition,
-        "created_at": flow.created_at.isoformat()
+        "created_at": flow.created_at.isoformat(),
     }
+
+
+@app.get("/api/v1/flows/{id}/graph")
+def get_flow_graph(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
+    """Get flow graph visualization data."""
+    service = FlowService(uow)
+    flow = service.get(id)
+
+    if not flow:
+        raise NotFoundError(f"Flow not found: {id}")
+
+    # Build graph from workflow steps
+    workflow_steps = flow.definition.get("workflow", {}).get("steps", [])
+
+    nodes = []
+    edges = []
+
+    for idx, step in enumerate(workflow_steps):
+        step_id = step.get("id", f"step_{idx}")
+        step_type = step.get("type", "unknown")
+        step_instruction = step.get("instruction", step.get("description", step_id))
+
+        nodes.append(
+            {
+                "id": step_id,
+                "label": step_instruction[:50] + "..."
+                if len(step_instruction) > 50
+                else step_instruction,
+                "type": step_type,
+            }
+        )
+
+        # Create linear edges (each step to next)
+        if idx > 0:
+            prev_step_id = workflow_steps[idx - 1].get("id", f"step_{idx - 1}")
+            edges.append({"from": prev_step_id, "to": step_id})
+
+    return {"nodes": nodes, "edges": edges}
 
 
 # ========== Run Endpoints ==========
 
+
 @app.get("/api/v1/runs", response_model=RunListResponse)
 def list_runs(
-    flow_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    flow_id: str | None = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    uow: UnitOfWork = Depends(get_uow)
-):
+    uow: UnitOfWork = Depends(get_uow),
+) -> RunListResponse:
     """List runs with optional filters."""
     service = RunService(uow)
     items, total = service.list(flow_id, status, limit, offset)
@@ -181,29 +324,58 @@ def list_runs(
                 "status": item.status,
                 "created_at": item.created_at.isoformat(),
                 "completed_at": item.completed_at.isoformat() if item.completed_at else None,
-                "cost_cents": item.cost_cents
+                "cost_cents": item.cost_cents,
             }
             for item in items
         ],
-        total=total
+        total=total,
     )
 
 
 @app.post("/api/v1/runs", response_model=CreateRunResponse)
-def create_run(req: CreateRunRequest, uow: UnitOfWork = Depends(get_uow)):
-    """Create a new run."""
+async def create_run(
+    req: CreateRunRequest, uow: UnitOfWork = Depends(get_uow)
+) -> CreateRunResponse | JSONResponse:
+    """Create a new run and schedule it for immediate execution."""
     service = RunService(uow)
     run_id = service.create(req.flow_id, req.payload)
 
-    return CreateRunResponse(
-        id=run_id,
-        flow_id=req.flow_id,
-        status="queued"
-    )
+    # Broadcast run.started event
+    events = uow.collect_events()
+    await broadcast_events(events)
+
+    # Atomically mark as running and schedule execution
+    assert uow.runs is not None
+    run = uow.runs.mark_running(run_id)
+    if not run:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "InternalError",
+                "message": "Failed to mark run as running",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    uow.commit()
+
+    # Schedule for execution in thread pool
+    scheduler = get_scheduler()
+    scheduled = scheduler.schedule(run_id)
+    if not scheduled:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "AlreadyRunning",
+                "message": f"Run {run_id} is already scheduled or running",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+
+    return CreateRunResponse(id=run_id, flow_id=req.flow_id, status="running")
 
 
 @app.get("/api/v1/runs/{id}")
-def get_run(id: str, uow: UnitOfWork = Depends(get_uow)):
+def get_run(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
     """Get run detail."""
     service = RunService(uow)
     run = service.get(id)
@@ -211,8 +383,12 @@ def get_run(id: str, uow: UnitOfWork = Depends(get_uow)):
     if not run:
         raise NotFoundError(f"Run not found: {id}")
 
+    # Compute totals
+    cost_usd = run.cost_cents / 100.0 if run.cost_cents else 0.0
+
     return {
         "id": run.id,
+        "run_id": run.id,
         "flow_id": run.flow_id,
         "flow_name": run.flow_name,
         "status": run.status,
@@ -220,27 +396,41 @@ def get_run(id: str, uow: UnitOfWork = Depends(get_uow)):
         "error": run.error,
         "cost_cents": run.cost_cents,
         "created_at": run.created_at.isoformat(),
+        "started_at": run.created_at.isoformat(),  # Use created_at as started_at
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "totals": {
+            "tokens": 0,  # Not tracked yet
+            "cost_usd": cost_usd,
+        },
         "steps": [
             {
-                "id": s.id,
+                "id": s.name,  # Use name as id for frontend
                 "number": s.number,
                 "name": s.name,
+                "type": "unknown",  # Not tracked in current schema
                 "status": s.status,
                 "start_ts": s.start_ts.isoformat() if s.start_ts else None,
                 "end_ts": s.end_ts.isoformat() if s.end_ts else None,
                 "duration_ms": s.duration_ms,
                 "retry_count": s.retry_count,
-                "error": s.error
+                "error": s.error,
+                "tokens": 0,  # Not tracked yet
+                "cost_usd": 0.0,  # Not tracked yet
+                "input": None,  # Not tracked yet
+                "output": s.output,
+                "failure": {"type": "error", "message": s.error.get("message", "Unknown error")}
+                if s.error
+                else None,
             }
             for s in run.steps
         ],
-        "artifact_count": run.artifact_count
+        "artifacts": [],  # Not tracked yet, use artifact_count
+        "artifact_count": run.artifact_count,
     }
 
 
 @app.get("/api/v1/runs/{id}/steps")
-def get_run_steps(id: str, uow: UnitOfWork = Depends(get_uow)):
+def get_run_steps(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
     """Get run steps."""
     service = RunService(uow)
     run = service.get(id)
@@ -260,46 +450,97 @@ def get_run_steps(id: str, uow: UnitOfWork = Depends(get_uow)):
                 "end_ts": s.end_ts.isoformat() if s.end_ts else None,
                 "duration_ms": s.duration_ms,
                 "retry_count": s.retry_count,
-                "error": s.error
+                "output": s.output,
+                "error": s.error,
             }
             for s in run.steps
-        ]
+        ],
     }
 
 
+@app.get("/api/v1/runs/{id}/graph")
+def get_run_graph(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
+    """Get run graph visualization with step status overlay."""
+    service = RunService(uow)
+    run = service.get(id)
+
+    if not run:
+        raise NotFoundError(f"Run not found: {id}")
+
+    # Get flow to build graph structure
+    flow_service = FlowService(uow)
+    flow = flow_service.get(run.flow_id)
+
+    if not flow:
+        raise NotFoundError(f"Flow not found: {run.flow_id}")
+
+    # Build graph from workflow steps
+    workflow_steps = flow.definition.get("workflow", {}).get("steps", [])
+
+    nodes = []
+    edges = []
+
+    for idx, step in enumerate(workflow_steps):
+        step_id = step.get("id", f"step_{idx}")
+        step_type = step.get("type", "unknown")
+        step_instruction = step.get("instruction", step.get("description", step_id))
+
+        nodes.append(
+            {
+                "id": step_id,
+                "label": step_instruction[:50] + "..."
+                if len(step_instruction) > 50
+                else step_instruction,
+                "type": step_type,
+            }
+        )
+
+        # Create linear edges (each step to next)
+        if idx > 0:
+            prev_step_id = workflow_steps[idx - 1].get("id", f"step_{idx - 1}")
+            edges.append({"from": prev_step_id, "to": step_id})
+
+    # Build status map from run steps
+    status_by_step = {}
+    for step in run.steps:
+        status_by_step[step.name] = step.status
+
+    return {"nodes": nodes, "edges": edges, "status_by_step": status_by_step}
+
+
 @app.post("/api/v1/runs/{id}/retry", response_model=RetryRunResponse)
-def retry_run(id: str, uow: UnitOfWork = Depends(get_uow)):
+async def retry_run(id: str, uow: UnitOfWork = Depends(get_uow)) -> RetryRunResponse:
     """Retry a failed run."""
     service = RunService(uow)
     new_run_id = service.retry(id)
 
-    return RetryRunResponse(
-        original_run_id=id,
-        new_run_id=new_run_id
-    )
+    # Broadcast events
+    events = uow.collect_events()
+    await broadcast_events(events)
+
+    return RetryRunResponse(original_run_id=id, new_run_id=new_run_id)
 
 
 @app.post("/api/v1/runs/{id}/replay", response_model=ReplayRunResponse)
-def replay_run(
-    id: str,
-    from_step: int = Query(0, ge=0),
-    uow: UnitOfWork = Depends(get_uow)
-):
+async def replay_run(
+    id: str, from_step: int = Query(0, ge=0), uow: UnitOfWork = Depends(get_uow)
+) -> ReplayRunResponse:
     """Replay a run from a specific step."""
     service = RunService(uow)
     new_run_id = service.replay(id, from_step)
 
-    return ReplayRunResponse(
-        original_run_id=id,
-        new_run_id=new_run_id,
-        from_step=from_step
-    )
+    # Broadcast events
+    events = uow.collect_events()
+    await broadcast_events(events)
+
+    return ReplayRunResponse(original_run_id=id, new_run_id=new_run_id, from_step=from_step)
 
 
 # ========== Credential Endpoints ==========
 
+
 @app.get("/api/v1/credentials")
-def list_credentials(uow: UnitOfWork = Depends(get_uow)):
+def list_credentials(uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
     """List all credentials (metadata only)."""
     service = CredentialService(uow)
     items = service.list()
@@ -311,16 +552,18 @@ def list_credentials(uow: UnitOfWork = Depends(get_uow)):
                 "type": item.type,
                 "description": item.description,
                 "created_at": item.created_at.isoformat(),
-                "updated_at": item.updated_at.isoformat()
+                "updated_at": item.updated_at.isoformat(),
             }
             for item in items
         ],
-        "total": len(items)
+        "total": len(items),
     }
 
 
 @app.post("/api/v1/credentials", response_model=CredentialResponse)
-def create_credential(req: CreateCredentialRequest, uow: UnitOfWork = Depends(get_uow)):
+def create_credential(
+    req: CreateCredentialRequest, uow: UnitOfWork = Depends(get_uow)
+) -> CredentialResponse:
     """Create a new credential."""
     service = CredentialService(uow)
     name = service.create(req.name, req.credential_type, req.data, req.description)
@@ -330,14 +573,13 @@ def create_credential(req: CreateCredentialRequest, uow: UnitOfWork = Depends(ge
 
 @app.put("/api/v1/credentials/{name}", response_model=CredentialResponse)
 def update_credential(
-    name: str,
-    req: UpdateCredentialRequest,
-    uow: UnitOfWork = Depends(get_uow)
-):
+    name: str, req: UpdateCredentialRequest, uow: UnitOfWork = Depends(get_uow)
+) -> CredentialResponse:
     """Update a credential."""
     service = CredentialService(uow)
 
     # Get existing to return type
+    assert service.uow.credentials is not None
     existing = service.uow.credentials.get(name)
     if not existing:
         raise NotFoundError(f"Credential not found: {name}")
@@ -348,7 +590,7 @@ def update_credential(
 
 
 @app.delete("/api/v1/credentials/{name}")
-def delete_credential(name: str, uow: UnitOfWork = Depends(get_uow)):
+def delete_credential(name: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
     """Delete a credential."""
     service = CredentialService(uow)
     success = service.delete(name)
@@ -359,13 +601,23 @@ def delete_credential(name: str, uow: UnitOfWork = Depends(get_uow)):
     return {"status": "deleted", "name": name}
 
 
+# ========== WebSocket ==========
+
+
+@app.websocket("/ws/events")
+async def ws_events(websocket: WebSocket) -> None:
+    """Global WebSocket endpoint for all domain events."""
+    await websocket_endpoint(websocket)
+
+
 # ========== Health ==========
 
+
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "healthy"}
 
 
 @app.get("/")
-def root():
+def root() -> dict[str, str]:
     return {"name": "Saz Workflow API", "version": "2.0.0"}

@@ -1,10 +1,10 @@
 """Run read repository for CQRS queries."""
-from typing import Optional
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from saz.db.models import Run, Flow, Step, Artifact
-from saz.repositories.read.dtos import RunListItemDTO, RunDetailDTO, StepSummaryDTO
+from saz.db.models import Run
+from saz.repositories.read.dtos import RunDetailDTO, RunListItemDTO, StepSummaryDTO
 
 
 class RunReadRepository:
@@ -15,10 +15,10 @@ class RunReadRepository:
 
     def list(
         self,
-        flow_id: Optional[str] = None,
-        status: Optional[str] = None,
+        flow_id: str | None = None,
+        status: str | None = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> tuple[list[RunListItemDTO], int]:
         """List runs with filters and pagination."""
         # Build query
@@ -47,23 +47,19 @@ class RunReadRepository:
                 status=run.status,
                 created_at=run.created_at,
                 completed_at=run.completed_at,
-                cost_cents=run.cost_cents
+                cost_cents=run.cost_cents,
             )
             for run in runs
         ]
 
         return items, total
 
-    def detail(self, run_id: str) -> Optional[RunDetailDTO]:
+    def detail(self, run_id: str) -> RunDetailDTO | None:
         """Get run detail with steps eagerly loaded."""
         stmt = (
             select(Run)
             .where(Run.id == run_id)
-            .options(
-                joinedload(Run.flow),
-                joinedload(Run.steps),
-                joinedload(Run.artifacts)
-            )
+            .options(joinedload(Run.flow), joinedload(Run.steps), joinedload(Run.artifacts))
         )
 
         run = self.session.scalar(stmt)
@@ -81,7 +77,8 @@ class RunReadRepository:
                 end_ts=step.end_ts,
                 duration_ms=step.duration_ms,
                 retry_count=step.retry_count,
-                error=step.error
+                output=step.output,
+                error=step.error,
             )
             for step in sorted(run.steps, key=lambda s: s.number)
         ]
@@ -97,5 +94,5 @@ class RunReadRepository:
             created_at=run.created_at,
             completed_at=run.completed_at,
             steps=steps,
-            artifact_count=len(run.artifacts)
+            artifact_count=len(run.artifacts),
         )

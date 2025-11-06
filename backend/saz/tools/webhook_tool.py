@@ -1,9 +1,11 @@
 """Webhook Tool - Emit webhooks and wait for callbacks."""
+
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
 import httpx
 import structlog
-from typing import Dict, Any, Optional
-from datetime import datetime, UTC
-from uuid import uuid4
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +26,7 @@ class WebhookTool:
         self.logger = logger.bind(tool="webhook")
 
     @property
-    def emit_spec(self) -> Dict[str, Any]:
+    def emit_spec(self) -> dict[str, Any]:
         """MCP spec for webhook emission"""
         return {
             "name": "webhook_emit",
@@ -35,29 +37,26 @@ class WebhookTool:
                     "url": {
                         "type": "string",
                         "format": "uri",
-                        "description": "Webhook destination URL"
+                        "description": "Webhook destination URL",
                     },
-                    "payload": {
-                        "type": "object",
-                        "description": "Webhook payload"
-                    },
+                    "payload": {"type": "object", "description": "Webhook payload"},
                     "headers": {
                         "type": "object",
                         "description": "Custom headers",
-                        "additionalProperties": {"type": "string"}
+                        "additionalProperties": {"type": "string"},
                     },
                     "callback_url": {
                         "type": "string",
                         "format": "uri",
-                        "description": "Optional callback URL for responses"
-                    }
+                        "description": "Optional callback URL for responses",
+                    },
                 },
-                "required": ["url", "payload"]
-            }
+                "required": ["url", "payload"],
+            },
         }
 
     @property
-    def wait_spec(self) -> Dict[str, Any]:
+    def wait_spec(self) -> dict[str, Any]:
         """MCP spec for webhook wait"""
         return {
             "name": "webhook_wait",
@@ -65,28 +64,25 @@ class WebhookTool:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "event_name": {
-                        "type": "string",
-                        "description": "Name of event to wait for"
-                    },
+                    "event_name": {"type": "string", "description": "Name of event to wait for"},
                     "timeout_seconds": {
                         "type": "integer",
                         "description": "Max wait time (default 3600)",
-                        "default": 3600
-                    }
+                        "default": 3600,
+                    },
                 },
-                "required": ["event_name"]
-            }
+                "required": ["event_name"],
+            },
         }
 
     async def emit(
         self,
         url: str,
-        payload: Dict[str, Any],
-        headers: Optional[Dict[str, str]] = None,
-        callback_url: Optional[str] = None,
-        idempotency_key: str = ""
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any],
+        headers: dict[str, str] | None = None,
+        callback_url: str | None = None,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
         """
         Emit webhook to external system.
 
@@ -104,28 +100,21 @@ class WebhookTool:
 
         # Add callback URL to payload if provided
         if callback_url:
-            payload = {
-                **payload,
-                "callback_url": callback_url
-            }
+            payload = {**payload, "callback_url": callback_url}
 
         self.logger.info(
             "webhook_emit_start",
             webhook_id=webhook_id,
             url=url,
             has_callback=callback_url is not None,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
 
         start_time = datetime.now(UTC)
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    url=url,
-                    json=payload,
-                    headers=headers or {}
-                )
+                response = await client.post(url=url, json=payload, headers=headers or {})
 
                 duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
@@ -137,15 +126,15 @@ class WebhookTool:
                     "metadata": {
                         "duration_ms": duration_ms,
                         "idempotency_key": idempotency_key,
-                        "timestamp": start_time.isoformat()
-                    }
+                        "timestamp": start_time.isoformat(),
+                    },
                 }
 
                 self.logger.info(
                     "webhook_emit_success",
                     webhook_id=webhook_id,
                     status_code=response.status_code,
-                    duration_ms=duration_ms
+                    duration_ms=duration_ms,
                 )
 
                 return result
@@ -157,16 +146,11 @@ class WebhookTool:
                 webhook_id=webhook_id,
                 url=url,
                 error=str(e),
-                duration_ms=duration_ms
+                duration_ms=duration_ms,
             )
             raise
 
-    def generate_callback_url(
-        self,
-        run_id: str,
-        step_id: str,
-        event_name: str
-    ) -> str:
+    def generate_callback_url(self, run_id: str, step_id: str, event_name: str) -> str:
         """
         Generate callback URL for webhook suspension.
 
@@ -189,18 +173,14 @@ class WebhookTool:
             run_id=run_id,
             step_id=step_id,
             event_name=event_name,
-            callback_url=callback_url
+            callback_url=callback_url,
         )
 
         return callback_url
 
     async def wait_for_webhook(
-        self,
-        event_name: str,
-        timeout_seconds: int = 3600,
-        run_id: str = "",
-        step_id: str = ""
-    ) -> Dict[str, Any]:
+        self, event_name: str, timeout_seconds: int = 3600, run_id: str = "", step_id: str = ""
+    ) -> dict[str, Any]:
         """
         Generate callback URL and indicate workflow should suspend.
 
@@ -223,9 +203,5 @@ class WebhookTool:
             "reason": f"waiting_for_webhook:{event_name}",
             "callback_url": callback_url,
             "timeout_seconds": timeout_seconds,
-            "metadata": {
-                "event_name": event_name,
-                "run_id": run_id,
-                "step_id": step_id
-            }
+            "metadata": {"event_name": event_name, "run_id": run_id, "step_id": step_id},
         }

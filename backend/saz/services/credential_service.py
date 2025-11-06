@@ -1,8 +1,10 @@
 """Credential service - business logic for credential operations."""
+
 import os
+
 import yaml
-from typing import Optional
 from cryptography.fernet import Fernet
+
 from saz.db.unit_of_work import UnitOfWork
 from saz.repositories.read.dtos import CredentialListItemDTO
 
@@ -20,13 +22,11 @@ class CredentialService:
         self.cipher = Fernet(key.encode() if isinstance(key, str) else key)
 
     def create(
-        self,
-        name: str,
-        credential_type: str,
-        data: dict,
-        description: Optional[str] = None
+        self, name: str, credential_type: str, data: dict, description: str | None = None
     ) -> str:
         """Create or update credential."""
+        assert self.uow.credentials is not None
+
         # Encrypt data
         data_yaml = yaml.dump(data)
         encrypted = self.cipher.encrypt(data_yaml.encode())
@@ -37,8 +37,9 @@ class CredentialService:
 
         return name
 
-    def get(self, name: str) -> Optional[dict]:
+    def get(self, name: str) -> dict | None:
         """Get decrypted credential data."""
+        assert self.uow.credentials is not None
         credential = self.uow.credentials.get(name)
         if not credential:
             return None
@@ -53,13 +54,14 @@ class CredentialService:
             "description": credential.description,
             "data": data,
             "created_at": credential.created_at.isoformat(),
-            "updated_at": credential.updated_at.isoformat()
+            "updated_at": credential.updated_at.isoformat(),
         }
 
     def list(self) -> list[CredentialListItemDTO]:
         """List credentials (metadata only, no secrets)."""
         # Query credentials directly
         from sqlalchemy import select
+
         from saz.db.models import Credential
 
         stmt = select(Credential).order_by(Credential.created_at.desc())
@@ -71,18 +73,15 @@ class CredentialService:
                 type=c.type,
                 description=c.description,
                 created_at=c.created_at,
-                updated_at=c.updated_at
+                updated_at=c.updated_at,
             )
             for c in credentials
         ]
 
-    def update(
-        self,
-        name: str,
-        data: dict,
-        description: Optional[str] = None
-    ) -> str:
+    def update(self, name: str, data: dict, description: str | None = None) -> str:
         """Update credential."""
+        assert self.uow.credentials is not None
+
         # Get existing to preserve type
         existing = self.uow.credentials.get(name)
         if not existing:
@@ -100,6 +99,7 @@ class CredentialService:
 
     def delete(self, name: str) -> bool:
         """Delete credential."""
+        assert self.uow.credentials is not None
         result = self.uow.credentials.delete(name)
         if result:
             self.uow.commit()

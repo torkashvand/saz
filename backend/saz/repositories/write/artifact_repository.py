@@ -1,7 +1,8 @@
 """Artifact write repository."""
-from datetime import datetime, UTC
-from typing import Optional
+
+from datetime import UTC, datetime
 from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from saz.db.models import Artifact
@@ -19,8 +20,8 @@ class ArtifactRepository(BaseRepository[Artifact]):
         run_id: str,
         name: str,
         blob_ref: str,
-        meta: Optional[dict] = None,
-        step_id: Optional[str] = None
+        meta: dict | None = None,
+        step_id: str | None = None,
     ) -> Artifact:
         """Create new artifact."""
         artifact = Artifact(
@@ -30,6 +31,6 @@ class ArtifactRepository(BaseRepository[Artifact]):
             name=name,
             blob_ref=blob_ref,
             meta=meta or {},
-            created_at=datetime.now(UTC)
+            created_at=datetime.now(UTC),
         )
         return self.add(artifact)

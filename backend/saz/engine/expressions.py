@@ -9,9 +9,12 @@ Supports:
 
 Pure functions, no LLM calls.
 """
-import re
+
 import os
-from typing import Any, Dict, Callable
+import re
+from collections.abc import Callable
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -22,10 +25,10 @@ class ExpressionEngine:
 
     def __init__(
         self,
-        form_data: Dict[str, Any],
-        step_outputs: Dict[str, Any],
+        form_data: dict[str, Any],
+        step_outputs: dict[str, Any],
         secrets_resolver: Callable[[str], str] | None = None,
-        env_resolver: Callable[[str], str] | None = None
+        env_resolver: Callable[[str], str] | None = None,
     ):
         """
         Initialize expression engine.
@@ -83,14 +86,14 @@ class ExpressionEngine:
         # Pattern: {{ ... }}
         pattern = r'\{\{\s*([^}]+)\s*\}\}'
 
-        def replacer(match):
+        def replacer(match: Any) -> str:
             expr = match.group(1).strip()
             try:
                 result = self._eval_expression(expr)
                 return str(result) if result is not None else ""
             except Exception as e:
                 logger.warning("expression_eval_failed", expr=expr, error=str(e))
-                return match.group(0)  # Return original if eval fails
+                return str(match.group(0))  # Return original if eval fails
 
         # Check if entire string is a single expression (return typed value)
         single_expr_match = re.fullmatch(pattern, template)
@@ -148,7 +151,7 @@ class ExpressionEngine:
             args_str = helper_match.group(2)
             if helper_name in self.helpers:
                 args = self._parse_args(args_str)
-                return self.helpers[helper_name](*args)
+                return self.helpers[helper_name](*args)  # type: ignore[operator]
 
         # Literal values
         if expr.startswith("'") and expr.endswith("'"):
@@ -167,10 +170,10 @@ class ExpressionEngine:
         # Return as-is if unrecognized
         return expr
 
-    def _get_nested(self, data: Dict[str, Any], path: str) -> Any:
+    def _get_nested(self, data: dict[str, Any], path: str) -> Any:
         """Get nested field from dict using dot notation."""
         parts = path.split(".")
-        current = data
+        current: Any = data
         for part in parts:
             if isinstance(current, dict):
                 current = current.get(part)
@@ -189,7 +192,7 @@ class ExpressionEngine:
 
     # --- Helper Functions ---
 
-    def _coalesce(self, *args) -> Any:
+    def _coalesce(self, *args: Any) -> Any:
         """Return first non-null value."""
         for arg in args:
             if arg is not None:
@@ -233,9 +236,9 @@ class ExpressionEngine:
 
 def resolve_expressions(
     template: Any,
-    form_data: Dict[str, Any],
-    step_outputs: Dict[str, Any],
-    secrets_resolver: Callable[[str], str] | None = None
+    form_data: dict[str, Any],
+    step_outputs: dict[str, Any],
+    secrets_resolver: Callable[[str], str] | None = None,
 ) -> Any:
     """
     Convenience function to resolve expressions in a template.
@@ -250,8 +253,49 @@ def resolve_expressions(
         Resolved value
     """
     engine = ExpressionEngine(
-        form_data=form_data,
-        step_outputs=step_outputs,
-        secrets_resolver=secrets_resolver
+        form_data=form_data, step_outputs=step_outputs, secrets_resolver=secrets_resolver
     )
     return engine.resolve(template)
+
+
+def evaluate_expression(expr: Any, context: dict[str, Any]) -> bool:
+    """
+    Evaluate a boolean expression for conditions.
+
+    Args:
+        expr: Expression to evaluate (can be bool, string, or complex)
+        context: Context with 'form' and 'steps' data
+
+    Returns:
+        Boolean result
+    """
+    # Direct boolean
+    if isinstance(expr, bool):
+        return expr
+
+    # String literals
+    if isinstance(expr, str):
+        expr_lower = expr.lower().strip()
+        if expr_lower in ("true", "1", "yes"):
+            return True
+        if expr_lower in ("false", "0", "no", ""):
+            return False
+
+        # Simple comparisons (placeholder - extend as needed)
+        # For now, non-empty string is truthy
+        return bool(expr_lower)
+
+    # Numeric: 0 is false, non-zero is true
+    if isinstance(expr, int | float):
+        return expr != 0
+
+    # Dict/List: non-empty is true
+    if isinstance(expr, dict | list):
+        return len(expr) > 0
+
+    # None is false
+    if expr is None:
+        return False
+
+    # Default: truthy check
+    return bool(expr)

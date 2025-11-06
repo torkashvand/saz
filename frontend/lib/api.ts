@@ -129,10 +129,10 @@ export const api = {
     fetchApi<FlowDetailResponse>(`/api/v1/flows/${id}`),
 
   /**
-   * Get flow graph visualization (legacy endpoint)
+   * Get flow graph visualization
    */
   getFlowGraph: (flowId: string) =>
-    fetchApi<FlowGraphResponse>(`/flows/${flowId}/graph`),
+    fetchApi<FlowGraphResponse>(`/api/v1/flows/${flowId}/graph`),
 
   // ========== Run Endpoints ==========
 

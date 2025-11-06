@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useToast } from '@/hooks/use-toast'
+import { useToast } from '@/components/ui/use-toast'
 import type { CredentialResponse, CreateCredentialRequest, UpdateCredentialRequest } from '@/lib/types'
 
 export default function CredentialsPage() {
@@ -263,7 +263,7 @@ export default function CredentialsPage() {
                     Edit
                   </Button>
                   <Button
-                    variant="destructive"
+                    variant="outline"
                     size="sm"
                     onClick={() => handleDelete(credential.name)}
                     disabled={deleteMutation.isPending}

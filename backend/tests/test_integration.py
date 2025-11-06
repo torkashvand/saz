@@ -1,45 +1,10 @@
-"""Integration test: Register flows, create runs, test workflow APIs."""
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from saz.db.models import Base
-from saz.db.dependencies import get_uow
-from saz.db.unit_of_work import UnitOfWork
-from saz.api import app
+"""Integration tests for ThreadPoolExecutor execution + WebSocket events."""
 
-# Test database (in-memory SQLite for simplicity)
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+import time
 
 
-def override_get_uow():
-    session = TestingSessionLocal()
-    try:
-        yield UnitOfWork(session)
-    finally:
-        session.close()
-
-
-app.dependency_overrides[get_uow] = override_get_uow
-
-
-@pytest.fixture(scope="function")
-def test_db():
-    """Create fresh test database for each test."""
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
-
-
-client = TestClient(app)
-
-
-def test_full_workflow(test_db):
-    """Test complete flow: register flow, list flows, get flow detail."""
-
-    # 1. Register a flow
+def test_register_and_list_flows(app_client):
+    """Test flow registration and listing."""
     dsl_yaml = """
 flow:
   name: UserOnboarding
@@ -56,122 +21,385 @@ form:
 workflow:
   steps:
     - id: step1
-      type: api_call
-      description: "Create user account"
+      type: ai.extract
+      instruction: "Extract user info"
 """
 
-    response = client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
     assert response.status_code == 200
     data = response.json()
     assert "id" in data
     assert data["name"] == "UserOnboarding"
-
     flow_id = data["id"]
 
-    # 2. List flows
-    response = client.get("/api/v1/flows")
+    response = app_client.get("/api/v1/flows")
     assert response.status_code == 200
     data = response.json()
-    assert "items" in data
-    assert "total" in data
     assert data["total"] == 1
-    assert len(data["items"]) == 1
     assert data["items"][0]["name"] == "UserOnboarding"
 
-    # 3. Get flow detail
-    response = client.get(f"/api/v1/flows/{flow_id}")
+    response = app_client.get(f"/api/v1/flows/{flow_id}")
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "UserOnboarding"
     assert data["version"] == "1.0"
-    assert "definition" in data
 
 
-def test_run_creation(test_db):
-    """Test creating and listing runs."""
-    # 1. Register a flow first
+def test_create_run_triggers_execution_and_finishes(app_client, event_collector):
+    """Test that POST /api/v1/runs immediately schedules and executes."""
+    # Register flow
     dsl_yaml = """
 flow:
   name: SimpleFlow
 workflow:
   steps:
-    - id: step1
-      type: api_call
+    - id: extract_step
+      type: ai.extract
+      instruction: "Extract data"
+    - id: transform_step
+      type: data.transform
+      transform: {"key": "value"}
 """
-    response = client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
     assert response.status_code == 200
     flow_id = response.json()["id"]
 
-    # 2. Create a run
-    response = client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {"data": "test"}})
+    # Create run
+    response = app_client.post(
+        "/api/v1/runs", json={"flow_id": flow_id, "payload": {"data": "test"}}
+    )
     assert response.status_code == 200
     data = response.json()
     assert "id" in data
-    assert data["flow_id"] == flow_id
-    assert data["status"] == "queued"
-
+    assert data["status"] == "running"
     run_id = data["id"]
 
-    # 3. List runs
-    response = client.get("/api/v1/runs")
+    # Wait for execution to complete (single-thread executor)
+    time.sleep(2)
+
+    # Check run status
+    response = app_client.get(f"/api/v1/runs/{run_id}")
     assert response.status_code == 200
-    data = response.json()
-    assert data["total"] == 1
-    assert len(data["items"]) == 1
-    assert data["items"][0]["flow_id"] == flow_id
+    run_data = response.json()
+    assert run_data["status"] == "completed"
+    assert len(run_data["steps"]) == 2
 
-    # 4. Get run detail
-    response = client.get(f"/api/v1/runs/{run_id}")
+    # Verify events
+    event_types = [e.event_type for e in event_collector]
+    assert "run.started" in event_types
+    assert "step.started" in event_types
+    assert "step.completed" in event_types
+    assert "run.completed" in event_types
+
+
+def test_event_sequence_per_step(app_client, event_collector):
+    """Test exact event ordering."""
+    dsl_yaml = """
+flow:
+  name: EventFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
+    response.json()["id"]
+
+    time.sleep(1.5)
+
+    event_types = [e.event_type for e in event_collector]
+    # Expected: run.started, step.started, step.completed, run.completed
+    assert event_types[0] == "run.started"
+    assert event_types[1] == "step.started"
+    assert event_types[2] == "step.completed"
+    assert event_types[3] == "run.completed"
+
+
+def test_step_failed_emits_error_payload(app_client, event_collector, monkeypatch):
+    """Test step failure with error details."""
+    from saz.engine import executor
+
+    # Mock step execution to always fail
+    async def mock_fail(*args, **kwargs):
+        raise ValueError("Test error for step failure")
+
+    monkeypatch.setattr(executor.WorkflowExecutor, "_execute_ai_extract", mock_fail)
+
+    dsl_yaml = """
+flow:
+  name: FailFlow
+workflow:
+  steps:
+    - id: fail_step
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
+    run_id = response.json()["id"]
+
+    time.sleep(1.5)
+
+    # Check run failed
+    response = app_client.get(f"/api/v1/runs/{run_id}")
+    run_data = response.json()
+    assert run_data["status"] == "failed"
+    assert run_data["error"] is not None
+    assert "message" in run_data["error"]
+    assert "type" in run_data["error"]
+    assert "traceback" in run_data["error"]
+
+    # Check step failed event
+    failed_events = [e for e in event_collector if e.event_type == "step.failed"]
+    assert len(failed_events) > 0
+    step_failed = failed_events[0]
+    assert "error" in step_failed.data
+    assert step_failed.data["error"]["type"] == "ValueError"
+    assert "Test error for step failure" in step_failed.data["error"]["message"]
+
+
+def test_retry_creates_new_run_from_failed_step(app_client, monkeypatch):
+    """Test retry after failure."""
+    from saz.engine import executor
+
+    call_count = {"count": 0}
+
+    async def mock_fail_once(*args, **kwargs):
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            raise ValueError("First attempt fails")
+        return {"extracted": "success"}
+
+    monkeypatch.setattr(executor.WorkflowExecutor, "_execute_ai_extract", mock_fail_once)
+
+    dsl_yaml = """
+flow:
+  name: RetryFlow
+workflow:
+  steps:
+    - id: retry_step
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
+    first_run_id = response.json()["id"]
+    time.sleep(1.5)
+
+    # Verify first run failed
+    response = app_client.get(f"/api/v1/runs/{first_run_id}")
+    assert response.json()["status"] == "failed"
+
+    # Retry
+    response = app_client.post(f"/api/v1/runs/{first_run_id}/retry")
     assert response.status_code == 200
+    second_run_id = response.json()["new_run_id"]
+    assert second_run_id != first_run_id
+    time.sleep(1.5)
+
+    # Verify second run succeeded
+    response = app_client.get(f"/api/v1/runs/{second_run_id}")
+    assert response.json()["status"] == "completed"
+
+
+def test_replay_from_step_n(app_client):
+    """Test replay from specific step."""
+    dsl_yaml = """
+flow:
+  name: ReplayFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+    - id: step2
+      type: ai.generate
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
+    original_run_id = response.json()["id"]
+    time.sleep(2)
+
+    # Replay from step 1
+    response = app_client.post(f"/api/v1/runs/{original_run_id}/replay?from_step=1")
+    assert response.status_code == 200
+    replay_run_id = response.json()["new_run_id"]
+    assert replay_run_id != original_run_id
+    time.sleep(2)
+
+    response = app_client.get(f"/api/v1/runs/{replay_run_id}")
+    assert response.json()["status"] == "completed"
+
+
+def test_ws_events_streams_live_updates(app_client):
+    """Test WebSocket /ws/events endpoint."""
+    with app_client.websocket_connect("/ws/events") as websocket:
+        # Receive connection ack
+        data = websocket.receive_json()
+        assert data["type"] == "system.connected"
+
+        # Send ping
+        websocket.send_text("ping")
+        data = websocket.receive_json()
+        assert data["type"] == "system.pong"
+
+
+def test_ws_backpressure_and_disconnect(app_client):
+    """Test WebSocket handles disconnect gracefully."""
+    with app_client.websocket_connect("/ws/events") as websocket:
+        data = websocket.receive_json()
+        assert data["type"] == "system.connected"
+        # Abrupt close should not crash server
+
+
+def test_error_envelope_on_not_found(app_client):
+    """Test error envelope format."""
+    response = app_client.get("/api/v1/runs/nonexistent-id")
+    assert response.status_code == 404
     data = response.json()
-    assert data["id"] == run_id
-    assert data["flow_id"] == flow_id
-    assert "steps" in data
+    assert "error" in data
+    assert "message" in data
+    assert data["error"] == "NotFoundError"
 
 
-def test_credentials(test_db):
+def test_credentials_crud(app_client):
     """Test credential CRUD operations."""
-    # 1. Create a credential
-    response = client.post(
+    # Create
+    response = app_client.post(
         "/api/v1/credentials",
         json={
-            "name": "test_api_key",
+            "name": "test_key",
             "credential_type": "api_token",
-            "data": {"token": "secret123", "endpoint": "https://api.example.com"},
-            "description": "Test API key"
-        }
+            "data": {"token": "secret123"},
+            "description": "Test",
+        },
     )
     assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "test_api_key"
-    assert data["type"] == "api_token"
 
-    # 2. List credentials
-    response = client.get("/api/v1/credentials")
+    # List (should not expose secret)
+    response = app_client.get("/api/v1/credentials")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    # Data field should not be present in list
+    assert "data" not in items[0]
+
+    # Update
+    response = app_client.put("/api/v1/credentials/test_key", json={"data": {"token": "newsecret"}})
+    assert response.status_code == 200
+
+    # Delete
+    response = app_client.delete("/api/v1/credentials/test_key")
+    assert response.status_code == 200
+
+
+def test_flow_graph_endpoint(app_client):
+    """Test flow graph endpoint returns schema-conformant payload."""
+    dsl_yaml = """
+flow:
+  name: GraphFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+    - id: step2
+      type: ai.generate
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.get(f"/api/v1/flows/{flow_id}/graph")
     assert response.status_code == 200
     data = response.json()
-    assert "items" in data
-    assert data["total"] == 1
-    assert data["items"][0]["name"] == "test_api_key"
+    assert "nodes" in data
+    assert "edges" in data
+    assert len(data["nodes"]) == 2
 
-    # 3. Update credential
-    response = client.put(
-        "/api/v1/credentials/test_api_key",
-        json={
-            "data": {"token": "newsecret456", "endpoint": "https://api.example.com"},
-            "description": "Updated API key"
-        }
-    )
+
+def test_run_graph_endpoint(app_client):
+    """Test run graph endpoint."""
+    dsl_yaml = """
+flow:
+  name: RunGraphFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
+    run_id = response.json()["id"]
+    time.sleep(1.5)
+
+    response = app_client.get(f"/api/v1/runs/{run_id}/graph")
     assert response.status_code == 200
     data = response.json()
-    assert data["name"] == "test_api_key"
+    assert "nodes" in data
+    assert "edges" in data
+    assert "status_by_step" in data
 
-    # 4. Delete credential
-    response = client.delete("/api/v1/credentials/test_api_key")
-    assert response.status_code == 200
-    assert response.json()["status"] == "deleted"
 
-    # 5. Verify deleted
-    response = client.get("/api/v1/credentials")
+def test_concurrent_runs(app_client):
+    """Test multiple concurrent runs execute correctly."""
+    dsl_yaml = """
+flow:
+  name: ConcurrentFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    # Create 3 runs
+    run_ids = []
+    for i in range(3):
+        response = app_client.post(
+            "/api/v1/runs", json={"flow_id": flow_id, "payload": {"index": i}}
+        )
+        assert response.status_code == 200
+        run_ids.append(response.json()["id"])
+
+    time.sleep(3)
+
+    # All should complete
+    for run_id in run_ids:
+        response = app_client.get(f"/api/v1/runs/{run_id}")
+        assert response.json()["status"] == "completed"
+
+
+def test_no_duplicate_execution(app_client):
+    """Test that same run cannot be scheduled twice."""
+    dsl_yaml = """
+flow:
+  name: DuplicateFlow
+workflow:
+  steps:
+    - id: step1
+      type: ai.extract
+"""
+    response = app_client.post("/api/v1/flows", json={"yaml": dsl_yaml})
+    flow_id = response.json()["id"]
+
+    response = app_client.post("/api/v1/runs", json={"flow_id": flow_id, "payload": {}})
     assert response.status_code == 200
-    assert response.json()["total"] == 0
+    run_id = response.json()["id"]
+
+    # Try to create same run again should fail with 409
+    # (In practice this won't happen via API, but scheduler should prevent it)
+    from saz.engine.scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+
+    # Second schedule should return False
+    result = scheduler.schedule(run_id)
+    assert result is False

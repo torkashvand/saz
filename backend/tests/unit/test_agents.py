@@ -1,17 +1,20 @@
 """Unit tests for agents - PlannerAgent, ExecutorAgent, CriticAgent."""
+
 import json
+
 import pytest
-from saz.agents.planner import PlannerAgent, PLANNER_SYSTEM_PROMPT
+
+from saz.agents.critic import CriticAgent
 from saz.agents.executor import ExecutorAgent
-from saz.agents.critic import CriticAgent, CRITIC_SYSTEM_PROMPT
+from saz.agents.planner import PlannerAgent
 from saz.agents.schemas import (
+    Critique,
+    ErrorHandling,
     ExecutionPlan,
     PlanStep,
     StepAction,
-    ErrorHandling,
     ToolCall,
-    Critique,
-    Verdict
+    Verdict,
 )
 
 
@@ -22,9 +25,7 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
 
     workflow_spec = {
         "name": "test_workflow",
-        "steps": [
-            {"id": "step1", "type": "tool_call", "description": "Test step"}
-        ]
+        "steps": [{"id": "step1", "type": "tool_call", "description": "Test step"}],
     }
 
     tool_registry = [
@@ -34,8 +35,8 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
             "inputSchema": {
                 "type": "object",
                 "properties": {"url": {"type": "string"}},
-                "required": ["url"]
-            }
+                "required": ["url"],
+            },
         }
     ]
 
@@ -45,7 +46,7 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
         "remaining_cost": 5.0,
         "max_cost_usd": 10.0,
         "remaining_steps": 25,
-        "max_steps": 50
+        "max_steps": 50,
     }
 
     plan = await planner.plan(
@@ -54,7 +55,7 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
         run_id="test-run-123",
         completed_steps=[],
         current_data={"input": "test"},
-        budget=budget
+        budget=budget,
     )
 
     # Verify plan structure
@@ -85,7 +86,7 @@ async def test_planner_agent_prompt_formatting(mock_llm_with_plan):
         "remaining_cost": 2.5,
         "max_cost_usd": 5.0,
         "remaining_steps": 10,
-        "max_steps": 20
+        "max_steps": 20,
     }
 
     await planner.plan(
@@ -94,7 +95,7 @@ async def test_planner_agent_prompt_formatting(mock_llm_with_plan):
         run_id="run-123",
         completed_steps=["step1"],
         current_data={"key": "value"},
-        budget=budget
+        budget=budget,
     )
 
     # Check prompt includes all required fields
@@ -116,14 +117,14 @@ async def test_planner_agent_error_handling(mock_llm_port):
 
     planner = PlannerAgent(llm_port=mock_llm_port)
 
-    with pytest.raises(Exception):  # Should raise JSON decode error
+    with pytest.raises((json.JSONDecodeError, ValueError)):  # Should raise JSON decode error
         await planner.plan(
             workflow_spec={"name": "test", "steps": []},
             tool_registry=[],
             run_id="test",
             completed_steps=[],
             current_data={},
-            budget={}
+            budget={},
         )
 
 
@@ -137,10 +138,10 @@ def test_executor_agent_grounds_step():
         tool_name="http_request",
         input_template={
             "url": "https://api.example.com/users/{{ $form.user_id }}",
-            "method": "GET"
+            "method": "GET",
         },
         expected_output_schema={},
-        reasoning="Fetch user data"
+        reasoning="Fetch user data",
     )
 
     tool_registry = {
@@ -148,25 +149,16 @@ def test_executor_agent_grounds_step():
             "name": "http_request",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "method": {"type": "string"}
-                },
-                "required": ["url", "method"]
-            }
+                "properties": {"url": {"type": "string"}, "method": {"type": "string"}},
+                "required": ["url", "method"],
+            },
         }
     }
 
-    current_data = {
-        "user_id": "12345",
-        "other_data": "test"
-    }
+    current_data = {"user_id": "12345", "other_data": "test"}
 
     tool_call = executor.ground(
-        step=step,
-        tool_registry=tool_registry,
-        current_data=current_data,
-        run_id="run-123"
+        step=step, tool_registry=tool_registry, current_data=current_data, run_id="run-123"
     )
 
     # Verify tool call
@@ -187,16 +179,11 @@ def test_executor_agent_tool_not_found():
         action=StepAction.TOOL_CALL,
         tool_name="non_existent_tool",
         input_template={},
-        reasoning="Test"
+        reasoning="Test",
     )
 
     with pytest.raises(ValueError, match="Tool 'non_existent_tool' not found"):
-        executor.ground(
-            step=step,
-            tool_registry={},
-            current_data={},
-            run_id="run-123"
-        )
+        executor.ground(step=step, tool_registry={}, current_data={}, run_id="run-123")
 
 
 def test_executor_agent_missing_required_params():
@@ -208,25 +195,15 @@ def test_executor_agent_missing_required_params():
         action=StepAction.TOOL_CALL,
         tool_name="http_request",
         input_template={"method": "GET"},  # Missing required 'url'
-        reasoning="Test"
+        reasoning="Test",
     )
 
     tool_registry = {
-        "http_request": {
-            "name": "http_request",
-            "inputSchema": {
-                "required": ["url", "method"]
-            }
-        }
+        "http_request": {"name": "http_request", "inputSchema": {"required": ["url", "method"]}}
     }
 
     with pytest.raises(ValueError, match="Missing required parameters"):
-        executor.ground(
-            step=step,
-            tool_registry=tool_registry,
-            current_data={},
-            run_id="run-123"
-        )
+        executor.ground(step=step, tool_registry=tool_registry, current_data={}, run_id="run-123")
 
 
 def test_executor_agent_nested_variable_substitution():
@@ -237,34 +214,16 @@ def test_executor_agent_nested_variable_substitution():
         step_id="test_step",
         action=StepAction.TOOL_CALL,
         tool_name="test_tool",
-        input_template={
-            "email": "{{ $form.user.email }}",
-            "city": "{{ $form.user.address.city }}"
-        },
-        reasoning="Test nested"
+        input_template={"email": "{{ $form.user.email }}", "city": "{{ $form.user.address.city }}"},
+        reasoning="Test nested",
     )
 
-    tool_registry = {
-        "test_tool": {
-            "name": "test_tool",
-            "inputSchema": {"required": []}
-        }
-    }
+    tool_registry = {"test_tool": {"name": "test_tool", "inputSchema": {"required": []}}}
 
-    current_data = {
-        "user": {
-            "email": "test@example.com",
-            "address": {
-                "city": "San Francisco"
-            }
-        }
-    }
+    current_data = {"user": {"email": "test@example.com", "address": {"city": "San Francisco"}}}
 
     tool_call = executor.ground(
-        step=step,
-        tool_registry=tool_registry,
-        current_data=current_data,
-        run_id="run-123"
+        step=step, tool_registry=tool_registry, current_data=current_data, run_id="run-123"
     )
 
     assert tool_call.arguments["email"] == "test@example.com"
@@ -282,13 +241,10 @@ async def test_critic_agent_evaluates_success(mock_llm_with_critique):
         tool_name="http_request",
         input_template={"url": "https://example.com"},
         expected_output_schema={"type": "object"},
-        reasoning="Fetch data"
+        reasoning="Fetch data",
     )
 
-    tool_call = {
-        "tool": "http_request",
-        "arguments": {"url": "https://example.com"}
-    }
+    tool_call = {"tool": "http_request", "arguments": {"url": "https://example.com"}}
 
     result = {"status": 200, "data": {"user": "test"}}
 
@@ -298,7 +254,7 @@ async def test_critic_agent_evaluates_success(mock_llm_with_critique):
         result=result,
         run_id="run-123",
         completed_steps=["previous_step"],
-        current_state={"key": "value"}
+        current_state={"key": "value"},
     )
 
     # Verify critique structure
@@ -322,7 +278,7 @@ async def test_critic_agent_prompt_includes_context(mock_llm_with_critique):
         tool_name="test_tool",
         input_template={},
         expected_output_schema={"type": "object", "required": ["result"]},
-        reasoning="Critical operation"
+        reasoning="Critical operation",
     )
 
     await critic.critique(
@@ -331,7 +287,7 @@ async def test_critic_agent_prompt_includes_context(mock_llm_with_critique):
         result={"result": "success"},
         run_id="run-456",
         completed_steps=["step1", "step2"],
-        current_state={"context": "data"}
+        current_state={"context": "data"},
     )
 
     call = mock_llm_with_critique.calls[0]
@@ -346,6 +302,7 @@ async def test_critic_agent_prompt_includes_context(mock_llm_with_critique):
 @pytest.mark.asyncio
 async def test_critic_agent_error_returns_escalate(mock_llm_port):
     """Test CriticAgent returns ESCALATE verdict on error."""
+
     # Mock port that raises exception
     async def failing_complete(*args, **kwargs):
         raise Exception("LLM service unavailable")
@@ -359,16 +316,11 @@ async def test_critic_agent_error_returns_escalate(mock_llm_port):
         action=StepAction.TOOL_CALL,
         tool_name="test",
         input_template={},
-        reasoning="test"
+        reasoning="test",
     )
 
     critique = await critic.critique(
-        step=step,
-        tool_call={},
-        result={},
-        run_id="test",
-        completed_steps=[],
-        current_state={}
+        step=step, tool_call={}, result={}, run_id="test", completed_steps=[], current_state={}
     )
 
     # Should return defensive escalate verdict
@@ -385,7 +337,7 @@ def test_plan_step_schema_validation():
         action=StepAction.TOOL_CALL,
         tool_name="http_request",
         input_template={"url": "https://example.com"},
-        reasoning="Test step"
+        reasoning="Test step",
     )
 
     assert step.step_id == "test_step"
@@ -399,16 +351,11 @@ def test_execution_plan_validation():
     plan_dict = {
         "plan_id": "12345678-1234-1234-1234-123456789abc",
         "steps": [
-            {
-                "step_id": "step1",
-                "action": "tool_call",
-                "tool_name": "tool1",
-                "reasoning": "Step 1"
-            }
+            {"step_id": "step1", "action": "tool_call", "tool_name": "tool1", "reasoning": "Step 1"}
         ],
         "estimated_cost_usd": 0.01,
         "estimated_time_seconds": 10,
-        "reasoning": "Test plan"
+        "reasoning": "Test plan",
     }
 
     plan = ExecutionPlan.model_validate(plan_dict)
@@ -426,7 +373,7 @@ def test_critique_validation():
         "issues": [],
         "safety_flags": [],
         "suggestions": {"next": "continue"},
-        "confidence": 0.9
+        "confidence": 0.9,
     }
 
     critique = Critique.model_validate(critique_dict)
@@ -438,18 +385,20 @@ def test_critique_validation():
 
 def test_critique_confidence_validation():
     """Test Critique confidence must be 0-1."""
+    from pydantic import ValidationError
+
     # Invalid confidence > 1
-    with pytest.raises(Exception):  # Pydantic validation error
+    with pytest.raises(ValidationError):  # Pydantic validation error
         Critique(
             verdict=Verdict.PASS,
             reasoning="Test",
-            confidence=1.5  # Invalid
+            confidence=1.5,  # Invalid
         )
 
     # Invalid confidence < 0
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         Critique(
             verdict=Verdict.PASS,
             reasoning="Test",
-            confidence=-0.1  # Invalid
+            confidence=-0.1,  # Invalid
         )

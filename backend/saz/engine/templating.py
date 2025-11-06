@@ -9,10 +9,13 @@ Supports:
 Native type support: If template is the entire string value, return the native type.
 Otherwise, perform string interpolation.
 """
-import re
-import os
+
 import json
-from typing import Any, Dict, Optional, Callable
+import os
+import re
+from collections.abc import Callable
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -23,9 +26,9 @@ class TemplateContext:
 
     def __init__(
         self,
-        form_data: Dict[str, Any],
-        step_results: Dict[str, Any],
-        secret_resolver: Optional[Callable[[str], str]] = None
+        form_data: dict[str, Any],
+        step_results: dict[str, Any],
+        secret_resolver: Callable[[str], str | None] | None = None,
     ):
         """
         Initialize template context.
@@ -37,7 +40,7 @@ class TemplateContext:
         """
         self.form_data = form_data
         self.step_results = step_results
-        self.secret_resolver = secret_resolver or (lambda name: None)
+        self.secret_resolver: Callable[[str], str | None] = secret_resolver or (lambda name: None)
         self.logger = logger.bind(component="templating")
 
     def resolve(self, template: Any) -> Any:
@@ -81,13 +84,13 @@ class TemplateContext:
             return self._evaluate_expression(expr)
 
         # Multiple expressions or mixed content - string interpolation
-        def replacer(match):
+        def replacer(match: Any) -> str:
             expr = match.group(1).strip()
             value = self._evaluate_expression(expr)
             # Convert to string for interpolation
             if value is None:
                 return ""
-            elif isinstance(value, (dict, list)):
+            elif isinstance(value, dict | list):
                 return json.dumps(value)
             else:
                 return str(value)
@@ -161,12 +164,12 @@ class TemplateContext:
                 self.logger.warning(
                     "form_field_not_found",
                     field_path=field_path,
-                    available_fields=list(self.form_data.keys())
+                    available_fields=list(self.form_data.keys()),
                 )
                 return None
         return value
 
-    def _resolve_step_result(self, step_id: str, prop_path: Optional[str]) -> Any:
+    def _resolve_step_result(self, step_id: str, prop_path: str | None) -> Any:
         """
         Resolve $step('step_id').prop expression.
 
@@ -187,7 +190,7 @@ class TemplateContext:
             self.logger.warning(
                 "step_result_not_found",
                 step_id=step_id,
-                available_steps=list(self.step_results.keys())
+                available_steps=list(self.step_results.keys()),
             )
             return None
 
@@ -202,15 +205,11 @@ class TemplateContext:
             if isinstance(value, dict) and part in value:
                 value = value[part]
             else:
-                self.logger.warning(
-                    "step_property_not_found",
-                    step_id=step_id,
-                    prop_path=prop_path
-                )
+                self.logger.warning("step_property_not_found", step_id=step_id, prop_path=prop_path)
                 return None
         return value
 
-    def _resolve_env(self, var_name: str) -> Optional[str]:
+    def _resolve_env(self, var_name: str) -> str | None:
         """
         Resolve $env('VAR_NAME') expression.
 
@@ -225,7 +224,7 @@ class TemplateContext:
             self.logger.warning("env_var_not_found", var_name=var_name)
         return value
 
-    def _resolve_secret(self, secret_name: str) -> Optional[str]:
+    def _resolve_secret(self, secret_name: str) -> str | None:
         """
         Resolve $secret('SECRET_NAME') expression.
 
@@ -248,9 +247,9 @@ class TemplateContext:
 
 def resolve_template(
     template: Any,
-    form_data: Dict[str, Any],
-    step_results: Dict[str, Any],
-    secret_resolver: Optional[Callable[[str], str]] = None
+    form_data: dict[str, Any],
+    step_results: dict[str, Any],
+    secret_resolver: Callable[[str], str | None] | None = None,
 ) -> Any:
     """
     Convenience function to resolve a template.

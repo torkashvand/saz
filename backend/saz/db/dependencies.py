@@ -1,5 +1,7 @@
 """Dependency injection for FastAPI."""
-from typing import Generator
+
+from collections.abc import Generator
+
 from fastapi import Depends
 from sqlalchemy.orm import Session
 

@@ -3,14 +3,16 @@
 Uses Fernet (symmetric encryption) with key from environment.
 Secrets are encrypted at rest in the database.
 """
-import os
+
 import json
-from typing import Dict, Any, Optional
+import os
+from typing import Any
+
+import structlog
 from cryptography.fernet import Fernet
 from sqlalchemy.orm import Session
-import structlog
 
-from .models import CredentialTable
+from .models import Credential
 
 logger = structlog.get_logger(__name__)
 
@@ -18,7 +20,7 @@ logger = structlog.get_logger(__name__)
 class CredentialsVault:
     """Manage encrypted credentials."""
 
-    def __init__(self, encryption_key: Optional[str] = None):
+    def __init__(self, encryption_key: str | None = None):
         """
         Initialize vault with encryption key.
 
@@ -39,9 +41,9 @@ class CredentialsVault:
         db: Session,
         name: str,
         credential_type: str,
-        data: Dict[str, Any],
-        description: Optional[str] = None
-    ) -> CredentialTable:
+        data: dict[str, Any],
+        description: str | None = None,
+    ) -> Credential:
         """
         Create encrypted credential.
 
@@ -53,18 +55,18 @@ class CredentialsVault:
             description: Optional description
 
         Returns:
-            Created CredentialTable instance
+            Created Credential instance
         """
         # Encrypt data
         data_json = json.dumps(data)
         encrypted_data = self.cipher.encrypt(data_json.encode())
 
         # Store in database
-        credential = CredentialTable(
+        credential = Credential(
             name=name,
             description=description,
             encrypted_data=encrypted_data,
-            credential_type=credential_type
+            credential_type=credential_type,
         )
         db.add(credential)
         db.commit()
@@ -73,11 +75,7 @@ class CredentialsVault:
         self.logger.info("credential_created", name=name, type=credential_type)
         return credential
 
-    def get_credential(
-        self,
-        db: Session,
-        name: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_credential(self, db: Session, name: str) -> dict[str, Any] | None:
         """
         Retrieve and decrypt credential by name.
 
@@ -88,23 +86,20 @@ class CredentialsVault:
         Returns:
             Decrypted credential data or None if not found
         """
-        credential = db.query(CredentialTable).filter(CredentialTable.name == name).first()
+        credential = db.query(Credential).filter(Credential.name == name).first()
         if not credential:
             return None
 
         # Decrypt
         try:
-            decrypted_data = self.cipher.decrypt(credential.encrypted_data)
-            data = json.loads(decrypted_data.decode())
+            decrypted_data = self.cipher.decrypt(credential.data_encrypted)
+            data: dict[str, Any] = json.loads(decrypted_data.decode())
             return data
         except Exception as e:
             self.logger.error("credential_decryption_failed", name=name, error=str(e))
             return None
 
-    def list_credentials(
-        self,
-        db: Session
-    ) -> list[Dict[str, Any]]:
+    def list_credentials(self, db: Session) -> list[dict[str, Any]]:
         """
         List all credentials (metadata only, no secrets).
 
@@ -114,24 +109,20 @@ class CredentialsVault:
         Returns:
             List of credential metadata dicts
         """
-        credentials = db.query(CredentialTable).all()
+        credentials = db.query(Credential).all()
         return [
             {
-                "credential_id": str(cred.credential_id),
+                "credential_id": cred.name,
                 "name": cred.name,
                 "description": cred.description,
-                "credential_type": cred.credential_type,
+                "credential_type": cred.type,
                 "created_at": cred.created_at.isoformat(),
-                "updated_at": cred.updated_at.isoformat()
+                "updated_at": cred.updated_at.isoformat(),
             }
             for cred in credentials
         ]
 
-    def delete_credential(
-        self,
-        db: Session,
-        name: str
-    ) -> bool:
+    def delete_credential(self, db: Session, name: str) -> bool:
         """
         Delete credential by name.
 
@@ -142,7 +133,7 @@ class CredentialsVault:
         Returns:
             True if deleted, False if not found
         """
-        credential = db.query(CredentialTable).filter(CredentialTable.name == name).first()
+        credential = db.query(Credential).filter(Credential.name == name).first()
         if not credential:
             return False
 
@@ -153,11 +144,7 @@ class CredentialsVault:
         return True
 
     def update_credential(
-        self,
-        db: Session,
-        name: str,
-        data: Dict[str, Any],
-        description: Optional[str] = None
+        self, db: Session, name: str, data: dict[str, Any], description: str | None = None
     ) -> bool:
         """
         Update credential data.
@@ -171,7 +158,7 @@ class CredentialsVault:
         Returns:
             True if updated, False if not found
         """
-        credential = db.query(CredentialTable).filter(CredentialTable.name == name).first()
+        credential = db.query(Credential).filter(Credential.name == name).first()
         if not credential:
             return False
 
@@ -180,7 +167,7 @@ class CredentialsVault:
         encrypted_data = self.cipher.encrypt(data_json.encode())
 
         # Update
-        credential.encrypted_data = encrypted_data
+        credential.data_encrypted = encrypted_data
         if description is not None:
             credential.description = description
 

@@ -1,7 +1,9 @@
 """PII Detector - Detects and redacts personally identifiable information."""
+
 import re
+from typing import Any, cast
+
 import structlog
-from typing import Any, Dict, List
 
 logger = structlog.get_logger(__name__)
 
@@ -27,10 +29,10 @@ class PIIDetector:
         "credit_card": r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
         "api_key": r'\b[A-Za-z0-9_-]{32,}\b',  # Common API key length
         "ipv4": r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
-        "jwt": r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b'
+        "jwt": r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b',
     }
 
-    def __init__(self, enabled_detectors: List[str] = None):
+    def __init__(self, enabled_detectors: list[str] | None = None):
         """
         Initialize PII detector.
 
@@ -43,7 +45,7 @@ class PIIDetector:
         self.enabled_detectors = enabled_detectors
         self.logger = logger.bind(policy="pii_detector")
 
-    def detect(self, text: str) -> List[Dict[str, Any]]:
+    def detect(self, text: str) -> list[dict[str, Any]]:
         """
         Detect PII in text.
 
@@ -63,18 +65,18 @@ class PIIDetector:
             matches = re.finditer(pattern, text)
 
             for match in matches:
-                detections.append({
-                    "type": detector_name,
-                    "value": match.group(),
-                    "start": match.start(),
-                    "end": match.end()
-                })
+                detections.append(
+                    {
+                        "type": detector_name,
+                        "value": match.group(),
+                        "start": match.start(),
+                        "end": match.end(),
+                    }
+                )
 
         if detections:
             self.logger.warning(
-                "pii_detected",
-                count=len(detections),
-                types=[d["type"] for d in detections]
+                "pii_detected", count=len(detections), types=[d["type"] for d in detections]
             )
 
         return detections
@@ -101,7 +103,7 @@ class PIIDetector:
 
         return redacted
 
-    def scan_dict(self, data: Dict[str, Any]) -> List[str]:
+    def scan_dict(self, data: dict[str, Any]) -> list[str]:
         """
         Recursively scan dictionary for PII.
 
@@ -130,18 +132,13 @@ class PIIDetector:
         _scan_recursive(data)
 
         if pii_paths:
-            self.logger.warning(
-                "pii_found_in_dict",
-                paths=pii_paths
-            )
+            self.logger.warning("pii_found_in_dict", paths=pii_paths)
 
         return pii_paths
 
     def redact_dict(
-        self,
-        data: Dict[str, Any],
-        replacement: str = "***REDACTED***"
-    ) -> Dict[str, Any]:
+        self, data: dict[str, Any], replacement: str = "***REDACTED***"
+    ) -> dict[str, Any]:
         """
         Recursively redact PII from dictionary.
 
@@ -152,12 +149,10 @@ class PIIDetector:
         Returns:
             Dictionary with PII redacted
         """
+
         def _redact_recursive(obj: Any) -> Any:
             if isinstance(obj, dict):
-                return {
-                    key: _redact_recursive(value)
-                    for key, value in obj.items()
-                }
+                return {key: _redact_recursive(value) for key, value in obj.items()}
             elif isinstance(obj, list):
                 return [_redact_recursive(item) for item in obj]
             elif isinstance(obj, str):
@@ -165,7 +160,7 @@ class PIIDetector:
             else:
                 return obj
 
-        return _redact_recursive(data)
+        return cast(dict[str, Any], _redact_recursive(data))
 
     def add_custom_pattern(self, name: str, pattern: str) -> None:
         """

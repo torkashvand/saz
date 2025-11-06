@@ -1,7 +1,9 @@
 """Budget Tracker - Tracks and enforces autonomy budget limits."""
+
+from datetime import UTC, datetime
+from typing import Any
+
 import structlog
-from typing import Dict, Optional
-from datetime import datetime, UTC
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +24,7 @@ class BudgetTracker:
         max_tokens: int = 100000,
         max_cost_usd: float = 10.0,
         max_steps: int = 50,
-        max_time_seconds: int = 3600
+        max_time_seconds: int = 3600,
     ):
         self.max_tokens = max_tokens
         self.max_cost_usd = max_cost_usd
@@ -31,7 +33,7 @@ class BudgetTracker:
         self.logger = logger.bind(policy="budget_tracker")
 
         # Per-run tracking
-        self._budgets: Dict[str, Dict] = {}
+        self._budgets: dict[str, dict] = {}
 
     def initialize_run(self, run_id: str) -> None:
         """
@@ -45,7 +47,7 @@ class BudgetTracker:
             "cost_usd": 0.0,
             "steps_executed": 0,
             "start_time": datetime.now(UTC),
-            "last_updated": datetime.now(UTC)
+            "last_updated": datetime.now(UTC),
         }
 
         self.logger.info(
@@ -53,7 +55,7 @@ class BudgetTracker:
             run_id=run_id,
             max_tokens=self.max_tokens,
             max_cost_usd=self.max_cost_usd,
-            max_steps=self.max_steps
+            max_steps=self.max_steps,
         )
 
     def record_tokens(self, run_id: str, tokens: int) -> None:
@@ -74,7 +76,7 @@ class BudgetTracker:
             "tokens_recorded",
             run_id=run_id,
             tokens=tokens,
-            total=self._budgets[run_id]["tokens_used"]
+            total=self._budgets[run_id]["tokens_used"],
         )
 
     def record_cost(self, run_id: str, cost_usd: float) -> None:
@@ -95,7 +97,7 @@ class BudgetTracker:
             "cost_recorded",
             run_id=run_id,
             cost_usd=cost_usd,
-            total=self._budgets[run_id]["cost_usd"]
+            total=self._budgets[run_id]["cost_usd"],
         )
 
     def record_step(self, run_id: str) -> None:
@@ -112,12 +114,10 @@ class BudgetTracker:
         self._budgets[run_id]["last_updated"] = datetime.now(UTC)
 
         self.logger.debug(
-            "step_recorded",
-            run_id=run_id,
-            total=self._budgets[run_id]["steps_executed"]
+            "step_recorded", run_id=run_id, total=self._budgets[run_id]["steps_executed"]
         )
 
-    def check_budget(self, run_id: str) -> tuple[bool, Optional[str]]:
+    def check_budget(self, run_id: str) -> tuple[bool, str | None]:
         """
         Check if budget limits are exceeded.
 
@@ -159,7 +159,7 @@ class BudgetTracker:
 
         return True, None
 
-    def get_remaining(self, run_id: str) -> Dict[str, any]:
+    def get_remaining(self, run_id: str) -> dict[str, Any]:
         """
         Get remaining budget.
 
@@ -180,29 +180,29 @@ class BudgetTracker:
                 "used": budget["tokens_used"],
                 "max": self.max_tokens,
                 "remaining": max(0, self.max_tokens - budget["tokens_used"]),
-                "percentage": (budget["tokens_used"] / self.max_tokens) * 100
+                "percentage": (budget["tokens_used"] / self.max_tokens) * 100,
             },
             "cost": {
                 "used": budget["cost_usd"],
                 "max": self.max_cost_usd,
                 "remaining": max(0, self.max_cost_usd - budget["cost_usd"]),
-                "percentage": (budget["cost_usd"] / self.max_cost_usd) * 100
+                "percentage": (budget["cost_usd"] / self.max_cost_usd) * 100,
             },
             "steps": {
                 "used": budget["steps_executed"],
                 "max": self.max_steps,
                 "remaining": max(0, self.max_steps - budget["steps_executed"]),
-                "percentage": (budget["steps_executed"] / self.max_steps) * 100
+                "percentage": (budget["steps_executed"] / self.max_steps) * 100,
             },
             "time": {
                 "used_seconds": elapsed_seconds,
                 "max_seconds": self.max_time_seconds,
                 "remaining_seconds": max(0, self.max_time_seconds - elapsed_seconds),
-                "percentage": (elapsed_seconds / self.max_time_seconds) * 100
-            }
+                "percentage": (elapsed_seconds / self.max_time_seconds) * 100,
+            },
         }
 
-    def get_stats(self, run_id: str) -> Optional[Dict]:
+    def get_stats(self, run_id: str) -> dict | None:
         """Get budget stats for a run"""
         return self._budgets.get(run_id)
 

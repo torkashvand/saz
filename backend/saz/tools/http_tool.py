@@ -1,8 +1,10 @@
 """HTTP Client Tool - Makes HTTP requests with policy enforcement and secret redaction."""
+
+from datetime import UTC, datetime
+from typing import Any
+
 import httpx
 import structlog
-from typing import Dict, Any, Optional, List
-from datetime import datetime, UTC
 
 logger = structlog.get_logger(__name__)
 
@@ -19,10 +21,7 @@ class HttpTool:
     """
 
     def __init__(
-        self,
-        allowed_domains: Optional[List[str]] = None,
-        timeout: int = 30,
-        max_retries: int = 3
+        self, allowed_domains: list[str] | None = None, timeout: int = 30, max_retries: int = 3
     ):
         self.allowed_domains = allowed_domains
         self.timeout = timeout
@@ -30,7 +29,7 @@ class HttpTool:
         self.logger = logger.bind(tool="http")
 
     @property
-    def spec(self) -> Dict[str, Any]:
+    def spec(self) -> dict[str, Any]:
         """MCP-style tool specification"""
         return {
             "name": "http_request",
@@ -41,41 +40,34 @@ class HttpTool:
                     "method": {
                         "type": "string",
                         "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
-                        "description": "HTTP method"
+                        "description": "HTTP method",
                     },
-                    "url": {
-                        "type": "string",
-                        "format": "uri",
-                        "description": "Target URL"
-                    },
+                    "url": {"type": "string", "format": "uri", "description": "Target URL"},
                     "headers": {
                         "type": "object",
                         "description": "HTTP headers (Authorization will be redacted in logs)",
-                        "additionalProperties": {"type": "string"}
+                        "additionalProperties": {"type": "string"},
                     },
-                    "body": {
-                        "type": "object",
-                        "description": "Request body (for POST/PUT/PATCH)"
-                    },
+                    "body": {"type": "object", "description": "Request body (for POST/PUT/PATCH)"},
                     "params": {
                         "type": "object",
                         "description": "Query parameters",
-                        "additionalProperties": {"type": "string"}
-                    }
+                        "additionalProperties": {"type": "string"},
+                    },
                 },
-                "required": ["method", "url"]
-            }
+                "required": ["method", "url"],
+            },
         }
 
     async def execute(
         self,
         method: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
-        body: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, str]] = None,
-        idempotency_key: str = ""
-    ) -> Dict[str, Any]:
+        headers: dict[str, str] | None = None,
+        body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        idempotency_key: str = "",
+    ) -> dict[str, Any]:
         """
         Execute HTTP request with policy enforcement.
 
@@ -98,9 +90,7 @@ class HttpTool:
         if self.allowed_domains:
             domain = httpx.URL(url).host
             if domain not in self.allowed_domains:
-                raise ValueError(
-                    f"Domain '{domain}' not in allowlist: {self.allowed_domains}"
-                )
+                raise ValueError(f"Domain '{domain}' not in allowlist: {self.allowed_domains}")
 
         # Redact sensitive headers for logging
         safe_headers = self._redact_headers(headers or {})
@@ -110,7 +100,7 @@ class HttpTool:
             method=method,
             url=url,
             headers=safe_headers,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
 
         start_time = datetime.now(UTC)
@@ -118,11 +108,7 @@ class HttpTool:
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=body,
-                    params=params
+                    method=method, url=url, headers=headers, json=body, params=params
                 )
 
                 duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
@@ -140,8 +126,8 @@ class HttpTool:
                     "metadata": {
                         "duration_ms": duration_ms,
                         "idempotency_key": idempotency_key,
-                        "timestamp": start_time.isoformat()
-                    }
+                        "timestamp": start_time.isoformat(),
+                    },
                 }
 
                 self.logger.info(
@@ -150,7 +136,7 @@ class HttpTool:
                     url=url,
                     status_code=response.status_code,
                     duration_ms=duration_ms,
-                    idempotency_key=idempotency_key
+                    idempotency_key=idempotency_key,
                 )
 
                 return result
@@ -163,11 +149,11 @@ class HttpTool:
                 url=url,
                 error=str(e),
                 duration_ms=duration_ms,
-                idempotency_key=idempotency_key
+                idempotency_key=idempotency_key,
             )
             raise
 
-    def _redact_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+    def _redact_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """Redact sensitive header values for logging"""
         sensitive_keys = {
             "authorization",
@@ -176,7 +162,7 @@ class HttpTool:
             "apikey",
             "token",
             "x-auth-token",
-            "cookie"
+            "cookie",
         }
 
         return {

@@ -8,12 +8,14 @@ Each AI op has a strict contract:
 
 Designed for minimal LLM usage with deterministic fallbacks.
 """
-import os
+
 import json
+import os
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Literal
-from enum import Enum
+from typing import Any, Literal
+
 import structlog
+
 from .llm_port import LLMPort, get_llm_port
 
 logger = structlog.get_logger(__name__)
@@ -22,18 +24,21 @@ logger = structlog.get_logger(__name__)
 @dataclass
 class AIOpSpec:
     """Specification for an AI operation."""
+
     name: str
     description: str
     temperature: float
     output_format: Literal["json", "text"]
-    default_expect_schema: Optional[Dict[str, Any]] = None
-    input_extras: Dict[str, Any] = field(default_factory=dict)  # tools_allowlist, branches_enum, word_cap, etc.
+    default_expect_schema: dict[str, Any] | None = None
+    input_extras: dict[str, Any] = field(
+        default_factory=dict
+    )  # tools_allowlist, branches_enum, word_cap, etc.
     max_tokens: int = 2048
-    model: Optional[str] = None  # Override default model
+    model: str | None = None  # Override default model
 
 
 # AI Ops Registry
-AI_OPS: Dict[str, AIOpSpec] = {
+AI_OPS: dict[str, AIOpSpec] = {
     "ai.assess": AIOpSpec(
         name="ai.assess",
         description="Classify, extract structured data, or make a decision. Returns strict JSON.",
@@ -43,22 +48,23 @@ AI_OPS: Dict[str, AIOpSpec] = {
             "type": "object",
             "properties": {
                 "result": {"type": "string"},
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             },
-            "required": ["result"]
+            "required": ["result"],
         },
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.generate": AIOpSpec(
         name="ai.generate",
-        description="Compose human-readable text (email, summary, message). Returns text or JSON with 'content'.",
+        description=(
+            "Compose human-readable text (email, summary, message). "
+            "Returns text or JSON with 'content'."
+        ),
         temperature=0.4,
         output_format="text",
         input_extras={"word_cap": 500},
-        max_tokens=2048
+        max_tokens=2048,
     ),
-
     "ai.plan": AIOpSpec(
         name="ai.plan",
         description="Propose next tool calls based on context. Returns JSON array of tool calls.",
@@ -74,30 +80,25 @@ AI_OPS: Dict[str, AIOpSpec] = {
                         "properties": {
                             "tool": {"type": "string"},
                             "args": {"type": "object"},
-                            "rationale": {"type": "string"}
+                            "rationale": {"type": "string"},
                         },
-                        "required": ["tool", "args"]
-                    }
+                        "required": ["tool", "args"],
+                    },
                 }
             },
-            "required": ["calls"]
+            "required": ["calls"],
         },
         input_extras={"tools_allowlist": []},
-        max_tokens=2048
+        max_tokens=2048,
     ),
-
     "ai.extract": AIOpSpec(
         name="ai.extract",
         description="Pull structured fields from messy text. Returns strict JSON.",
         temperature=0.1,
         output_format="json",
-        default_expect_schema={
-            "type": "object",
-            "additionalProperties": True
-        },
-        max_tokens=1024
+        default_expect_schema={"type": "object", "additionalProperties": True},
+        max_tokens=1024,
     ),
-
     "ai.route": AIOpSpec(
         name="ai.route",
         description="Pick a branch/route based on input. Returns JSON with 'route' field.",
@@ -105,16 +106,12 @@ AI_OPS: Dict[str, AIOpSpec] = {
         output_format="json",
         default_expect_schema={
             "type": "object",
-            "properties": {
-                "route": {"type": "string"},
-                "reason": {"type": "string"}
-            },
-            "required": ["route"]
+            "properties": {"route": {"type": "string"}, "reason": {"type": "string"}},
+            "required": ["route"],
         },
         input_extras={"branches_enum": []},
-        max_tokens=512
+        max_tokens=512,
     ),
-
     "ai.score": AIOpSpec(
         name="ai.score",
         description="Numeric scoring against a rubric. Returns JSON with score 0-1.",
@@ -124,13 +121,12 @@ AI_OPS: Dict[str, AIOpSpec] = {
             "type": "object",
             "properties": {
                 "score": {"type": "number", "minimum": 0, "maximum": 1},
-                "reason": {"type": "string"}
+                "reason": {"type": "string"},
             },
-            "required": ["score"]
+            "required": ["score"],
         },
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.normalize": AIOpSpec(
         name="ai.normalize",
         description="Canonicalize names, addresses, or entities. Returns strict JSON.",
@@ -140,16 +136,18 @@ AI_OPS: Dict[str, AIOpSpec] = {
             "type": "object",
             "properties": {
                 "normalized": {"type": "string"},
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             },
-            "required": ["normalized"]
+            "required": ["normalized"],
         },
-        max_tokens=512
+        max_tokens=512,
     ),
-
     "ai.match": AIOpSpec(
         name="ai.match",
-        description="Entity resolution - find matching entity from candidates. Returns JSON with ID and confidence.",
+        description=(
+            "Entity resolution - find matching entity from candidates. "
+            "Returns JSON with ID and confidence."
+        ),
         temperature=0.1,
         output_format="json",
         default_expect_schema={
@@ -157,33 +155,30 @@ AI_OPS: Dict[str, AIOpSpec] = {
             "properties": {
                 "id": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "reason": {"type": "string"}
+                "reason": {"type": "string"},
             },
-            "required": ["id", "confidence"]
+            "required": ["id", "confidence"],
         },
         input_extras={"top_k": 5},
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.evaluate": AIOpSpec(
         name="ai.evaluate",
-        description="Guardrail QA - validate against rules. Returns JSON with pass/fail and issues.",
+        description=(
+            "Guardrail QA - validate against rules. Returns JSON with pass/fail and issues."
+        ),
         temperature=0.1,
         output_format="json",
         default_expect_schema={
             "type": "object",
             "properties": {
                 "pass": {"type": "boolean"},
-                "issues": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                }
+                "issues": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["pass", "issues"]
+            "required": ["pass", "issues"],
         },
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.compare": AIOpSpec(
         name="ai.compare",
         description="Semantic diff or duplicate check. Returns JSON with similarity and deltas.",
@@ -194,44 +189,35 @@ AI_OPS: Dict[str, AIOpSpec] = {
             "properties": {
                 "same": {"type": "boolean"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "deltas": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                }
+                "deltas": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["same", "deltas"]
+            "required": ["same", "deltas"],
         },
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.translate": AIOpSpec(
         name="ai.translate",
         description="Machine translate with optional glossary. Returns translated text.",
         temperature=0.2,
         output_format="text",
         input_extras={"target_locale": "en"},
-        max_tokens=2048
+        max_tokens=2048,
     ),
-
     "ai.summarize": AIOpSpec(
         name="ai.summarize",
         description="Compress text with constraints. Returns summary text.",
         temperature=0.2,
         output_format="text",
         input_extras={"word_cap": 100},
-        max_tokens=1024
+        max_tokens=1024,
     ),
-
     "ai.fix_json": AIOpSpec(
         name="ai.fix_json",
         description="Repair malformed JSON to match schema. Returns valid JSON.",
         temperature=0.1,
         output_format="json",
-        default_expect_schema={
-            "type": "object",
-            "additionalProperties": True
-        },
-        max_tokens=2048
+        default_expect_schema={"type": "object", "additionalProperties": True},
+        max_tokens=2048,
     ),
 }
 
@@ -241,9 +227,9 @@ class AIOperationsRunner:
 
     def __init__(
         self,
-        default_model: Optional[str] = None,
+        default_model: str | None = None,
         cost_per_1m_tokens: float = 0.15,  # Default for gpt-4o-mini
-        llm_port: Optional[LLMPort] = None
+        llm_port: LLMPort | None = None,
     ):
         """
         Initialize AI ops runner.
@@ -262,12 +248,12 @@ class AIOperationsRunner:
         self,
         op_name: str,
         instruction: str,
-        data: Optional[Dict[str, Any]] = None,
-        expected_schema: Optional[Dict[str, Any]] = None,
-        temperature_override: Optional[float] = None,
-        max_tokens_override: Optional[int] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
+        data: dict[str, Any] | None = None,
+        expected_schema: dict[str, Any] | None = None,
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """
         Execute an AI operation.
 
@@ -296,24 +282,21 @@ class AIOperationsRunner:
         max_tokens = max_tokens_override if max_tokens_override is not None else spec.max_tokens
         expect_schema = expected_schema or spec.default_expect_schema
         model = spec.model or self.default_model
+        assert model is not None, "Model must be specified"
 
         # Build prompt
         system_prompt = self._build_system_prompt(spec, instruction, expect_schema, kwargs)
         user_message = self._build_user_message(spec, data, kwargs)
 
         self.logger.info(
-            "ai_op_start",
-            op=op_name,
-            temperature=temperature,
-            model=model,
-            max_tokens=max_tokens
+            "ai_op_start", op=op_name, temperature=temperature, model=model, max_tokens=max_tokens
         )
 
         try:
             # Call LLM
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": user_message},
             ]
 
             response_format = {"type": "json_object"} if spec.output_format == "json" else None
@@ -324,7 +307,7 @@ class AIOperationsRunner:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
-                timeout=30
+                timeout=30,
             )
 
             content = response.content
@@ -344,34 +327,28 @@ class AIOperationsRunner:
                     # Attempt repair with ai.fix_json
                     self.logger.warning("ai_op_invalid_json", op=op_name, error=str(e))
 
-                    if op_name != "ai.fix_json":
+                    if op_name != "ai.fix_json" and expect_schema is not None:
                         # Retry once with repair
                         output = await self._repair_json(content, expect_schema)
                     else:
-                        # Can't repair the repair
-                        raise ValueError(f"Invalid JSON from {op_name}: {e}")
+                        # Can't repair the repair or no schema to repair against
+                        raise ValueError(f"Invalid JSON from {op_name}: {e}") from None
             else:
                 output = content
 
             self.logger.info(
-                "ai_op_complete",
-                op=op_name,
-                tokens=tokens,
-                cost_usd=round(cost_usd, 6)
+                "ai_op_complete", op=op_name, tokens=tokens, cost_usd=round(cost_usd, 6)
             )
 
             return {
                 "output": output,
-                "usage": {
-                    "tokens": tokens,
-                    "cost_usd": round(cost_usd, 6)
-                },
+                "usage": {"tokens": tokens, "cost_usd": round(cost_usd, 6)},
                 "metadata": {
                     "op": op_name,
                     "temperature": temperature,
                     "model": model,
-                    "max_tokens": max_tokens
-                }
+                    "max_tokens": max_tokens,
+                },
             }
 
         except Exception as e:
@@ -382,8 +359,8 @@ class AIOperationsRunner:
         self,
         spec: AIOpSpec,
         instruction: str,
-        expect_schema: Optional[Dict[str, Any]],
-        extras: Dict[str, Any]
+        expect_schema: dict[str, Any] | None,
+        extras: dict[str, Any],
     ) -> str:
         """Build system prompt for AI op."""
         lines = [
@@ -400,26 +377,23 @@ class AIOperationsRunner:
         if "branches_enum" in extras:
             branches = extras["branches_enum"]
             lines.append(f"\nValid routes: {', '.join(branches)}")
-            lines.append(f"You must choose exactly one route from this list.")
+            lines.append("You must choose exactly one route from this list.")
 
         if "tools_allowlist" in extras:
             tools = extras["tools_allowlist"]
             lines.append(f"\nAvailable tools: {', '.join(tools)}")
-            lines.append(f"You may only propose calls to these tools.")
+            lines.append("You may only propose calls to these tools.")
 
         # Add schema if JSON output
         if spec.output_format == "json" and expect_schema:
-            lines.append(f"\nOutput format: JSON matching this schema:")
+            lines.append("\nOutput format: JSON matching this schema:")
             lines.append(json.dumps(expect_schema, indent=2))
             lines.append("\nIMPORTANT: Respond with ONLY valid JSON. No extra text.")
 
         return "\n".join(lines)
 
     def _build_user_message(
-        self,
-        spec: AIOpSpec,
-        data: Optional[Dict[str, Any]],
-        extras: Dict[str, Any]
+        self, spec: AIOpSpec, data: dict[str, Any] | None, extras: dict[str, Any]
     ) -> str:
         """Build user message with data context."""
         if not data:
@@ -443,7 +417,7 @@ class AIOperationsRunner:
 
         return "\n".join(lines)
 
-    def _validate_json(self, data: Any, schema: Dict[str, Any]) -> None:
+    def _validate_json(self, data: Any, schema: dict[str, Any]) -> None:
         """Validate JSON against schema (basic check)."""
         # Basic validation - check required fields and types
         if schema.get("type") == "object":
@@ -464,7 +438,7 @@ class AIOperationsRunner:
                     # Type check
                     if field_type == "string" and not isinstance(value, str):
                         raise ValueError(f"Field '{field}' must be string")
-                    elif field_type == "number" and not isinstance(value, (int, float)):
+                    elif field_type == "number" and not isinstance(value, int | float):
                         raise ValueError(f"Field '{field}' must be number")
                     elif field_type == "boolean" and not isinstance(value, bool):
                         raise ValueError(f"Field '{field}' must be boolean")
@@ -474,33 +448,32 @@ class AIOperationsRunner:
                     # Bounds check for numbers
                     if field_type == "number":
                         if "minimum" in field_schema and value < field_schema["minimum"]:
-                            raise ValueError(f"Field '{field}' below minimum: {field_schema['minimum']}")
+                            raise ValueError(
+                                f"Field '{field}' below minimum: {field_schema['minimum']}"
+                            )
                         if "maximum" in field_schema and value > field_schema["maximum"]:
-                            raise ValueError(f"Field '{field}' above maximum: {field_schema['maximum']}")
+                            raise ValueError(
+                                f"Field '{field}' above maximum: {field_schema['maximum']}"
+                            )
 
-    async def _repair_json(
-        self,
-        broken_json: str,
-        target_schema: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def _repair_json(self, broken_json: str, target_schema: dict[str, Any]) -> dict[str, Any]:
         """Attempt to repair broken JSON using ai.fix_json."""
+        from typing import cast
+
         self.logger.info("attempting_json_repair")
 
         repair_result = await self.run_ai_op(
             op_name="ai.fix_json",
             instruction="Repair the following malformed JSON to match the target schema.",
-            data={
-                "broken_json": broken_json,
-                "target_schema": target_schema
-            },
-            expected_schema=target_schema
+            data={"broken_json": broken_json, "target_schema": target_schema},
+            expected_schema=target_schema,
         )
 
-        return repair_result["output"]
+        return cast(dict[str, Any], repair_result["output"])
 
 
 # Global instance
-_ai_runner: Optional[AIOperationsRunner] = None
+_ai_runner: AIOperationsRunner | None = None
 
 
 def get_ai_runner() -> AIOperationsRunner:

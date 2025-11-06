@@ -1,15 +1,19 @@
 """Policy Engine - Coordinates all policy enforcement."""
+
+from typing import Any
+
 import structlog
-from typing import Dict, Any, Optional, List
-from .rate_limiter import RateLimiter
-from .pii_detector import PIIDetector
+
 from .budget_tracker import BudgetTracker
+from .pii_detector import PIIDetector
+from .rate_limiter import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
 
 class PolicyViolation(Exception):
     """Raised when a policy is violated"""
+
     pass
 
 
@@ -26,10 +30,10 @@ class PolicyEngine:
 
     def __init__(
         self,
-        rate_limiter: Optional[RateLimiter] = None,
-        pii_detector: Optional[PIIDetector] = None,
-        budget_tracker: Optional[BudgetTracker] = None,
-        enforce_pii_redaction: bool = True
+        rate_limiter: RateLimiter | None = None,
+        pii_detector: PIIDetector | None = None,
+        budget_tracker: BudgetTracker | None = None,
+        enforce_pii_redaction: bool = True,
     ):
         self.rate_limiter = rate_limiter or RateLimiter()
         self.pii_detector = pii_detector or PIIDetector()
@@ -38,11 +42,8 @@ class PolicyEngine:
         self.logger = logger.bind(component="policy_engine")
 
     def check_tool_call(
-        self,
-        tool_name: str,
-        arguments: Dict[str, Any],
-        run_id: str
-    ) -> tuple[bool, Optional[str]]:
+        self, tool_name: str, arguments: dict[str, Any], run_id: str
+    ) -> tuple[bool, str | None]:
         """
         Check if tool call is allowed.
 
@@ -58,10 +59,7 @@ class PolicyEngine:
         allowed, reason = self.rate_limiter.check_and_record(tool_name, run_id)
         if not allowed:
             self.logger.warning(
-                "tool_call_blocked_rate_limit",
-                tool=tool_name,
-                run_id=run_id,
-                reason=reason
+                "tool_call_blocked_rate_limit", tool=tool_name, run_id=run_id, reason=reason
             )
             return False, f"Rate limit: {reason}"
 
@@ -69,10 +67,7 @@ class PolicyEngine:
         within_budget, budget_reason = self.budget_tracker.check_budget(run_id)
         if not within_budget:
             self.logger.warning(
-                "tool_call_blocked_budget",
-                tool=tool_name,
-                run_id=run_id,
-                reason=budget_reason
+                "tool_call_blocked_budget", tool=tool_name, run_id=run_id, reason=budget_reason
             )
             return False, f"Budget exceeded: {budget_reason}"
 
@@ -80,26 +75,16 @@ class PolicyEngine:
         pii_paths = self.pii_detector.scan_dict(arguments)
         if pii_paths:
             self.logger.warning(
-                "pii_detected_in_tool_args",
-                tool=tool_name,
-                run_id=run_id,
-                paths=pii_paths
+                "pii_detected_in_tool_args", tool=tool_name, run_id=run_id, paths=pii_paths
             )
             if self.enforce_pii_redaction:
                 return False, f"PII detected in arguments: {pii_paths}"
 
-        self.logger.debug(
-            "tool_call_allowed",
-            tool=tool_name,
-            run_id=run_id
-        )
+        self.logger.debug("tool_call_allowed", tool=tool_name, run_id=run_id)
 
         return True, None
 
-    def redact_output(
-        self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def redact_output(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Redact PII from tool output.
 
@@ -111,12 +96,7 @@ class PolicyEngine:
         """
         return self.pii_detector.redact_dict(data)
 
-    def record_llm_usage(
-        self,
-        run_id: str,
-        tokens: int,
-        cost_usd: float
-    ) -> None:
+    def record_llm_usage(self, run_id: str, tokens: int, cost_usd: float) -> None:
         """
         Record LLM usage.
 
@@ -128,12 +108,7 @@ class PolicyEngine:
         self.budget_tracker.record_tokens(run_id, tokens)
         self.budget_tracker.record_cost(run_id, cost_usd)
 
-        self.logger.debug(
-            "llm_usage_recorded",
-            run_id=run_id,
-            tokens=tokens,
-            cost_usd=cost_usd
-        )
+        self.logger.debug("llm_usage_recorded", run_id=run_id, tokens=tokens, cost_usd=cost_usd)
 
     def record_step(self, run_id: str) -> None:
         """
@@ -144,7 +119,7 @@ class PolicyEngine:
         """
         self.budget_tracker.record_step(run_id)
 
-    def get_budget_status(self, run_id: str) -> Dict[str, Any]:
+    def get_budget_status(self, run_id: str) -> dict[str, Any]:
         """
         Get current budget status.
 
@@ -166,7 +141,7 @@ class PolicyEngine:
         self.budget_tracker.initialize_run(run_id)
         self.logger.info("run_initialized", run_id=run_id)
 
-    def get_compliance_report(self, run_id: str) -> Dict[str, Any]:
+    def get_compliance_report(self, run_id: str) -> dict[str, Any]:
         """
         Generate compliance report for a run.
 
@@ -187,8 +162,8 @@ class PolicyEngine:
                 "rate_limiting": True,
                 "pii_detection": True,
                 "pii_redaction": self.enforce_pii_redaction,
-                "budget_tracking": True
-            }
+                "budget_tracking": True,
+            },
         }
 
 
@@ -198,7 +173,7 @@ def create_default_policy_engine(
     max_steps: int = 50,
     calls_per_minute: int = 10,
     calls_per_hour: int = 100,
-    enforce_pii_redaction: bool = True
+    enforce_pii_redaction: bool = True,
 ) -> PolicyEngine:
     """
     Create a default policy engine with standard settings.
@@ -214,31 +189,26 @@ def create_default_policy_engine(
     Returns:
         Configured PolicyEngine
     """
-    rate_limiter = RateLimiter(
-        calls_per_minute=calls_per_minute,
-        calls_per_hour=calls_per_hour
-    )
+    rate_limiter = RateLimiter(calls_per_minute=calls_per_minute, calls_per_hour=calls_per_hour)
 
     pii_detector = PIIDetector()
 
     budget_tracker = BudgetTracker(
-        max_tokens=max_tokens,
-        max_cost_usd=max_cost_usd,
-        max_steps=max_steps
+        max_tokens=max_tokens, max_cost_usd=max_cost_usd, max_steps=max_steps
     )
 
     engine = PolicyEngine(
         rate_limiter=rate_limiter,
         pii_detector=pii_detector,
         budget_tracker=budget_tracker,
-        enforce_pii_redaction=enforce_pii_redaction
+        enforce_pii_redaction=enforce_pii_redaction,
     )
 
     logger.info(
         "default_policy_engine_created",
         max_tokens=max_tokens,
         max_cost_usd=max_cost_usd,
-        max_steps=max_steps
+        max_steps=max_steps,
     )
 
     return engine

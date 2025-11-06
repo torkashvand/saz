@@ -23,8 +23,10 @@ interface WorkflowGraphProps {
 
 const STATUS_COLORS: Record<StepStatus, string> = {
   pending: '#94a3b8', // slate-400
+  queued: '#94a3b8', // slate-400
   running: '#3b82f6', // blue-500
   success: '#22c55e', // green-500
+  completed: '#22c55e', // green-500
   failed: '#ef4444', // red-500
   suspended: '#f59e0b', // amber-500
 }

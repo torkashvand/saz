@@ -1,7 +1,8 @@
 """Flow write repository."""
-from datetime import datetime, UTC
-from typing import Optional
+
+from datetime import UTC, datetime
 from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,8 +20,8 @@ class FlowRepository(BaseRepository[Flow]):
         self,
         name: str,
         definition: dict,
-        version: Optional[str] = None,
-        description: Optional[str] = None
+        version: str | None = None,
+        description: str | None = None,
     ) -> Flow:
         """Create new flow."""
         flow = Flow(
@@ -29,11 +30,11 @@ class FlowRepository(BaseRepository[Flow]):
             version=version,
             description=description,
             definition=definition,
-            created_at=datetime.now(UTC)
+            created_at=datetime.now(UTC),
         )
         return self.add(flow)
 
-    def get_by_name(self, name: str) -> Optional[Flow]:
+    def get_by_name(self, name: str) -> Flow | None:
         """Get flow by name."""
         stmt = select(Flow).where(Flow.name == name)
         return self.session.scalar(stmt)
@@ -42,9 +43,9 @@ class FlowRepository(BaseRepository[Flow]):
         self,
         name: str,
         definition: dict,
-        version: Optional[str] = None,
-        description: Optional[str] = None
-    ) -> Optional[Flow]:
+        version: str | None = None,
+        description: str | None = None,
+    ) -> Flow | None:
         """Update existing flow definition."""
         flow = self.get_by_name(name)
         if flow:

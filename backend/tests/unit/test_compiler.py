@@ -1,12 +1,16 @@
 """Unit tests for DSL compiler - YAML to Pydantic and JSON Schema generation."""
+
+from typing import Any, cast
+
 import pytest
 from pydantic import ValidationError
+
 from saz.compiler.dsl import (
     compile_dsl,
     compile_form_model,
-    compile_workflow_spec,
     compile_policies,
-    parse_yaml
+    compile_workflow_spec,
+    parse_yaml,
 )
 
 
@@ -67,7 +71,7 @@ def test_compile_form_model_text_field():
                 "type": "text",
                 "required": True,
                 "regex": "^[a-z0-9_]+$",
-                "description": "Username"
+                "description": "Username",
             }
         ]
     }
@@ -76,7 +80,7 @@ def test_compile_form_model_text_field():
 
     # Test valid instance
     instance = model_cls(username="test_user")
-    assert instance.username == "test_user"
+    assert cast(Any, instance).username == "test_user"
 
     # Test JSON schema contains pattern
     assert "properties" in schema
@@ -88,22 +92,14 @@ def test_compile_form_model_text_field():
 def test_compile_form_model_number_field_with_constraints():
     """Test compiling number field with min/max validation."""
     form_def = {
-        "fields": [
-            {
-                "name": "age",
-                "type": "number",
-                "required": True,
-                "min": 18,
-                "max": 120
-            }
-        ]
+        "fields": [{"name": "age", "type": "number", "required": True, "min": 18, "max": 120}]
     }
 
     model_cls, schema = compile_form_model(form_def)
 
     # Test valid instance
     instance = model_cls(age=25)
-    assert instance.age == 25
+    assert cast(Any, instance).age == 25
 
     # Test min constraint
     with pytest.raises(ValidationError):
@@ -122,16 +118,8 @@ def test_compile_form_model_optional_fields():
     """Test optional fields with default None."""
     form_def = {
         "fields": [
-            {
-                "name": "email",
-                "type": "text",
-                "required": True
-            },
-            {
-                "name": "phone",
-                "type": "text",
-                "required": False
-            }
+            {"name": "email", "type": "text", "required": True},
+            {"name": "phone", "type": "text", "required": False},
         ]
     }
 
@@ -139,12 +127,12 @@ def test_compile_form_model_optional_fields():
 
     # Test with only required field
     instance = model_cls(email="test@example.com")
-    assert instance.email == "test@example.com"
-    assert instance.phone is None
+    assert cast(Any, instance).email == "test@example.com"
+    assert cast(Any, instance).phone is None
 
     # Test with both fields
     instance2 = model_cls(email="test@example.com", phone="123-456-7890")
-    assert instance2.phone == "123-456-7890"
+    assert cast(Any, instance2).phone == "123-456-7890"
 
     # Verify required in schema
     assert "email" in schema.get("required", [])
@@ -153,23 +141,15 @@ def test_compile_form_model_optional_fields():
 
 def test_compile_form_model_boolean_field():
     """Test boolean field compilation."""
-    form_def = {
-        "fields": [
-            {
-                "name": "newsletter",
-                "type": "boolean",
-                "required": True
-            }
-        ]
-    }
+    form_def = {"fields": [{"name": "newsletter", "type": "boolean", "required": True}]}
 
     model_cls, schema = compile_form_model(form_def)
 
     instance = model_cls(newsletter=True)
-    assert instance.newsletter is True
+    assert cast(Any, instance).newsletter is True
 
     instance2 = model_cls(newsletter=False)
-    assert instance2.newsletter is False
+    assert cast(Any, instance2).newsletter is False
 
     assert schema["properties"]["newsletter"]["type"] == "boolean"
 
@@ -177,21 +157,13 @@ def test_compile_form_model_boolean_field():
 def test_compile_form_model_float_field():
     """Test float field with validation."""
     form_def = {
-        "fields": [
-            {
-                "name": "price",
-                "type": "float",
-                "required": True,
-                "min": 0.0,
-                "max": 9999.99
-            }
-        ]
+        "fields": [{"name": "price", "type": "float", "required": True, "min": 0.0, "max": 9999.99}]
     }
 
     model_cls, schema = compile_form_model(form_def)
 
     instance = model_cls(price=99.99)
-    assert instance.price == 99.99
+    assert cast(Any, instance).price == 99.99
 
     # Test constraints
     with pytest.raises(ValidationError):
@@ -200,29 +172,18 @@ def test_compile_form_model_float_field():
 
 def test_compile_form_model_unknown_type_defaults_to_str():
     """Test unknown field types default to string."""
-    form_def = {
-        "fields": [
-            {
-                "name": "unknown_field",
-                "type": "unknown_type",
-                "required": True
-            }
-        ]
-    }
+    form_def = {"fields": [{"name": "unknown_field", "type": "unknown_type", "required": True}]}
 
     model_cls, schema = compile_form_model(form_def)
 
     instance = model_cls(unknown_field="test")
-    assert instance.unknown_field == "test"
+    assert cast(Any, instance).unknown_field == "test"
 
 
 def test_compile_workflow_spec():
     """Test workflow specification compilation."""
     workflow_def = {
-        "steps": [
-            {"id": "step1", "type": "tool_call"},
-            {"id": "step2", "type": "ai.assess"}
-        ]
+        "steps": [{"id": "step1", "type": "tool_call"}, {"id": "step2", "type": "ai.assess"}]
     }
 
     spec = compile_workflow_spec(workflow_def, "TestFlow")
@@ -247,13 +208,8 @@ def test_compile_policies_with_defaults():
 def test_compile_policies_with_overrides():
     """Test policy compilation with custom values."""
     policies_def = {
-        "budget": {
-            "max_tokens": 50000,
-            "max_cost_usd": 5.0
-        },
-        "pii": {
-            "enforce_redaction": False
-        }
+        "budget": {"max_tokens": 50000, "max_cost_usd": 5.0},
+        "pii": {"enforce_redaction": False},
     }
 
     policies = compile_policies(policies_def)
@@ -317,8 +273,8 @@ credentials:
     # Verify form model
     assert compiled.form_model is not None
     instance = compiled.form_model(email="test@example.com", age=25)
-    assert instance.email == "test@example.com"
-    assert instance.age == 25
+    assert cast(Any, instance).email == "test@example.com"
+    assert cast(Any, instance).age == 25
 
     # Verify form schema
     assert "properties" in compiled.form_schema
@@ -353,14 +309,7 @@ flow:
 def test_form_model_invalid_regex():
     """Test that invalid regex patterns are caught."""
     form_def = {
-        "fields": [
-            {
-                "name": "username",
-                "type": "text",
-                "required": True,
-                "regex": "^[a-z]+$"
-            }
-        ]
+        "fields": [{"name": "username", "type": "text", "required": True, "regex": "^[a-z]+$"}]
     }
 
     model_cls, _ = compile_form_model(form_def)

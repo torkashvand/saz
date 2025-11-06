@@ -2,8 +2,11 @@
 
 Supports cron expressions for periodic workflow execution.
 """
+
+from collections.abc import Callable
+from typing import Any
+
 import structlog
-from typing import Dict, Any, Optional, Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -13,19 +16,19 @@ logger = structlog.get_logger(__name__)
 class TriggerScheduler:
     """Manage scheduled workflow triggers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize scheduler."""
         self.scheduler = AsyncIOScheduler()
         self.logger = logger.bind(component="trigger_scheduler")
-        self._jobs: Dict[str, str] = {}  # flow_id -> job_id mapping
+        self._jobs: dict[str, str] = {}  # flow_id -> job_id mapping
 
-    def start(self):
+    def start(self) -> None:
         """Start the scheduler."""
         if not self.scheduler.running:
             self.scheduler.start()
             self.logger.info("scheduler_started")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the scheduler."""
         if self.scheduler.running:
             self.scheduler.shutdown()
@@ -36,7 +39,7 @@ class TriggerScheduler:
         flow_id: str,
         cron_expression: str,
         trigger_func: Callable,
-        trigger_data: Optional[Dict[str, Any]] = None
+        trigger_data: dict[str, Any] | None = None,
     ) -> str:
         """
         Add a scheduled trigger for a flow.
@@ -55,17 +58,15 @@ class TriggerScheduler:
             # Format: minute hour day month day_of_week
             parts = cron_expression.split()
             if len(parts) != 5:
-                raise ValueError("Cron expression must have 5 parts: minute hour day month day_of_week")
+                raise ValueError(
+                    "Cron expression must have 5 parts: minute hour day month day_of_week"
+                )
 
             minute, hour, day, month, day_of_week = parts
 
             # Create trigger
             trigger = CronTrigger(
-                minute=minute,
-                hour=hour,
-                day=day,
-                month=month,
-                day_of_week=day_of_week
+                minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week
             )
 
             # Add job
@@ -75,25 +76,20 @@ class TriggerScheduler:
                 args=[flow_id, trigger_data or {}],
                 id=f"flow_{flow_id}_schedule",
                 name=f"Scheduled trigger for flow {flow_id}",
-                replace_existing=True
+                replace_existing=True,
             )
 
-            self._jobs[flow_id] = job.id
+            job_id_str = str(job.id)  # APScheduler job.id is Any, ensure it's a string
+            self._jobs[flow_id] = job_id_str
             self.logger.info(
-                "schedule_trigger_added",
-                flow_id=flow_id,
-                cron=cron_expression,
-                job_id=job.id
+                "schedule_trigger_added", flow_id=flow_id, cron=cron_expression, job_id=job_id_str
             )
 
-            return job.id
+            return job_id_str
 
         except Exception as e:
             self.logger.error(
-                "schedule_trigger_add_failed",
-                flow_id=flow_id,
-                cron=cron_expression,
-                error=str(e)
+                "schedule_trigger_add_failed", flow_id=flow_id, cron=cron_expression, error=str(e)
             )
             raise
 
@@ -120,7 +116,7 @@ class TriggerScheduler:
             self.logger.error("schedule_trigger_remove_failed", flow_id=flow_id, error=str(e))
             return False
 
-    def list_triggers(self) -> list[Dict[str, Any]]:
+    def list_triggers(self) -> list[dict[str, Any]]:
         """
         List all scheduled triggers.
 
@@ -129,10 +125,12 @@ class TriggerScheduler:
         """
         triggers = []
         for job in self.scheduler.get_jobs():
-            triggers.append({
-                "job_id": job.id,
-                "name": job.name,
-                "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
-                "trigger": str(job.trigger)
-            })
+            triggers.append(
+                {
+                    "job_id": job.id,
+                    "name": job.name,
+                    "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+                    "trigger": str(job.trigger),
+                }
+            )
         return triggers

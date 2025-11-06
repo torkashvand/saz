@@ -1,10 +1,14 @@
 """Executor Agent - Grounds plans into concrete tool calls with variable substitution."""
-import json
+
 import re
+from collections.abc import Callable
+from typing import Any
+
 import structlog
-from typing import Dict, Any, List, Optional, Callable
-from .schemas import PlanStep, ToolCall
+
 from saz.engine.templating import resolve_template
+
+from .schemas import PlanStep, ToolCall
 
 logger = structlog.get_logger(__name__)
 
@@ -12,16 +16,16 @@ logger = structlog.get_logger(__name__)
 class ExecutorAgent:
     """Grounds plan steps into executable tool calls"""
 
-    def __init__(self, secret_resolver: Optional[Callable[[str], str]] = None):
+    def __init__(self, secret_resolver: Callable[[str], str | None] | None = None):
         self.logger = logger.bind(agent="executor")
         self.secret_resolver = secret_resolver
 
     def ground(
         self,
         step: PlanStep,
-        tool_registry: Dict[str, Dict],
-        current_data: Dict[str, Any],
-        run_id: str
+        tool_registry: dict[str, dict],
+        current_data: dict[str, Any],
+        run_id: str,
     ) -> ToolCall:
         """
         Ground a plan step into a concrete tool call.
@@ -42,7 +46,7 @@ class ExecutorAgent:
             "grounding_step",
             step_id=step.step_id,
             tool_name=step.tool_name,
-            action=step.action.value
+            action=step.action.value,
         )
 
         # Validate tool exists
@@ -54,13 +58,15 @@ class ExecutorAgent:
         # Substitute variables in input template using new templating engine
         # Extract form data and step results from current_data
         form_data = {k: v for k, v in current_data.items() if not k.endswith('_result')}
-        step_results = {k: v for k, v in current_data.items() if k.endswith('_result') or k in [s.step_id for s in []]}
+        step_results: dict[str, Any] = {
+            k: v for k, v in current_data.items() if k.endswith('_result')
+        }
 
         grounded_args = resolve_template(
             step.input_template,
             form_data=form_data,
             step_results=step_results,
-            secret_resolver=self.secret_resolver
+            secret_resolver=self.secret_resolver,
         )
 
         # Validate against tool schema (basic check)
@@ -71,31 +77,28 @@ class ExecutorAgent:
 
         # Build rationale
         rationale = (
-            f"Executing {step.tool_name} for step {step.step_id}. "
-            f"Reasoning: {step.reasoning}"
+            f"Executing {step.tool_name} for step {step.step_id}. Reasoning: {step.reasoning}"
         )
 
         tool_call = ToolCall(
             tool=step.tool_name,
             arguments=grounded_args,
             idempotency_key=idempotency_key,
-            rationale=rationale
+            rationale=rationale,
         )
 
         self.logger.info(
             "step_grounded",
             step_id=step.step_id,
             tool=tool_call.tool,
-            idempotency_key=tool_call.idempotency_key
+            idempotency_key=tool_call.idempotency_key,
         )
 
         return tool_call
 
     def _substitute_variables(
-        self,
-        template: Dict[str, Any],
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, template: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Recursively substitute {{variable}} placeholders with actual values.
 
@@ -110,10 +113,7 @@ class ExecutorAgent:
             ValueError: If referenced variable not found
         """
         if isinstance(template, dict):
-            return {
-                key: self._substitute_variables(value, data)
-                for key, value in template.items()
-            }
+            return {key: self._substitute_variables(value, data) for key, value in template.items()}
         elif isinstance(template, list):
             return [self._substitute_variables(item, data) for item in template]
         elif isinstance(template, str):
@@ -140,7 +140,7 @@ class ExecutorAgent:
         else:
             return template
 
-    def _get_nested_value(self, data: Dict, path: str) -> Any:
+    def _get_nested_value(self, data: dict, path: str) -> Any:
         """
         Get value from nested dictionary using dot notation.
 
@@ -165,11 +165,7 @@ class ExecutorAgent:
 
         return value
 
-    def _validate_arguments(
-        self,
-        arguments: Dict[str, Any],
-        tool_spec: Dict[str, Any]
-    ) -> None:
+    def _validate_arguments(self, arguments: dict[str, Any], tool_spec: dict[str, Any]) -> None:
         """
         Basic validation that required parameters are present.
 
@@ -185,12 +181,8 @@ class ExecutorAgent:
 
         missing = [p for p in required_params if p not in arguments]
         if missing:
-            raise ValueError(
-                f"Missing required parameters for {tool_spec['name']}: {missing}"
-            )
+            raise ValueError(f"Missing required parameters for {tool_spec['name']}: {missing}")
 
         self.logger.debug(
-            "arguments_validated",
-            tool=tool_spec['name'],
-            required_params=required_params
+            "arguments_validated", tool=tool_spec['name'], required_params=required_params
         )

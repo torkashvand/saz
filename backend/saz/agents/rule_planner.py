@@ -4,12 +4,15 @@ Reads workflow steps directly from YAML spec.
 Only invokes LLM for optional "ai.assess" step type.
 Cost-efficient: ~$0 for typical workflows vs $0.10+ for LLM planner.
 """
+
 import json
-import structlog
-from typing import Dict, Any, List
+from typing import Any
 from uuid import uuid4
+
+import structlog
 from litellm import completion
-from .schemas import ExecutionPlan, PlanStep, StepAction, ErrorHandling
+
+from .schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
 
 logger = structlog.get_logger(__name__)
 
@@ -29,12 +32,12 @@ class RulePlanner:
 
     async def plan(
         self,
-        workflow_spec: Dict[str, Any],
-        tool_registry: List[Dict],
+        workflow_spec: dict[str, Any],
+        tool_registry: list[dict],
         run_id: str,
-        completed_steps: List[str],
-        current_data: Dict,
-        budget: Dict
+        completed_steps: list[str],
+        current_data: dict,
+        budget: dict,
     ) -> ExecutionPlan:
         """
         Generate execution plan from workflow spec (deterministic).
@@ -54,7 +57,7 @@ class RulePlanner:
             "planning_workflow_deterministic",
             workflow=workflow_spec.get('name'),
             run_id=run_id,
-            steps_total=len(workflow_spec.get('steps', []))
+            steps_total=len(workflow_spec.get('steps', [])),
         )
 
         steps_spec = workflow_spec.get('steps', [])
@@ -65,7 +68,7 @@ class RulePlanner:
         remaining_steps = [s for s in steps_spec if s.get('id') not in completed_steps]
 
         for step_def in remaining_steps:
-            step_id = step_def.get('id')
+            step_def.get('id')
             step_type = step_def.get('type', 'tool.call')
 
             # Parse step based on type
@@ -95,7 +98,7 @@ class RulePlanner:
             steps=plan_steps,
             estimated_cost_usd=llm_cost,
             estimated_time_seconds=len(plan_steps) * 2,  # 2s per step estimate
-            reasoning="Deterministic rule-based plan from YAML workflow spec"
+            reasoning="Deterministic rule-based plan from YAML workflow spec",
         )
 
         self.logger.info(
@@ -103,19 +106,22 @@ class RulePlanner:
             plan_id=plan.plan_id,
             steps_count=len(plan_steps),
             llm_steps=sum(1 for s in plan_steps if s.action == StepAction.AI_ASSESS),
-            llm_cost=llm_cost
+            llm_cost=llm_cost,
         )
 
         return plan
 
-    def _parse_ai_op(self, step_def: Dict, tool_registry: List[Dict]) -> PlanStep:
+    def _parse_ai_op(self, step_def: dict, tool_registry: list[dict]) -> PlanStep:
         """Parse ai.* step from YAML."""
-        op_type = step_def.get('type')
+        from typing import cast
+
+        op_type = cast(str, step_def.get('type'))
         params = step_def.get('params', {})
         retry = step_def.get('retry', {})
 
         # Get default schema from AI_OPS registry
         from saz.agents.ai_ops import AI_OPS
+
         op_spec = AI_OPS.get(op_type)
 
         # Build params with instruction
@@ -133,22 +139,39 @@ class RulePlanner:
             ai_params['max_tokens_override'] = step_def['max_tokens']
 
         # Add operation-specific extras
-        for extra_key in ['tools_allowlist', 'branches_enum', 'word_cap', 'candidates', 'rubric', 'glossary', 'top_k']:
+        for extra_key in [
+            'tools_allowlist',
+            'branches_enum',
+            'word_cap',
+            'candidates',
+            'rubric',
+            'glossary',
+            'top_k',
+        ]:
             if extra_key in step_def:
                 ai_params[extra_key] = step_def[extra_key]
+
+        # Get schema - ensure it's always a dict
+        expected_schema = step_def.get('expect')
+        if expected_schema is None and op_spec:
+            expected_schema = op_spec.default_expect_schema
+        if expected_schema is None:
+            expected_schema = {}
 
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.TOOL_CALL,
             tool_name=op_type,
             input_template=ai_params,
-            expected_output_schema=step_def.get('expect', op_spec.default_expect_schema if op_spec else {}),
-            error_handling=ErrorHandling(step_def.get('continue_on_fail', False) and 'continue' or 'fail'),
+            expected_output_schema=expected_schema,
+            error_handling=ErrorHandling(
+                step_def.get('continue_on_fail', False) and 'continue' or 'fail'
+            ),
             max_retries=retry.get('attempts', 1),  # AI ops get 1 retry by default
-            reasoning=step_def.get('description', f"Execute {op_type}")
+            reasoning=step_def.get('description', f"Execute {op_type}"),
         )
 
-    def _parse_tool_call(self, step_def: Dict, tool_registry: List[Dict]) -> PlanStep:
+    def _parse_tool_call(self, step_def: dict, tool_registry: list[dict]) -> PlanStep:
         """Parse tool.call step from YAML."""
         tool_name = step_def.get('tool', 'http_request')
         params = step_def.get('params', {})
@@ -159,82 +182,84 @@ class RulePlanner:
             action=StepAction.TOOL_CALL,
             tool_name=tool_name,
             input_template=params,
-            expected_output_schema=step_def.get('expect', {}),
-            error_handling=ErrorHandling(step_def.get('continue_on_fail', False) and 'continue' or 'fail'),
+            expected_output_schema=step_def.get('expect') or {},
+            error_handling=ErrorHandling(
+                step_def.get('continue_on_fail', False) and 'continue' or 'fail'
+            ),
             max_retries=retry.get('attempts', 0),
-            reasoning=step_def.get('description', f"Execute {tool_name}")
+            reasoning=step_def.get('description', f"Execute {tool_name}"),
         )
 
-    def _parse_condition(self, step_def: Dict) -> PlanStep:
+    def _parse_condition(self, step_def: dict) -> PlanStep:
         """Parse condition step (evaluated via expression engine)."""
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.CONDITION,
             tool_name=None,
             input_template={"condition": step_def.get('if', 'true')},
-            expected_output_schema={"type": "object", "properties": {"result": {"type": "boolean"}}},
+            expected_output_schema={
+                "type": "object",
+                "properties": {"result": {"type": "boolean"}},
+            },
             error_handling=ErrorHandling.FAIL,
             max_retries=0,
-            reasoning=step_def.get('description', "Evaluate condition")
+            reasoning=step_def.get('description', "Evaluate condition"),
         )
 
-    def _parse_human_approval(self, step_def: Dict) -> PlanStep:
+    def _parse_human_approval(self, step_def: dict) -> PlanStep:
         """Parse human.approval step."""
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.HUMAN_APPROVAL,
             tool_name=None,
             input_template=step_def.get('params', {}),
-            expected_output_schema=step_def.get('expect', {}),
+            expected_output_schema=step_def.get('expect') or {},
             error_handling=ErrorHandling.ESCALATE,
             max_retries=0,
-            reasoning=step_def.get('description', "Human approval required")
+            reasoning=step_def.get('description', "Human approval required"),
         )
 
-    def _parse_webhook_wait(self, step_def: Dict) -> PlanStep:
+    def _parse_webhook_wait(self, step_def: dict) -> PlanStep:
         """Parse webhook.wait step."""
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.WEBHOOK_WAIT,
             tool_name="webhook_wait",
             input_template=step_def.get('params', {}),
-            expected_output_schema=step_def.get('expect', {}),
+            expected_output_schema=step_def.get('expect') or {},
             error_handling=ErrorHandling.FAIL,
             max_retries=0,
-            reasoning=step_def.get('description', "Wait for webhook callback")
+            reasoning=step_def.get('description', "Wait for webhook callback"),
         )
 
-    def _parse_artifact_store(self, step_def: Dict) -> PlanStep:
+    def _parse_artifact_store(self, step_def: dict) -> PlanStep:
         """Parse artifact.store step."""
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.TOOL_CALL,
             tool_name="artifact_store",
             input_template=step_def.get('params', {}),
-            expected_output_schema=step_def.get('expect', {}),
+            expected_output_schema=step_def.get('expect') or {},
             error_handling=ErrorHandling.FAIL,
             max_retries=3,
-            reasoning=step_def.get('description', "Store artifact")
+            reasoning=step_def.get('description', "Store artifact"),
         )
 
-    def _parse_artifact_retrieve(self, step_def: Dict) -> PlanStep:
+    def _parse_artifact_retrieve(self, step_def: dict) -> PlanStep:
         """Parse artifact.retrieve step."""
         return PlanStep(
             step_id=step_def['id'],
             action=StepAction.TOOL_CALL,
             tool_name="artifact_retrieve",
             input_template=step_def.get('params', {}),
-            expected_output_schema=step_def.get('expect', {}),
+            expected_output_schema=step_def.get('expect') or {},
             error_handling=ErrorHandling.FAIL,
             max_retries=3,
-            reasoning=step_def.get('description', "Retrieve artifact")
+            reasoning=step_def.get('description', "Retrieve artifact"),
         )
 
     async def _parse_ai_assess(
-        self,
-        step_def: Dict,
-        current_data: Dict,
-        budget: Dict
+        self, step_def: dict, current_data: dict, budget: dict
     ) -> tuple[PlanStep, float]:
         """
         Parse ai.assess step (uses LLM with strict schema).
@@ -258,11 +283,16 @@ Respond with ONLY valid JSON matching the expected schema. Be concise."""
             response = completion(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a data assessment agent. Always respond with valid JSON."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a data assessment agent. Always respond with valid JSON."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=0.1,
             )
 
             assessment_result = json.loads(response.choices[0].message.content)
@@ -272,10 +302,7 @@ Respond with ONLY valid JSON matching the expected schema. Be concise."""
             cost = (tokens_used / 1_000_000) * 0.20
 
             self.logger.info(
-                "ai_assess_complete",
-                step_id=step_def['id'],
-                tokens=tokens_used,
-                cost_usd=cost
+                "ai_assess_complete", step_id=step_def['id'], tokens=tokens_used, cost_usd=cost
             )
 
             return PlanStep(
@@ -286,7 +313,7 @@ Respond with ONLY valid JSON matching the expected schema. Be concise."""
                 expected_output_schema=step_def.get('expect', {}),
                 error_handling=ErrorHandling.FAIL,
                 max_retries=0,
-                reasoning=f"AI assessment: {step_def.get('description', 'Assess')}"
+                reasoning=f"AI assessment: {step_def.get('description', 'Assess')}",
             ), cost
 
         except Exception as e:
@@ -300,5 +327,5 @@ Respond with ONLY valid JSON matching the expected schema. Be concise."""
                 expected_output_schema={},
                 error_handling=ErrorHandling.FAIL,
                 max_retries=0,
-                reasoning=f"AI assessment failed: {str(e)}"
+                reasoning=f"AI assessment failed: {str(e)}",
             ), 0.0

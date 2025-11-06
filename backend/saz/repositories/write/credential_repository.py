@@ -1,11 +1,11 @@
 """Credential write repository."""
-from datetime import datetime, UTC
-from typing import Optional
+
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Credential
-from saz.repositories.base import BaseRepository
 
 
 class CredentialRepository:
@@ -15,11 +15,7 @@ class CredentialRepository:
         self.session = session
 
     def upsert(
-        self,
-        name: str,
-        credential_type: str,
-        data_encrypted: bytes,
-        description: Optional[str] = None
+        self, name: str, credential_type: str, data_encrypted: bytes, description: str | None = None
     ) -> Credential:
         """Create or update credential."""
         stmt = select(Credential).where(Credential.name == name)
@@ -40,13 +36,13 @@ class CredentialRepository:
                 description=description,
                 data_encrypted=data_encrypted,
                 created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC)
+                updated_at=datetime.now(UTC),
             )
             self.session.add(credential)
 
         return credential
 
-    def get(self, name: str) -> Optional[Credential]:
+    def get(self, name: str) -> Credential | None:
         """Get credential by name."""
         stmt = select(Credential).where(Credential.name == name)
         return self.session.scalar(stmt)

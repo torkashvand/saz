@@ -1,10 +1,10 @@
 """Flow read repository for CQRS queries."""
-from typing import Optional
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow
-from saz.repositories.read.dtos import FlowListItemDTO, FlowDetailDTO
+from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
 
 
 class FlowReadRepository:
@@ -30,14 +30,14 @@ class FlowReadRepository:
                 name=flow.name,
                 version=flow.version,
                 description=flow.description,
-                created_at=flow.created_at
+                created_at=flow.created_at,
             )
             for flow in flows
         ]
 
         return items, total
 
-    def detail(self, flow_id: str) -> Optional[FlowDetailDTO]:
+    def detail(self, flow_id: str) -> FlowDetailDTO | None:
         """Get flow detail."""
         stmt = select(Flow).where(Flow.id == flow_id)
         flow = self.session.scalar(stmt)
@@ -51,10 +51,10 @@ class FlowReadRepository:
             version=flow.version,
             description=flow.description,
             definition=flow.definition,
-            created_at=flow.created_at
+            created_at=flow.created_at,
         )
 
-    def get_by_name(self, name: str) -> Optional[FlowDetailDTO]:
+    def get_by_name(self, name: str) -> FlowDetailDTO | None:
         """Get flow by name."""
         stmt = select(Flow).where(Flow.name == name)
         flow = self.session.scalar(stmt)
@@ -68,5 +68,5 @@ class FlowReadRepository:
             version=flow.version,
             description=flow.description,
             definition=flow.definition,
-            created_at=flow.created_at
+            created_at=flow.created_at,
         )

@@ -7,11 +7,13 @@ Supports:
 - Artifact storage (stdout, events, recap)
 - Allowlist policies for playbooks and inventories
 """
+
 import json
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -30,9 +32,9 @@ class AnsibleTool:
 
     def __init__(
         self,
-        allowed_playbook_roots: Optional[List[str]] = None,
-        allowed_inventories: Optional[List[str]] = None,
-        artifact_storage_path: str = "/tmp/saz/ansible_artifacts"
+        allowed_playbook_roots: list[str] | None = None,
+        allowed_inventories: list[str] | None = None,
+        artifact_storage_path: str = "/tmp/saz/ansible_artifacts",
     ):
         """
         Initialize Ansible tool.
@@ -49,61 +51,69 @@ class AnsibleTool:
         self.logger = logger.bind(tool="ansible")
 
     @property
-    def spec(self) -> Dict[str, Any]:
+    def spec(self) -> dict[str, Any]:
         """MCP-style tool specification."""
         return {
             "name": "ansible_run",
-            "description": "Execute Ansible playbooks (check or apply mode) with credential injection",
+            "description": (
+                "Execute Ansible playbooks (check or apply mode) with credential injection"
+            ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "mode": {
                         "type": "string",
                         "enum": ["check", "apply"],
-                        "description": "Execution mode: check (dry-run) or apply (actual)"
+                        "description": "Execution mode: check (dry-run) or apply (actual)",
                     },
                     "playbook": {
                         "type": "string",
-                        "description": "Path to playbook file or collection name"
+                        "description": "Path to playbook file or collection name",
                     },
                     "inventory": {
                         "type": "string",
-                        "description": "Path to inventory file or dynamic inventory"
+                        "description": "Path to inventory file or dynamic inventory",
                     },
                     "limit": {
                         "type": "string",
-                        "description": "Limit execution to specific hosts (optional)"
+                        "description": "Limit execution to specific hosts (optional)",
                     },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Tags to execute (optional)"
+                        "description": "Tags to execute (optional)",
                     },
                     "skip_tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Tags to skip (optional)"
+                        "description": "Tags to skip (optional)",
                     },
                     "extra_vars": {
                         "type": "object",
-                        "description": "Extra variables to pass to playbook"
+                        "description": "Extra variables to pass to playbook",
                     },
                     "credentials": {
                         "type": "object",
                         "properties": {
-                            "ssh_key": {"type": "string", "description": "SSH private key (injected)"},
-                            "vault_password": {"type": "string", "description": "Ansible vault password"}
-                        }
+                            "ssh_key": {
+                                "type": "string",
+                                "description": "SSH private key (injected)",
+                            },
+                            "vault_password": {
+                                "type": "string",
+                                "description": "Ansible vault password",
+                            },
+                        },
                     },
                     "verbosity": {
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 4,
-                        "description": "Ansible verbosity level (0-4)"
-                    }
+                        "description": "Ansible verbosity level (0-4)",
+                    },
                 },
-                "required": ["mode", "playbook", "inventory"]
-            }
+                "required": ["mode", "playbook", "inventory"],
+            },
         }
 
     async def execute(
@@ -111,15 +121,15 @@ class AnsibleTool:
         mode: str,
         playbook: str,
         inventory: str,
-        limit: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        skip_tags: Optional[List[str]] = None,
-        extra_vars: Optional[Dict[str, Any]] = None,
-        credentials: Optional[Dict[str, str]] = None,
+        limit: str | None = None,
+        tags: list[str] | None = None,
+        skip_tags: list[str] | None = None,
+        extra_vars: dict[str, Any] | None = None,
+        credentials: dict[str, str] | None = None,
         verbosity: int = 0,
         run_id: str = "",
-        step_id: str = ""
-    ) -> Dict[str, Any]:
+        step_id: str = "",
+    ) -> dict[str, Any]:
         """
         Execute Ansible playbook.
 
@@ -145,15 +155,19 @@ class AnsibleTool:
             playbook=playbook,
             inventory=inventory,
             run_id=run_id,
-            step_id=step_id
+            step_id=step_id,
         )
 
         # Policy check: validate playbook and inventory paths
         if not self._is_allowed_playbook(playbook):
-            raise ValueError(f"Playbook '{playbook}' not in allowed roots: {self.allowed_playbook_roots}")
+            raise ValueError(
+                f"Playbook '{playbook}' not in allowed roots: {self.allowed_playbook_roots}"
+            )
 
         if not self._is_allowed_inventory(inventory):
-            raise ValueError(f"Inventory '{inventory}' not in allowed inventories: {self.allowed_inventories}")
+            raise ValueError(
+                f"Inventory '{inventory}' not in allowed inventories: {self.allowed_inventories}"
+            )
 
         # Build ansible-playbook command
         cmd = ["ansible-playbook", playbook, "-i", inventory]
@@ -187,27 +201,33 @@ class AnsibleTool:
         try:
             if credentials:
                 if "ssh_key" in credentials:
-                    ssh_key_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_id_rsa')
+                    ssh_key_file = tempfile.NamedTemporaryFile(
+                        mode='w', delete=False, suffix='_id_rsa'
+                    )
                     ssh_key_file.write(credentials["ssh_key"])
                     ssh_key_file.close()
                     Path(ssh_key_file.name).chmod(0o600)
                     cmd.extend(["--private-key", ssh_key_file.name])
 
                 if "vault_password" in credentials:
-                    vault_pass_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_vault')
+                    vault_pass_file = tempfile.NamedTemporaryFile(
+                        mode='w', delete=False, suffix='_vault'
+                    )
                     vault_pass_file.write(credentials["vault_password"])
                     vault_pass_file.close()
                     Path(vault_pass_file.name).chmod(0o600)
                     cmd.extend(["--vault-password-file", vault_pass_file.name])
 
             # Execute playbook
-            self.logger.info("ansible_command", cmd=" ".join(cmd[:6]) + " ...")  # Don't log full command
+            self.logger.info(
+                "ansible_command", cmd=" ".join(cmd[:6]) + " ..."
+            )  # Don't log full command
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600  # 1 hour max
+                timeout=3600,  # 1 hour max
             )
 
             stdout = result.stdout
@@ -227,7 +247,7 @@ class AnsibleTool:
                 "stdout": stdout,
                 "stderr": stderr,
                 "return_code": return_code,
-                "recap": recap
+                "recap": recap,
             }
             artifact_path.write_text(json.dumps(artifact_data, indent=2))
 
@@ -237,7 +257,7 @@ class AnsibleTool:
                 playbook=playbook,
                 return_code=return_code,
                 recap=recap,
-                artifact_id=artifact_id
+                artifact_id=artifact_id,
             )
 
             # Determine success based on return code
@@ -250,7 +270,7 @@ class AnsibleTool:
                 "recap": recap,
                 "artifact_id": artifact_id,
                 "stdout_preview": stdout[:1000],
-                "changed": recap.get("changed", 0) > 0
+                "changed": recap.get("changed", 0) > 0,
             }
 
         finally:
@@ -287,15 +307,24 @@ class AnsibleTool:
                 return True
         return False
 
-    def _parse_recap(self, stdout: str) -> Dict[str, int]:
+    def _parse_recap(self, stdout: str) -> dict[str, int]:
         """
         Parse Ansible recap from stdout.
 
         Example:
             PLAY RECAP *********************************************************************
-            host1                      : ok=5    changed=2    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+            host1                      : ok=5    changed=2    unreachable=0    failed=0
+                                         skipped=1    rescued=0    ignored=0
         """
-        recap = {"ok": 0, "changed": 0, "unreachable": 0, "failed": 0, "skipped": 0, "rescued": 0, "ignored": 0}
+        recap = {
+            "ok": 0,
+            "changed": 0,
+            "unreachable": 0,
+            "failed": 0,
+            "skipped": 0,
+            "rescued": 0,
+            "ignored": 0,
+        }
 
         lines = stdout.split("\n")
         in_recap = False

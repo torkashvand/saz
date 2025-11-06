@@ -1,11 +1,13 @@
 """Pydantic schemas for agent inputs/outputs - ensures structured, validated LLM responses."""
-from typing import List, Dict, Optional, Literal
-from pydantic import BaseModel, Field
+
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class StepAction(str, Enum):
     """Type of action an agent can take"""
+
     TOOL_CALL = "tool_call"
     HUMAN_APPROVAL = "human_approval"
     WEBHOOK_WAIT = "webhook_wait"
@@ -15,6 +17,7 @@ class StepAction(str, Enum):
 
 class ErrorHandling(str, Enum):
     """How to handle step errors"""
+
     RETRY = "retry"
     FAIL = "fail"
     ESCALATE = "escalate"
@@ -23,11 +26,16 @@ class ErrorHandling(str, Enum):
 
 class PlanStep(BaseModel):
     """Single step in an execution plan"""
+
     step_id: str = Field(..., description="Unique step identifier matching workflow")
     action: StepAction
-    tool_name: Optional[str] = None
-    input_template: Dict = Field(default_factory=dict, description="Tool input with {{variable}} placeholders")
-    expected_output_schema: Dict = Field(default_factory=dict, description="JSON Schema for expected output")
+    tool_name: str | None = None
+    input_template: dict = Field(
+        default_factory=dict, description="Tool input with {{variable}} placeholders"
+    )
+    expected_output_schema: dict = Field(
+        default_factory=dict, description="JSON Schema for expected output"
+    )
     error_handling: ErrorHandling = ErrorHandling.RETRY
     max_retries: int = 3
     reasoning: str = Field(..., description="Why this step is necessary")
@@ -35,8 +43,9 @@ class PlanStep(BaseModel):
 
 class ExecutionPlan(BaseModel):
     """LLM-generated execution plan for a workflow"""
+
     plan_id: str = Field(..., pattern=r'^[a-f0-9-]{36}$')
-    steps: List[PlanStep]
+    steps: list[PlanStep]
     estimated_cost_usd: float = Field(..., ge=0)
     estimated_time_seconds: int = Field(..., ge=0)
     reasoning: str = Field(..., description="Overall plan justification")
@@ -44,14 +53,16 @@ class ExecutionPlan(BaseModel):
 
 class ToolCall(BaseModel):
     """Executor's tool invocation request"""
+
     tool: str
-    arguments: Dict
+    arguments: dict
     idempotency_key: str
     rationale: str = Field(..., description="Why these specific arguments")
 
 
 class Verdict(str, Enum):
     """Critic's decision after step execution"""
+
     PASS = "pass"
     FAIL = "fail"
     REPLAN = "replan"
@@ -60,9 +71,10 @@ class Verdict(str, Enum):
 
 class Critique(BaseModel):
     """Critic's evaluation of a step execution"""
+
     verdict: Verdict
     reasoning: str = Field(..., description="Detailed analysis of step result")
-    issues: List[str] = Field(default_factory=list, description="Problems found (empty if pass)")
-    safety_flags: List[str] = Field(default_factory=list, description="Security/policy concerns")
-    suggestions: Dict[str, str] = Field(default_factory=dict, description="What to do next")
+    issues: list[str] = Field(default_factory=list, description="Problems found (empty if pass)")
+    safety_flags: list[str] = Field(default_factory=list, description="Security/policy concerns")
+    suggestions: dict[str, str] = Field(default_factory=dict, description="What to do next")
     confidence: float = Field(..., ge=0, le=1, description="Confidence in verdict (0-1)")

@@ -5,7 +5,9 @@ Takes YAML form/workflow definitions and generates:
 2. JSON schema for UI rendering
 3. Agentic workflow specification (tool calls, AI branches, human gates)
 """
-from typing import Any
+
+from typing import Any, cast
+
 import yaml
 from pydantic import BaseModel, Field, create_model
 
@@ -31,7 +33,7 @@ class CompiledFlow:
             "max_tokens": 100000,
             "max_cost_usd": 10.0,
             "max_steps": 50,
-            "max_time_seconds": 3600
+            "max_time_seconds": 3600,
         }
 
     @property
@@ -79,11 +81,11 @@ def parse_yaml_form(form_yaml: dict) -> type[BaseModel]:
         base_type = type_map.get(field_type_str, str)
 
         # Build Field kwargs for validation
-        field_kwargs = {}
+        field_kwargs: dict[str, Any] = {}
         if not is_required:
             field_kwargs["default"] = None
 
-        if "regex" in field_def and base_type == str:
+        if "regex" in field_def and isinstance(base_type, type) and base_type is str:
             field_kwargs["pattern"] = field_def["regex"]
         if "min" in field_def and base_type in (int, float):
             field_kwargs["ge"] = field_def["min"]
@@ -94,13 +96,17 @@ def parse_yaml_form(form_yaml: dict) -> type[BaseModel]:
 
         # Create field
         if is_required:
-            pydantic_fields[field_name] = (base_type, Field(**field_kwargs) if field_kwargs else ...)
+            pydantic_fields[field_name] = (
+                base_type,
+                Field(**field_kwargs) if field_kwargs else ...,
+            )
         else:
-            pydantic_fields[field_name] = (base_type | None, Field(**field_kwargs))
+            # Mypy can't infer union types in tuples - cast to satisfy type checker
+            pydantic_fields[field_name] = cast(Any, (base_type | None, Field(**field_kwargs)))
 
-    # Create dynamic Pydantic model
-    model_cls = create_model(form_name, **pydantic_fields)
-    return model_cls
+    # Create dynamic Pydantic model - cast needed for dynamic field definitions
+    model_cls = create_model(form_name, **pydantic_fields)  # type: ignore[call-overload]
+    return cast(type[BaseModel], model_cls)
 
 
 def create_agentic_workflow_spec(
@@ -167,19 +173,16 @@ def create_agentic_workflow_spec(
                 {
                     "id": "collect_form",
                     "type": "human_input",
-                    "description": "Collect form data from user"
+                    "description": "Collect form data from user",
                 },
                 {
                     "id": "store_result",
                     "type": "tool_call",
                     "tool": "artifact_store",
                     "description": "Store final result",
-                    "input": {
-                        "name": "form_submission",
-                        "content": "{{$all}}"
-                    }
-                }
-            ]
+                    "input": {"name": "form_submission", "content": "{{$all}}"},
+                },
+            ],
         }
 
     # Parse custom agentic workflow
@@ -187,11 +190,13 @@ def create_agentic_workflow_spec(
         "name": workflow_yaml.get("name", form_name),
         "description": workflow_yaml.get("description", ""),
         "steps": workflow_yaml.get("steps", []),
-        "budget": workflow_yaml.get("budget", {})
+        "budget": workflow_yaml.get("budget", {}),
     }
 
 
-def compile_form_and_workflow(form_yaml_str: str, workflow_yaml_str: str | None = None) -> CompiledFlow:
+def compile_form_and_workflow(
+    form_yaml_str: str, workflow_yaml_str: str | None = None
+) -> CompiledFlow:
     """Compile YAML form (and optional workflow) into Pydantic model + Agentic Workflow Spec.
 
     Args:

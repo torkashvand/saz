@@ -35,13 +35,7 @@ export default function RunsPage() {
         status: statusFilter || undefined,
         flow_id: flowIdFilter || undefined,
       }),
-    refetchInterval: (data) => {
-      // Auto-refetch if any runs are in progress
-      const hasRunning = data?.items.some((r) =>
-        ['running', 'created'].includes(r.status)
-      )
-      return hasRunning ? 2000 : false
-    },
+    // No polling - WebSocket events handle all updates
   })
 
   const totalPages = runs ? Math.ceil(runs.total / limit) : 0

@@ -1,9 +1,12 @@
 """Critic Agent - Validates step execution results and decides next action using LLM."""
+
 import json
+from typing import Any
+
 import structlog
-from typing import Dict, Any, Optional
-from .schemas import Critique, Verdict, PlanStep
+
 from .llm_port import LLMPort, get_llm_port
+from .schemas import Critique, PlanStep, Verdict
 
 logger = structlog.get_logger(__name__)
 
@@ -11,7 +14,9 @@ logger = structlog.get_logger(__name__)
 CRITIC_SYSTEM_PROMPT = """You are an autonomous workflow critic and validator.
 
 ## Your Role
-Evaluate the result of a workflow step execution and determine if it succeeded, failed, or requires replanning. You must be rigorous but fair - small variations are acceptable if the core objective was met.
+Evaluate the result of a workflow step execution and determine if it succeeded, failed, or requires
+replanning. You must be rigorous but fair - small variations are acceptable if the core objective
+was met.
 
 ## Step Details
 Step ID: {step_id}
@@ -71,7 +76,7 @@ Generate the critique now."""
 class CriticAgent:
     """LLM-powered step result validator"""
 
-    def __init__(self, model: str = "gpt-4o", llm_port: Optional[LLMPort] = None):
+    def __init__(self, model: str = "gpt-4o", llm_port: LLMPort | None = None):
         self.model = model
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="critic")
@@ -79,11 +84,11 @@ class CriticAgent:
     async def critique(
         self,
         step: PlanStep,
-        tool_call: Dict[str, Any],
-        result: Dict[str, Any],
+        tool_call: dict[str, Any],
+        result: dict[str, Any],
         run_id: str,
         completed_steps: list[str],
-        current_state: Dict[str, Any]
+        current_state: dict[str, Any],
     ) -> Critique:
         """
         Evaluate a step execution result.
@@ -100,10 +105,7 @@ class CriticAgent:
             Critique with verdict and recommendations
         """
         self.logger.info(
-            "critiquing_step",
-            step_id=step.step_id,
-            tool=step.tool_name,
-            run_id=run_id
+            "critiquing_step", step_id=step.step_id, tool=step.tool_name, run_id=run_id
         )
 
         # Format prompt
@@ -117,7 +119,7 @@ class CriticAgent:
             actual_result=json.dumps(result, indent=2, default=str),
             run_id=run_id,
             completed_steps=json.dumps(completed_steps),
-            current_state=json.dumps(current_state, default=str)
+            current_state=json.dumps(current_state, default=str),
         )
 
         # Call LLM with structured output
@@ -126,10 +128,13 @@ class CriticAgent:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": "Evaluate the step execution and provide your critique."}
+                    {
+                        "role": "user",
+                        "content": "Evaluate the step execution and provide your critique.",
+                    },
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.2  # Slightly higher for nuanced evaluation
+                temperature=0.2,  # Slightly higher for nuanced evaluation
             )
 
             critique_json = json.loads(response.content)
@@ -144,15 +149,13 @@ class CriticAgent:
                 confidence=critique.confidence,
                 issues_count=len(critique.issues),
                 safety_flags_count=len(critique.safety_flags),
-                tokens_used=response.total_tokens
+                tokens_used=response.total_tokens,
             )
 
             # Log warnings for safety flags
             if critique.safety_flags:
                 self.logger.warning(
-                    "safety_flags_detected",
-                    step_id=step.step_id,
-                    flags=critique.safety_flags
+                    "safety_flags_detected", step_id=step.step_id, flags=critique.safety_flags
                 )
 
             return critique
@@ -167,7 +170,7 @@ class CriticAgent:
                 safety_flags=["critic_failure"],
                 suggestions={
                     "next_action": "escalate_to_human",
-                    "reason": "Automatic evaluation failed"
+                    "reason": "Automatic evaluation failed",
                 },
-                confidence=0.0
+                confidence=0.0,
             )

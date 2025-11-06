@@ -75,13 +75,13 @@ export default function RegisterPage() {
   const [yaml, setYaml] = useState('')
   const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null)
 
-  const { data: flowGraph } = useFlowGraph(registeredFlow?.flow_id || null)
+  const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null)
 
   useEffect(() => {
-    const saved = localStorage.getItem('last_unified_yaml')
+    const saved = localStorage.getItem('last_yaml')
     if (saved) setYaml(saved)
 
-    const savedFlow = localStorage.getItem('last_registered_flow_v2')
+    const savedFlow = localStorage.getItem('last_registered_flow')
     if (savedFlow) {
       try {
         setRegisteredFlow(JSON.parse(savedFlow))
@@ -103,12 +103,12 @@ export default function RegisterPage() {
       const result = await registerMutation.mutateAsync({ yaml })
 
       setRegisteredFlow(result)
-      localStorage.setItem('last_unified_yaml', yaml)
-      localStorage.setItem('last_registered_flow_v2', JSON.stringify(result))
+      localStorage.setItem('last_yaml', yaml)
+      localStorage.setItem('last_registered_flow', JSON.stringify(result))
 
       toast({
         title: 'Success',
-        description: `Flow registered with ${result.workflow_summary.steps_count} steps`,
+        description: `Flow "${result.name}" registered successfully`,
       })
     } catch (error: any) {
       toast({
@@ -193,7 +193,7 @@ export default function RegisterPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Flow ID</div>
-                      <div className="text-sm font-mono mt-1 truncate">{registeredFlow.flow_id}</div>
+                      <div className="text-sm font-mono mt-1 truncate">{registeredFlow.id}</div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Total Steps</div>

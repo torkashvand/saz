@@ -19,7 +19,7 @@ export default function NewRunPage() {
   const [formData, setFormData] = useState<Record<string, any>>({})
 
   useEffect(() => {
-    const savedFlow = localStorage.getItem('last_registered_flow_v2')
+    const savedFlow = localStorage.getItem('last_registered_flow')
     if (savedFlow) {
       try {
         setRegisteredFlow(JSON.parse(savedFlow))
@@ -33,16 +33,16 @@ export default function NewRunPage() {
 
     try {
       const result = await createRunMutation.mutateAsync({
-        flow_id: registeredFlow.flow_id,
+        flow_id: registeredFlow.id,
         payload: formData,
       })
 
       toast({
         title: 'Run Created',
-        description: `Run ${result.run_id} created successfully`,
+        description: `Run ${result.id} created successfully`,
       })
 
-      router.push(`/runs/${result.run_id}`)
+      router.push(`/runs/${result.id}`)
     } catch (error: any) {
       toast({
         title: 'Failed to Create Run',

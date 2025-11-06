@@ -1,18 +1,18 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { useRunDetails, useRunGraph } from '@/lib/hooks'
 import { api } from '@/lib/api'
-import { useToast } from '@/hooks/use-toast'
+import { useToast } from '@/components/ui/use-toast'
 import { Loader2, CheckCircle2, XCircle, Clock, Play, RefreshCw, Rewind, AlertCircle } from 'lucide-react'
 import { WorkflowGraph } from '@/components/workflow-graph'
 import { CollapsibleJson } from '@/components/json-view'
-import type { Step, StepStatus, WSEvent } from '@/lib/types'
+import type { RunStep, StepStatus } from '@/lib/types'
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
   pending: <Clock className="h-5 w-5 text-slate-400" />,
@@ -46,7 +46,7 @@ function formatCost(cost?: number): string {
   return `$${cost.toFixed(4)}`
 }
 
-function StepTimeline({ steps }: { steps: Step[] }) {
+function StepTimeline({ steps }: { steps: RunStep[] }) {
   return (
     <div className="space-y-3">
       {steps.map((step, idx) => (
@@ -67,50 +67,42 @@ function StepTimeline({ steps }: { steps: Step[] }) {
               <div className="bg-muted px-3 py-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm">{step.id}</span>
-                  <span className="text-xs text-muted-foreground">({step.type})</span>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
                   {step.duration_ms && <span>{formatDuration(step.duration_ms)}</span>}
-                  {step.tokens && <span>{step.tokens} tokens</span>}
-                  {step.cost_usd && <span>{formatCost(step.cost_usd)}</span>}
                 </div>
               </div>
 
-              {/* Expandable input/output */}
+              {/* Step output and error display */}
               <div className="p-3 space-y-2">
-                {step.input && <CollapsibleJson label="Input" data={step.input} />}
-                {step.output && <CollapsibleJson label="Output" data={step.output} defaultOpen />}
-
-                {/* Show failure reason if step failed */}
-                {step.failure && (
-                  <div className="border-l-4 border-red-500 bg-red-50 p-3 rounded space-y-2">
-                    <div>
-                      <p className="text-xs font-medium text-red-900 mb-1">Failure Reason</p>
-                      <p className="text-xs text-red-700">{step.failure.message}</p>
-                    </div>
-
-                    {step.failure.issues && step.failure.issues.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-red-900 mb-1">Issues</p>
-                        <ul className="list-disc list-inside text-xs text-red-700 space-y-1">
-                          {step.failure.issues.map((issue, i) => (
-                            <li key={i}>{issue}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {step.failure.raw_critique && (
-                      <CollapsibleJson label="Critique Details" data={step.failure.raw_critique} />
-                    )}
+                {/* Output display */}
+                {step.output && Object.keys(step.output).length > 0 && (
+                  <div className="border-l-4 border-green-500 bg-green-50 p-3 rounded">
+                    <p className="text-xs font-medium text-green-900 mb-2">Output</p>
+                    <CollapsibleJson data={step.output} />
                   </div>
                 )}
 
-                {/* Legacy error field */}
-                {step.error && !step.failure && (
+                {/* Error display */}
+                {step.error && (
                   <div className="border-l-4 border-red-500 bg-red-50 p-3 rounded">
                     <p className="text-xs font-medium text-red-900 mb-1">Error</p>
-                    <p className="text-xs text-red-700 whitespace-pre-wrap">{step.error}</p>
+                    <p className="text-xs text-red-700 whitespace-pre-wrap">
+                      {typeof step.error === 'object' ? step.error.message : step.error}
+                    </p>
+                    {step.error?.type && (
+                      <p className="text-xs text-red-600 mt-1">Type: {step.error.type}</p>
+                    )}
+                    {step.error?.traceback && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-red-600 cursor-pointer hover:underline">
+                          Show traceback
+                        </summary>
+                        <pre className="mt-2 text-xs text-red-800 bg-red-100 p-2 rounded overflow-x-auto font-mono">
+                          {step.error.traceback}
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 )}
               </div>
@@ -127,50 +119,8 @@ export default function RunDetailPage() {
   const router = useRouter()
   const runId = params.id as string
   const { toast } = useToast()
-  const queryClient = useQueryClient()
-
-  const [wsConnected, setWsConnected] = useState(false)
-  const [wsEvents, setWsEvents] = useState<WSEvent[]>([])
-
   const { data: run, isLoading: isLoadingRun } = useRunDetails(runId)
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId)
-
-  // WebSocket connection
-  useEffect(() => {
-    if (!runId) return
-
-    // Only connect if run is active
-    const isActive = run?.status === 'running' || run?.status === 'created'
-    if (!isActive && run) return
-
-    const ws = api.connectRunWebSocket(
-      runId,
-      (event: WSEvent) => {
-        setWsEvents((prev) => [...prev, event])
-
-        // Invalidate queries on status change
-        if (event.type === 'run.status' || event.type === 'step.finished') {
-          queryClient.invalidateQueries({ queryKey: ['run', runId] })
-          queryClient.invalidateQueries({ queryKey: ['runGraph', runId] })
-        }
-      },
-      (error) => {
-        console.error('WebSocket error:', error)
-        setWsConnected(false)
-      },
-      () => {
-        setWsConnected(false)
-      }
-    )
-
-    ws.onopen = () => {
-      setWsConnected(true)
-    }
-
-    return () => {
-      ws.close()
-    }
-  }, [runId, run?.status, queryClient])
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -272,12 +222,6 @@ export default function RunDetailPage() {
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-3xl font-bold">Run Details</h1>
           <div className="flex items-center gap-2">
-            {wsConnected && (
-              <span className="text-xs text-green-600 flex items-center gap-1">
-                <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-                Live
-              </span>
-            )}
             <div className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(run.status)}`}>
               {getStatusLabel(run.status)}
             </div>
@@ -285,15 +229,28 @@ export default function RunDetailPage() {
         </div>
         <p className="text-sm text-muted-foreground font-mono">{runId}</p>
 
-        {run.failure_reason && (
-          <div className="mt-2 p-3 bg-red-50 border-l-4 border-red-500 rounded">
+        {/* Error Panel */}
+        {run.error && (
+          <div className="mt-4 border-l-4 border-red-500 bg-red-50 p-4 rounded">
             <div className="flex items-start gap-2">
               <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-medium text-red-900">Run Failed</p>
-                <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{run.failure_reason}</p>
-                {run.failing_step_id && (
-                  <p className="text-xs text-red-600 mt-1">Failed at step: {run.failing_step_id}</p>
+                <p className="text-sm text-red-700 mt-1">
+                  {typeof run.error === 'object' ? run.error.message : run.error}
+                </p>
+                {run.error?.type && (
+                  <p className="text-xs text-red-600 mt-1">Type: {run.error.type}</p>
+                )}
+                {run.error?.traceback && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-red-600 cursor-pointer hover:underline">
+                      Show traceback
+                    </summary>
+                    <pre className="mt-2 text-xs text-red-800 bg-red-100 p-2 rounded overflow-x-auto font-mono">
+                      {run.error.traceback}
+                    </pre>
+                  </details>
                 )}
               </div>
             </div>
@@ -385,32 +342,13 @@ export default function RunDetailPage() {
         </Card>
       </div>
 
-      {/* WebSocket Events Log (Debug) */}
-      {wsEvents.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-sm">Live Events ({wsEvents.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1 max-h-40 overflow-y-auto font-mono text-xs">
-              {wsEvents.slice(-10).map((event, i) => (
-                <div key={i} className="text-gray-600">
-                  <span className="text-blue-600">{event.type}</span>:{' '}
-                  {JSON.stringify(event.data)}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Tabs */}
       <Tabs defaultValue="timeline" className="w-full">
         <TabsList className="w-full">
           <TabsTrigger value="timeline" className="flex-1">Timeline</TabsTrigger>
           <TabsTrigger value="graph" className="flex-1">Graph</TabsTrigger>
           <TabsTrigger value="artifacts" className="flex-1">
-            Artifacts {run.artifacts.length > 0 && `(${run.artifacts.length})`}
+            Artifacts {run.artifacts && run.artifacts.length > 0 && `(${run.artifacts.length})`}
           </TabsTrigger>
           <TabsTrigger value="cost" className="flex-1">Cost Breakdown</TabsTrigger>
         </TabsList>
@@ -440,7 +378,7 @@ export default function RunDetailPage() {
                 <WorkflowGraph
                   nodes={runGraph.nodes}
                   edges={runGraph.edges}
-                  status={runGraph.status_by_step || runGraph.status}
+                  status={runGraph.status_by_step || {}}
                 />
               ) : (
                 <p className="text-center py-12 text-muted-foreground">
@@ -457,7 +395,7 @@ export default function RunDetailPage() {
               <CardTitle>Artifacts</CardTitle>
             </CardHeader>
             <CardContent>
-              {run.artifacts.length > 0 ? (
+              {run.artifacts && run.artifacts.length > 0 ? (
                 <div className="space-y-2">
                   {run.artifacts.map((artifactId) => (
                     <div key={artifactId} className="border rounded p-3 font-mono text-sm">

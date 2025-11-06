@@ -23,31 +23,19 @@ export function useFlowGraph(flowId: string | null) {
 
 export function useRunGraph(runId: string | null) {
   return useQuery({
-    queryKey: ['run-graph', runId],
+    queryKey: ['runGraph', runId],
     queryFn: () => api.getRunGraph(runId!),
     enabled: !!runId,
-    refetchInterval: (query) => {
-      const statuses = Object.values(query.state.data?.status || {})
-      // Poll if any step is running or pending
-      return statuses.includes('running') || statuses.includes('pending')
-        ? 2000
-        : false
-    },
+    // No polling - WebSocket events handle all updates
   })
 }
 
 export function useRunDetails(runId: string | null) {
   return useQuery({
-    queryKey: ['run-details', runId],
+    queryKey: ['run', runId],
     queryFn: () => api.getRunDetails(runId!),
     enabled: !!runId,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      // Poll if running or pending
-      return status === 'running' || status === 'pending'
-        ? 2000
-        : false
-    },
+    // No polling - WebSocket events handle all updates
   })
 }
 
@@ -57,8 +45,9 @@ export function useCreateRun() {
   return useMutation({
     mutationFn: (data: CreateRunRequest) => api.createRun(data),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['run-details', data.run_id] })
-      queryClient.invalidateQueries({ queryKey: ['run-graph', data.run_id] })
+      queryClient.invalidateQueries({ queryKey: ['run', data.id] })
+      queryClient.invalidateQueries({ queryKey: ['runGraph', data.id] })
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
     },
   })
 }

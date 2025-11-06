@@ -1,8 +1,9 @@
 """Flow service - business logic for flow operations."""
-from typing import Optional
+
 import yaml
+
 from saz.db.unit_of_work import UnitOfWork
-from saz.repositories.read.dtos import FlowListItemDTO, FlowDetailDTO
+from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
 
 
 class FlowService:
@@ -17,7 +18,7 @@ class FlowService:
         try:
             dsl = yaml.safe_load(yaml_content)
         except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML: {e}")
+            raise ValueError(f"Invalid YAML: {e}") from None
 
         # Extract metadata
         flow_meta = dsl.get("flow", {})
@@ -29,11 +30,13 @@ class FlowService:
         description = flow_meta.get("description")
 
         # Check if flow exists
+        assert self.uow.flows is not None
         existing = self.uow.flows.get_by_name(name)
 
         if existing:
             # Update existing flow
             flow = self.uow.flows.update_definition(name, dsl, version, description)
+            assert flow is not None
             self.uow.commit()
             return flow.id
         else:
@@ -42,14 +45,17 @@ class FlowService:
             self.uow.commit()
             return flow.id
 
-    def get(self, flow_id: str) -> Optional[FlowDetailDTO]:
+    def get(self, flow_id: str) -> FlowDetailDTO | None:
         """Get flow detail."""
+        assert self.uow.flow_reads is not None
         return self.uow.flow_reads.detail(flow_id)
 
-    def get_by_name(self, name: str) -> Optional[FlowDetailDTO]:
+    def get_by_name(self, name: str) -> FlowDetailDTO | None:
         """Get flow by name."""
+        assert self.uow.flow_reads is not None
         return self.uow.flow_reads.get_by_name(name)
 
     def list(self, limit: int = 100, offset: int = 0) -> tuple[list[FlowListItemDTO], int]:
         """List flows."""
+        assert self.uow.flow_reads is not None
         return self.uow.flow_reads.list(limit, offset)

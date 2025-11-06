@@ -25,6 +25,11 @@ export interface RegisterFlowResponse {
   version?: string
   description?: string
   created_at: string
+  workflow_summary: WorkflowSummary
+  form_schema: {
+    properties?: Record<string, any>
+    required?: string[]
+  }
 }
 
 export interface FlowDetailResponse {
@@ -66,32 +71,42 @@ export interface CreateRunResponse {
 
 export interface RunDetailResponse {
   id: string
+  run_id: string
   flow_id: string
+  flow_name?: string
   status: string
+  payload?: any
+  error?: any
+  cost_cents?: number
   created_at: string
+  started_at?: string
   completed_at?: string
-  cost: number
-  summary: {
-    steps_total: number
-    steps_completed: number
-    steps_failed: number
-    tokens_total: number
+  totals: {
+    tokens: number
     cost_usd: number
-    artifacts_count: number
   }
+  steps: RunStep[]
+  artifacts?: any[]
+  artifact_count?: number
 }
 
 export interface RunStep {
   number: number
   id: string
   name: string
+  type?: string
   status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed'
   start_ts: string
   end_ts?: string
   duration_ms?: number
   retry_count: number
-  artifact_ids: string[]
-  error?: string
+  artifact_ids?: string[]
+  error?: any
+  tokens?: number
+  cost_usd?: number
+  input?: any
+  output?: any
+  failure?: any
 }
 
 export interface RunStepsResponse {
@@ -202,49 +217,10 @@ export interface WSEvent {
   data: Record<string, any>
 }
 
-// ========== Legacy Types (for backward compatibility) ==========
+// ========== Additional Types ==========
 
 export interface WorkflowSummary {
   steps_count: number
   ai_steps: number
   credentials: string[]
-}
-
-export interface StepFailure {
-  type: string
-  message: string
-  issues?: string[]
-  raw_critique?: any
-}
-
-export interface Step {
-  id: string
-  type: string
-  status: StepStatus
-  duration_ms?: number
-  input?: Record<string, any>
-  output?: any
-  tokens?: number
-  cost_usd?: number
-  error?: string
-  failure?: StepFailure
-  critique?: any
-}
-
-export interface RunTotals {
-  tokens: number
-  cost_usd: number
-}
-
-export interface RunResponse {
-  run_id: string
-  flow_id: string
-  status: StepStatus
-  started_at?: string
-  completed_at?: string
-  totals: RunTotals
-  steps: Step[]
-  artifacts: string[]
-  failure_reason?: string
-  failing_step_id?: string
 }

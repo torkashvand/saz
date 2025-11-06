@@ -5,19 +5,20 @@ This interface decouples agents from litellm, allowing:
 - Easy swapping of LLM providers
 - Centralized cost tracking and retries
 """
+
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 
 @dataclass
 class LLMResponse:
     """Standardized LLM response."""
+
     content: str
     total_tokens: int
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    model: Optional[str] = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    model: str | None = None
 
 
 class LLMPort(ABC):
@@ -27,11 +28,11 @@ class LLMPort(ABC):
     async def complete(
         self,
         model: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         temperature: float = 0.1,
-        max_tokens: Optional[int] = None,
-        response_format: Optional[Dict[str, str]] = None,
-        timeout: int = 30
+        max_tokens: int | None = None,
+        response_format: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> LLMResponse:
         """
         Call LLM with messages.
@@ -56,20 +57,22 @@ class LiteLLMPort(LLMPort):
     async def complete(
         self,
         model: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         temperature: float = 0.1,
-        max_tokens: Optional[int] = None,
-        response_format: Optional[Dict[str, str]] = None,
-        timeout: int = 30
+        max_tokens: int | None = None,
+        response_format: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> LLMResponse:
         """Call litellm.completion and map to LLMResponse."""
+        import asyncio
+
         from litellm import completion
 
         kwargs = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "timeout": timeout
+            "timeout": timeout,
         }
 
         if max_tokens:
@@ -77,19 +80,21 @@ class LiteLLMPort(LLMPort):
         if response_format:
             kwargs["response_format"] = response_format
 
-        response = completion(**kwargs)
+        # Run sync litellm in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: completion(**kwargs))
 
         return LLMResponse(
             content=response.choices[0].message.content,
             total_tokens=response.usage.total_tokens,
             prompt_tokens=response.usage.prompt_tokens,
             completion_tokens=response.usage.completion_tokens,
-            model=response.model
+            model=response.model,
         )
 
 
 # Global default instance
-_default_port: Optional[LLMPort] = None
+_default_port: LLMPort | None = None
 
 
 def get_llm_port() -> LLMPort:

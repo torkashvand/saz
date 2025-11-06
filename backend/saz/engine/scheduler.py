@@ -65,6 +65,13 @@ class RunScheduler:
         """Execute a run synchronously in a thread."""
         # Lazy import to avoid circular dependency
         from saz.engine.executor import WorkflowExecutor
+        from saz.globals import (
+            get_critic,
+            get_executor,
+            get_planner,
+            get_policy_engine,
+            get_tool_registry,
+        )
 
         try:
             logger.info(f"Thread started for run {run_id}")
@@ -75,7 +82,15 @@ class RunScheduler:
                 asyncio.set_event_loop(loop)
 
                 with UnitOfWork(session) as uow:
-                    executor = WorkflowExecutor(uow)
+                    # Create WorkflowExecutor with global singletons
+                    executor = WorkflowExecutor(
+                        uow=uow,
+                        tool_registry=get_tool_registry(),
+                        planner=get_planner(),
+                        executor_agent=get_executor(),
+                        critic=get_critic(),
+                        policy_engine=get_policy_engine(),
+                    )
                     loop.run_until_complete(executor.execute_run(run_id))
 
                 loop.close()

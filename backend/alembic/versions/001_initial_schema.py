@@ -96,6 +96,20 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     )
 
+    # Add agentic loop tracking fields to steps table
+    op.add_column('steps', sa.Column('input', sa.JSON(), nullable=True))
+    op.add_column('steps', sa.Column('tokens', sa.Integer(), nullable=True, server_default='0'))
+    op.add_column('steps', sa.Column('cost_usd', sa.Float(), nullable=True, server_default='0.0'))
+    op.add_column('steps', sa.Column('critique', sa.JSON(), nullable=True))
+    op.add_column('steps', sa.Column('policy_flags', sa.JSON(), nullable=True))
+    op.add_column('steps', sa.Column('step_type', sa.String(50), nullable=True))
+
+    # Add compliance tracking fields to runs table
+    op.add_column(
+        'runs', sa.Column('total_tokens', sa.Integer(), nullable=False, server_default='0')
+    )
+    op.add_column('runs', sa.Column('policy_violations', sa.JSON(), nullable=True))
+
 
 def downgrade() -> None:
     op.drop_table('credentials')

@@ -16,9 +16,18 @@ import traceback
 from datetime import UTC, datetime
 from typing import Any
 
+from saz.agents.critic import CriticAgent
 from saz.agents.executor import ExecutorAgent
+from saz.agents.planner import PlannerAgent
 from saz.agents.rule_planner import RulePlanner
-from saz.agents.schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
+from saz.agents.schemas import (
+    Critique,
+    ErrorHandling,
+    ExecutionPlan,
+    PlanStep,
+    StepAction,
+    Verdict,
+)
 from saz.api.websocket import broadcast_events
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.events import (
@@ -30,10 +39,41 @@ from saz.domain.events import (
     StepStarted,
 )
 from saz.engine.templating import TemplateContext
-from saz.policies.budget_tracker import BudgetTracker
-from saz.tools.registry import ToolRegistry, create_default_registry
+from saz.policies.policy_engine import PolicyEngine
+from saz.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+# Exception classes for agentic loop
+class PolicyViolation(Exception):
+    """Raised when policy check fails"""
+
+    pass
+
+
+class CritiqueFailure(Exception):
+    """Raised when critic returns FAIL verdict"""
+
+    def __init__(self, message: str, critique: Critique):
+        super().__init__(message)
+        self.critique = critique
+
+
+class EscalationRequired(Exception):
+    """Raised when critic returns ESCALATE verdict"""
+
+    def __init__(self, message: str, critique: Critique):
+        super().__init__(message)
+        self.critique = critique
+
+
+class ReplanRequired(Exception):
+    """Raised when critic returns REPLAN verdict"""
+
+    def __init__(self, message: str, critique: Critique):
+        super().__init__(message)
+        self.critique = critique
 
 
 class WorkflowExecutor:
@@ -42,24 +82,32 @@ class WorkflowExecutor:
     def __init__(
         self,
         uow: UnitOfWork,
-        tool_registry: ToolRegistry | None = None,
-        planner: RulePlanner | None = None,
-        budget_tracker: BudgetTracker | None = None,
+        tool_registry: ToolRegistry,
+        planner: PlannerAgent | RulePlanner,
+        executor_agent: ExecutorAgent,
+        critic: CriticAgent,
+        policy_engine: PolicyEngine,
     ):
         """
         Initialize workflow executor.
 
         Args:
             uow: Unit of work for database operations
-            tool_registry: Tool registry (creates default if not provided)
-            planner: Planner agent (creates RulePlanner if not provided)
-            budget_tracker: Budget tracker (creates default if not provided)
+            tool_registry: Tool registry
+            planner: Planner agent (PlannerAgent or RulePlanner)
+            executor_agent: Executor agent for grounding
+            critic: Critic agent for validation
+            policy_engine: Policy engine for enforcement
         """
         self.uow = uow
-        self.tool_registry = tool_registry or create_default_registry(enable_ai_ops=True)
-        self.planner = planner or RulePlanner()
-        self.budget_tracker = budget_tracker or BudgetTracker()
-        self.executor_agent = ExecutorAgent(secret_resolver=self._resolve_secret)
+        self.tool_registry = tool_registry
+        self.planner = planner
+        self.executor_agent = executor_agent
+        self.critic = critic
+        self.policy_engine = policy_engine
+
+        # Set secret resolver for executor agent
+        self.executor_agent.secret_resolver = self._resolve_secret
 
     async def execute_run(self, run_id: str) -> None:
         """
@@ -99,13 +147,9 @@ class WorkflowExecutor:
 
             logger.info(f"Starting agentic execution for run {run_id} (flow: {flow.name})")
 
-            # Initialize budget
-            budget_config = flow.definition.get("budget", {})
-            self.budget_tracker.max_tokens = budget_config.get("max_tokens", 100000)
-            self.budget_tracker.max_cost_usd = budget_config.get("max_cost_usd", 10.0)
-            self.budget_tracker.max_steps = budget_config.get("max_steps", 50)
-            self.budget_tracker.max_time_seconds = budget_config.get("max_time_seconds", 3600)
-            self.budget_tracker.initialize_run(run_id)
+            # Initialize policy engine from DSL
+            policies_dict = flow.definition.get("policies", {})
+            self.policy_engine.initialize_from_dsl(run_id, policies_dict)
 
             # Initialize execution context
             context: dict[str, Any] = {
@@ -138,7 +182,7 @@ class WorkflowExecutor:
             # Execute plan steps sequentially
             for step_number, plan_step in enumerate(plan.steps):
                 # Check budget before each step
-                within_budget, budget_error = self.budget_tracker.check_budget(run_id)
+                within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
                 if not within_budget:
                     logger.error(f"Budget exceeded for run {run_id}: {budget_error}")
                     await self._fail_run(
@@ -162,8 +206,60 @@ class WorkflowExecutor:
                     context["step_results"][plan_step.step_id] = step_result
                     context["completed_steps"].append(plan_step.step_id)
 
-                    # Record step execution in budget
-                    self.budget_tracker.record_step(run_id)
+                    # Record step execution in policy engine
+                    self.policy_engine.record_step(run_id)
+
+                except PolicyViolation as step_error:
+                    # Policy violation - always fail immediately
+                    error_dict = {
+                        "message": str(step_error),
+                        "type": "PolicyViolation",
+                        "step": plan_step.step_id,
+                        "step_number": step_number,
+                    }
+                    logger.error(f"Step {plan_step.step_id} blocked by policy: {step_error}")
+                    await self._fail_run(run_id, error_dict)
+                    return
+
+                except CritiqueFailure as step_error:
+                    # Critique failed - store critique and fail
+                    error_dict = {
+                        "message": str(step_error),
+                        "type": "CritiqueFailure",
+                        "step": plan_step.step_id,
+                        "step_number": step_number,
+                        "critique": step_error.critique.model_dump(),
+                    }
+                    logger.error(f"Step {plan_step.step_id} failed critique: {step_error}")
+                    await self._fail_run(run_id, error_dict)
+                    return
+
+                except EscalationRequired as step_error:
+                    # Escalation required - suspend run
+                    error_dict = {
+                        "message": str(step_error),
+                        "type": "EscalationRequired",
+                        "step": plan_step.step_id,
+                        "step_number": step_number,
+                        "critique": step_error.critique.model_dump(),
+                    }
+                    logger.warning(f"Step {plan_step.step_id} requires escalation: {step_error}")
+                    self.uow.runs.mark_suspended(run_id, error_dict)
+                    self.uow.commit()
+                    return
+
+                except ReplanRequired as step_error:
+                    # Replanning required - treat as failure for now
+                    error_dict = {
+                        "message": str(step_error),
+                        "type": "ReplanRequired",
+                        "step": plan_step.step_id,
+                        "step_number": step_number,
+                        "critique": step_error.critique.model_dump(),
+                    }
+                    logger.warning(f"Step {plan_step.step_id} requires replanning: {step_error}")
+                    await self._fail_run(run_id, error_dict)
+                    return
 
                 except Exception as step_error:
                     # Handle step failure based on error_handling policy
@@ -237,16 +333,16 @@ class WorkflowExecutor:
         # Get tool registry specs
         tool_specs = self.tool_registry.get_tool_specs()
 
-        # Get remaining budget
-        budget_remaining = self.budget_tracker.get_remaining(run_id)
+        # Get remaining budget from policy engine
+        budget_remaining = self.policy_engine.get_budget_status(run_id)
 
         budget_dict = {
             "remaining_tokens": budget_remaining["tokens"]["remaining"],
-            "max_tokens": self.budget_tracker.max_tokens,
+            "max_tokens": self.policy_engine.budget_tracker.max_tokens,
             "remaining_cost": budget_remaining["cost"]["remaining"],
-            "max_cost_usd": self.budget_tracker.max_cost_usd,
+            "max_cost_usd": self.policy_engine.budget_tracker.max_cost_usd,
             "remaining_steps": budget_remaining["steps"]["remaining"],
-            "max_steps": self.budget_tracker.max_steps,
+            "max_steps": self.policy_engine.budget_tracker.max_steps,
         }
 
         # Generate plan using planner
@@ -432,7 +528,13 @@ class WorkflowExecutor:
 
     async def _execute_tool_call(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
-        Execute a tool call with variable substitution.
+        Execute tool call with full agentic cycle:
+        1. Ground step (ExecutorAgent)
+        2. Policy check (PolicyEngine)
+        3. Execute tool (ToolRegistry)
+        4. Redact output (PolicyEngine)
+        5. Critique result (CriticAgent)
+        6. Handle verdict
 
         Args:
             plan_step: Plan step with tool_name and input_template
@@ -441,10 +543,15 @@ class WorkflowExecutor:
 
         Returns:
             Tool execution result
-        """
-        # Ground step: substitute variables in input template
-        tool_specs_dict = self.tool_registry.get_tool_specs_dict()
 
+        Raises:
+            PolicyViolation: If policy check fails
+            CritiqueFailure: If critic returns FAIL verdict
+            EscalationRequired: If critic returns ESCALATE verdict
+            ReplanRequired: If critic returns REPLAN verdict
+        """
+        # 1. Ground step
+        tool_specs_dict = self.tool_registry.get_tool_specs_dict()
         tool_call = self.executor_agent.ground(
             step=plan_step,
             tool_registry=tool_specs_dict,
@@ -453,10 +560,47 @@ class WorkflowExecutor:
         )
 
         logger.info(
+            "grounding_step",
+            extra={
+                "run_id": run_id,
+                "step_id": plan_step.step_id,
+                "tool": tool_call.tool,
+                "idempotency_key": tool_call.idempotency_key,
+            },
+        )
+
+        # Store grounded input in step record
+        step = self._get_current_step(run_id, plan_step.step_id)
+        step.input = {"tool": tool_call.tool, "arguments": tool_call.arguments}
+        step.step_type = plan_step.action.value
+        self.uow.commit()
+
+        # 2. Policy check
+        allowed, reason = self.policy_engine.check_tool_call(
+            tool_name=tool_call.tool,
+            arguments=tool_call.arguments,
+            run_id=run_id,
+        )
+        if not allowed:
+            # Record policy violation
+            step.policy_flags = {"blocked": True, "reason": reason}
+            self.uow.commit()
+            logger.warning(
+                "policy_violation",
+                extra={
+                    "run_id": run_id,
+                    "step_id": plan_step.step_id,
+                    "tool": tool_call.tool,
+                    "reason": reason,
+                },
+            )
+            raise PolicyViolation(f"Tool call blocked: {reason}")
+
+        # 3. Execute tool
+        logger.info(
             f"Executing tool {tool_call.tool} with idempotency key {tool_call.idempotency_key}"
         )
 
-        # Execute tool
         result = await self.tool_registry.execute_tool(
             tool_name=tool_call.tool,
             arguments=tool_call.arguments,
@@ -465,15 +609,94 @@ class WorkflowExecutor:
             step_id=plan_step.step_id,
         )
 
-        # Track usage if present
+        # 4. Extract and record AI usage
+        tokens = 0
+        cost_usd = 0.0
         if isinstance(result, dict):
             usage = result.get("usage", {})
-            if "tokens" in usage:
-                self.budget_tracker.record_tokens(run_id, usage["tokens"])
-            if "cost_usd" in usage:
-                self.budget_tracker.record_cost(run_id, usage["cost_usd"])
+            tokens = usage.get("tokens", 0)
+            cost_usd = usage.get("cost_usd", 0.0)
 
-        return result
+            if tokens > 0:
+                self.policy_engine.record_llm_usage(run_id, tokens, cost_usd)
+                step.tokens = tokens
+                step.cost_usd = cost_usd
+                self.uow.commit()
+
+        logger.info(
+            "tool_executed",
+            extra={
+                "run_id": run_id,
+                "step_id": plan_step.step_id,
+                "tool": tool_call.tool,
+                "tokens": tokens,
+                "cost": cost_usd,
+            },
+        )
+
+        # 5. Redact PII from output
+        redacted_result = self.policy_engine.redact_output(
+            result if isinstance(result, dict) else {"value": result}
+        )
+
+        # 6. Critique result
+        critique = await self.critic.critique(
+            step=plan_step,
+            tool_call={"tool": tool_call.tool, "arguments": tool_call.arguments},
+            result=redacted_result,
+            run_id=run_id,
+            completed_steps=context.get("completed_steps", []),
+            current_state=context.get("step_results", {}),
+        )
+
+        # Store critique in step
+        step.critique = critique.model_dump()
+        self.uow.commit()
+
+        logger.info(
+            "critique_received",
+            extra={
+                "run_id": run_id,
+                "step_id": plan_step.step_id,
+                "verdict": critique.verdict.value,
+                "confidence": critique.confidence,
+                "issues_count": len(critique.issues),
+            },
+        )
+
+        # 7. Handle verdict
+        if critique.verdict == Verdict.PASS:
+            logger.info(
+                f"Step {plan_step.step_id} passed critique",
+                extra={"confidence": critique.confidence},
+            )
+            return redacted_result
+
+        elif critique.verdict == Verdict.FAIL:
+            logger.error(
+                f"Step {plan_step.step_id} failed critique",
+                extra={"reasoning": critique.reasoning},
+            )
+            raise CritiqueFailure(f"Critique failed: {critique.reasoning}", critique=critique)
+
+        elif critique.verdict == Verdict.ESCALATE:
+            logger.warning(
+                f"Step {plan_step.step_id} requires human escalation",
+                extra={"reasoning": critique.reasoning},
+            )
+            raise EscalationRequired(
+                f"Human approval required: {critique.reasoning}", critique=critique
+            )
+
+        elif critique.verdict == Verdict.REPLAN:
+            logger.warning(
+                f"Step {plan_step.step_id} requires replanning",
+                extra={"reasoning": critique.reasoning},
+            )
+            # For now, treat as failure (full replanning not implemented in this phase)
+            raise ReplanRequired(f"Replanning required: {critique.reasoning}", critique=critique)
+
+        return redacted_result
 
     async def _execute_condition(self, plan_step: PlanStep, context: dict) -> Any:
         """
@@ -572,7 +795,7 @@ class WorkflowExecutor:
         await broadcast_events(events)
 
         # Log budget stats
-        budget_stats = self.budget_tracker.get_remaining(run_id)
+        budget_stats = self.policy_engine.get_budget_status(run_id)
         logger.info(
             f"Run {run_id} completed successfully. "
             f"Budget used: {budget_stats['tokens']['used']} tokens, "
@@ -598,6 +821,14 @@ class WorkflowExecutor:
         await broadcast_events(events)
 
         logger.error(f"Run {run_id} failed: {error.get('message', 'Unknown error')}")
+
+    def _get_current_step(self, run_id: str, step_id: str):
+        """Get current step entity from database using repository pattern"""
+        assert self.uow.steps is not None
+        step = self.uow.steps.get_by_name(run_id, step_id)
+        if not step:
+            raise ValueError(f"Step not found: {step_id}")
+        return step
 
     def _resolve_secret(self, secret_name: str) -> str | None:
         """

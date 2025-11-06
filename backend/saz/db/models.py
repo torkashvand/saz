@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, LargeBinary, String
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -47,6 +47,11 @@ class Run(Base):
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Compliance tracking fields
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    policy_violations: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
     )
@@ -81,6 +86,14 @@ class Step(Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Agentic loop tracking fields
+    input: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    critique: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    policy_flags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    step_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     run: Mapped["Run"] = relationship("Run", back_populates="steps")

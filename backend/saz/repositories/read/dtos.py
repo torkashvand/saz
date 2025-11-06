@@ -37,6 +37,7 @@ class RunListItemDTO:
     created_at: datetime
     completed_at: datetime | None
     cost_cents: int
+    error: dict | None
 
 
 @dataclass
@@ -53,6 +54,14 @@ class StepSummaryDTO:
     retry_count: int
     output: dict | None
     error: dict | None
+
+    # Agentic loop tracking fields
+    input: dict | None
+    tokens: int | None
+    cost_usd: float | None
+    critique: dict | None
+    policy_flags: dict | None
+    step_type: str | None
 
 
 @dataclass

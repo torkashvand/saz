@@ -21,6 +21,7 @@ from saz.api.websocket import broadcast_events, websocket_endpoint
 from saz.db.dependencies import get_uow
 from saz.db.unit_of_work import UnitOfWork
 from saz.engine.scheduler import get_scheduler
+from saz.globals import initialize_globals
 from saz.services.credential_service import CredentialService
 from saz.services.flow_service import FlowService
 from saz.services.run_service import RunService
@@ -30,6 +31,13 @@ from saz.services.run_service import RunService
 async def lifespan(app: FastAPI):
     """Startup/shutdown using FastAPI lifespan (replaces deprecated on_event)."""
     database_url = os.environ.get("DATABASE_URL")
+
+    # Initialize global singletons
+    initialize_globals(
+        planner_model=os.environ.get("PLANNER_MODEL", "gpt-4o"),
+        critic_model=os.environ.get("CRITIC_MODEL", "gpt-4o"),
+    )
+
     if database_url:
         # Initialize scheduler on startup
         get_scheduler(database_url)
@@ -546,6 +554,70 @@ async def replay_run(
     return ReplayRunResponse(original_run_id=id, new_run_id=new_run_id, from_step=from_step)
 
 
+@app.get("/api/v1/runs/{id}/compliance")
+def get_run_compliance(id: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str, Any]:
+    """
+    Get compliance report for a run.
+
+    Returns per-step and total tokens, cost, policy violations, and budget status.
+    """
+    service = RunService(uow)
+    run = service.get(id)
+
+    if not run:
+        raise NotFoundError(f"Run not found: {id}")
+
+    # Aggregate per-step metrics
+    step_metrics = []
+    total_tokens = 0
+    total_cost = 0.0
+
+    for step in run.steps:
+        tokens = step.tokens or 0
+        cost = step.cost_usd or 0.0
+        total_tokens += tokens
+        total_cost += cost
+
+        step_metrics.append(
+            {
+                "step_id": step.name,
+                "step_number": step.number,
+                "tokens": tokens,
+                "cost_usd": cost,
+                "policy_flags": step.policy_flags,
+                "critique": step.critique,
+            }
+        )
+
+    # Get policy engine status (if run is still active)
+    from saz.globals import get_policy_engine
+
+    policy_engine = get_policy_engine()
+
+    try:
+        compliance_report = policy_engine.get_compliance_report(id)
+    except Exception:
+        # Run may not be tracked in policy engine (completed/old run)
+        compliance_report = {
+            "run_id": id,
+            "budget": {"note": "Run completed, budget tracker cleared"},
+            "rate_limits": {},
+            "policies_enforced": {},
+        }
+
+    return {
+        "run_id": id,
+        "status": run.status,
+        "totals": {
+            "tokens": total_tokens,
+            "cost_usd": total_cost,
+            "steps": len(run.steps),
+        },
+        "steps": step_metrics,
+        "policy_report": compliance_report,
+    }
+
+
 # ========== Credential Endpoints ==========
 
 
@@ -609,6 +681,106 @@ def delete_credential(name: str, uow: UnitOfWork = Depends(get_uow)) -> dict[str
         raise NotFoundError(f"Credential not found: {name}")
 
     return {"status": "deleted", "name": name}
+
+
+# ========== Webhook & Resume Endpoints ==========
+
+
+@app.post("/api/v1/webhooks/{event_name}")
+async def trigger_webhook(
+    event_name: str,
+    payload: dict,
+    uow: UnitOfWork = Depends(get_uow),
+) -> dict[str, Any]:
+    """
+    Trigger webhook event to resume waiting runs.
+
+    Matches runs waiting on webhook.wait with this event_name.
+    """
+    # Find suspended runs waiting for this webhook
+    assert uow.run_reads is not None
+    runs = uow.run_reads.list(status="suspended", limit=1000, offset=0)[0]
+
+    resumed_count = 0
+    for run in runs:
+        # Check if run is waiting for this webhook
+        # (This requires storing webhook wait state in run.error field)
+        if run.error and run.error.get("type") == "WebhookWait":
+            expected_event = run.error.get("event_name")
+            if expected_event == event_name:
+                # Resume run by scheduling execution
+                # Store webhook payload in run.payload under special key
+                assert uow.runs is not None
+                db_run = uow.runs.get(run.id)
+                if db_run:
+                    db_run.payload["_webhook_data"] = {event_name: payload}
+                    db_run.status = "queued"
+                    uow.commit()
+
+                    # Schedule for execution
+                    scheduler = get_scheduler()
+                    scheduler.schedule(run.id)
+                    resumed_count += 1
+
+    return {
+        "event_name": event_name,
+        "resumed_runs": resumed_count,
+        "status": "triggered",
+    }
+
+
+@app.post("/api/v1/runs/{id}/resume", response_model=None)
+async def resume_run(
+    id: str,
+    payload: dict[str, Any] | None = None,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    """
+    Resume a suspended run (e.g., after human approval).
+
+    Optionally accepts payload to merge into run state.
+    """
+    service = RunService(uow)
+    run = service.get(id)
+
+    if not run:
+        raise NotFoundError(f"Run not found: {id}")
+
+    if run.status != "suspended":
+        raise ValueError(f"Can only resume suspended runs, got: {run.status}")
+
+    # Merge payload if provided
+    assert uow.runs is not None
+    db_run = uow.runs.get(id)
+    if not db_run:
+        raise NotFoundError(f"Run not found: {id}")
+
+    if payload:
+        db_run.payload.update(payload)
+
+    # Mark as queued and schedule
+    db_run.status = "queued"
+    db_run.error = None  # Clear suspension reason
+    uow.commit()
+
+    scheduler = get_scheduler()
+    scheduled = scheduler.schedule(id)
+
+    if not scheduled:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "AlreadyRunning",
+                "message": f"Run {id} is already scheduled or running",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+
+    return {
+        "run_id": id,
+        "status": "resumed",
+        "scheduled": True,
+    }
 
 
 # ========== WebSocket ==========

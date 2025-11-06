@@ -25,4 +25,3 @@ repos:
           - cryptography>=41.0
           - litellm>=1.0
           - structlog>=23.0
-        # Removed --ignore-missing-imports to use pyproject.toml strict config

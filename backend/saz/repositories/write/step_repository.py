@@ -81,3 +81,14 @@ class StepRepository(BaseRepository[Step]):
             .limit(1)
         )
         return self.session.scalar(stmt)
+
+    def get_by_name(self, run_id: str, step_name: str) -> Step | None:
+        """Get step by run_id and step name (most recent if multiple)."""
+        stmt = (
+            select(Step)
+            .where(Step.run_id == run_id)
+            .where(Step.name == step_name)
+            .order_by(Step.number.desc())
+            .limit(1)
+        )
+        return self.session.scalar(stmt)

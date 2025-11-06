@@ -48,6 +48,7 @@ class RunReadRepository:
                 created_at=run.created_at,
                 completed_at=run.completed_at,
                 cost_cents=run.cost_cents,
+                error=run.error,
             )
             for run in runs
         ]
@@ -79,6 +80,12 @@ class RunReadRepository:
                 retry_count=step.retry_count,
                 output=step.output,
                 error=step.error,
+                input=step.input,
+                tokens=step.tokens,
+                cost_usd=step.cost_usd,
+                critique=step.critique,
+                policy_flags=step.policy_flags,
+                step_type=step.step_type,
             )
             for step in sorted(run.steps, key=lambda s: s.number)
         ]

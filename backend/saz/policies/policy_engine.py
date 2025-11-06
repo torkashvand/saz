@@ -141,6 +141,41 @@ class PolicyEngine:
         self.budget_tracker.initialize_run(run_id)
         self.logger.info("run_initialized", run_id=run_id)
 
+    def initialize_from_dsl(self, run_id: str, policies_dict: dict[str, Any]) -> None:
+        """
+        Initialize policy engine from DSL policies section.
+
+        Args:
+            run_id: Run identifier
+            policies_dict: DSL policies section
+        """
+        # Extract budget limits
+        budget_usd = policies_dict.get("budget_usd")
+        if budget_usd:
+            self.budget_tracker.max_cost_usd = budget_usd
+
+        # Extract rate limits
+        rate_limits = policies_dict.get("rate_limits", {})
+        calls_per_minute = rate_limits.get("calls_per_minute", 10)
+        calls_per_hour = rate_limits.get("calls_per_hour", 100)
+        self.rate_limiter.calls_per_minute = calls_per_minute
+        self.rate_limiter.calls_per_hour = calls_per_hour
+
+        # Extract PII policy
+        pii_config = policies_dict.get("pii", {})
+        self.enforce_pii_redaction = not pii_config.get("allow", False)
+
+        # Initialize run tracking
+        self.initialize_run(run_id)
+
+        self.logger.info(
+            "policy_engine_initialized_from_dsl",
+            run_id=run_id,
+            budget_usd=budget_usd,
+            rate_limits=rate_limits,
+            pii_blocked=self.enforce_pii_redaction,
+        )
+
     def get_compliance_report(self, run_id: str) -> dict[str, Any]:
         """
         Generate compliance report for a run.

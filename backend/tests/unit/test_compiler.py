@@ -1,4 +1,4 @@
-"""Unit tests for DSL compiler - YAML to Pydantic and JSON Schema generation."""
+"""Unit tests for DSL compiler – YAML → Pydantic + JSON Schema + workflow spec."""
 
 from typing import Any, cast
 
@@ -13,312 +13,671 @@ from saz.compiler.dsl import (
     parse_yaml,
 )
 
+# ---------------------------------------------------------------------------
+# parse_yaml
+# ---------------------------------------------------------------------------
 
-def test_parse_valid_yaml():
-    """Test parsing valid YAML DSL."""
+
+def test_parse_valid_yaml_minimal():
     yaml_content = """
+_schema_version: 1
 flow:
   name: TestFlow
-  version: "1.0"
-  description: Test workflow
-
-form:
-  fields:
-    - name: username
-      type: text
-      required: true
-
 workflow:
   steps:
-    - id: step1
-      type: tool_call
-      tool: http_request
+    - id: s1
+      type: noop
 """
     dsl = parse_yaml(yaml_content)
     assert dsl["flow"]["name"] == "TestFlow"
-    assert dsl["flow"]["version"] == "1.0"
-    assert len(dsl["form"]["fields"]) == 1
+    assert "form" not in dsl
     assert len(dsl["workflow"]["steps"]) == 1
 
 
-def test_parse_yaml_missing_required_section():
-    """Test that missing required sections raise ValueError."""
-    yaml_missing_flow = """
-form:
-  fields:
-    - name: test
-      type: text
-"""
-    with pytest.raises(ValueError, match="Missing required section: flow"):
-        parse_yaml(yaml_missing_flow)
-
-    # Form section is optional, so no error when missing
-    yaml_without_form = """
+def test_parse_requires_schema_version():
+    yaml_content = """
 flow:
-  name: Test
+  name: TestFlow
 workflow:
   steps: []
 """
-    result = parse_yaml(yaml_without_form)
-    assert result["flow"]["name"] == "Test"
-    assert "form" not in result
+    with pytest.raises(ValueError, match="schema_version: 1"):
+        parse_yaml(yaml_content)
 
 
-def test_compile_form_model_text_field():
-    """Test compiling text field with regex validation."""
+def test_parse_requires_flow_and_steps():
+    yaml_no_flow = """
+schema_version: 1
+workflow: { steps: [ { id: s1, type: noop } ] }
+"""
+    with pytest.raises(ValueError, match="flow.name is required"):
+        parse_yaml(yaml_no_flow)
+
+    yaml_no_steps = """
+schema_version: 1
+flow: { name: A }
+workflow: {}
+"""
+    with pytest.raises(ValueError, match="workflow.steps is required"):
+        parse_yaml(yaml_no_steps)
+
+    yaml_empty_steps = """
+schema_version: 1
+flow: { name: A }
+workflow: { steps: [] }
+"""
+    with pytest.raises(ValueError, match="non-empty"):
+        parse_yaml(yaml_empty_steps)
+
+
+def test_parse_form_optional_but_shape_checked():
+    yaml_ok = """
+schema_version: 1
+flow: { name: A }
+form: { fields: [] }
+workflow: { steps: [ { id: s1, type: noop } ] }
+"""
+    assert parse_yaml(yaml_ok)["form"]["fields"] == []
+
+    yaml_bad = """
+schema_version: 1
+flow: { name: A }
+form: {}
+workflow: { steps: [ { id: s1, type: noop } ] }
+"""
+    with pytest.raises(ValueError, match="form.fields is required"):
+        parse_yaml(yaml_bad)
+
+
+# ---------------------------------------------------------------------------
+# compile_form_model (types/constraints)
+# ---------------------------------------------------------------------------
+
+
+def test_form_string_with_pattern_and_format_email():
+    form_def = {
+        "fields": [
+            {
+                "name": "email",
+                "type": "string",
+                "required": True,
+                "format": "email",  # should auto-map to a pattern
+                "description": "User email",
+            }
+        ]
+    }
+    model_cls, schema = compile_form_model(form_def)
+    inst = model_cls(email="user@example.com")
+    assert cast(Any, inst).email == "user@example.com"
+    prop = schema["properties"]["email"]
+    assert prop["type"] == "string"
+    assert "pattern" in prop
+    assert prop["description"] == "User email"
+
+    with pytest.raises(ValidationError):
+        model_cls(email="not-an-email")
+
+
+def test_form_string_min_max_length_and_explicit_pattern():
     form_def = {
         "fields": [
             {
                 "name": "username",
-                "type": "text",
+                "type": "string",
                 "required": True,
-                "regex": "^[a-z0-9_]+$",
-                "description": "Username",
+                "minLength": 3,
+                "maxLength": 12,
+                "pattern": "^[a-z0-9_]+$",
             }
         ]
     }
-
-    model_cls, schema = compile_form_model(form_def)
-
-    # Test valid instance
-    instance = model_cls(username="test_user")
-    assert cast(Any, instance).username == "test_user"
-
-    # Test JSON schema contains pattern
-    assert "properties" in schema
-    assert "username" in schema["properties"]
-    assert schema["properties"]["username"]["pattern"] == "^[a-z0-9_]+$"
-    assert schema["properties"]["username"]["description"] == "Username"
-
-
-def test_compile_form_model_number_field_with_constraints():
-    """Test compiling number field with min/max validation."""
-    form_def = {
-        "fields": [{"name": "age", "type": "number", "required": True, "min": 18, "max": 120}]
-    }
-
-    model_cls, schema = compile_form_model(form_def)
-
-    # Test valid instance
-    instance = model_cls(age=25)
-    assert cast(Any, instance).age == 25
-
-    # Test min constraint
+    model_cls, _ = compile_form_model(form_def)
+    model_cls(username="abc_123")
     with pytest.raises(ValidationError):
-        model_cls(age=10)
-
-    # Test max constraint
-    with pytest.raises(ValidationError):
-        model_cls(age=150)
-
-    # Test JSON schema contains constraints
-    assert schema["properties"]["age"]["minimum"] == 18
-    assert schema["properties"]["age"]["maximum"] == 120
+        model_cls(username="AB")  # too short + uppercase not allowed
 
 
-def test_compile_form_model_optional_fields():
-    """Test optional fields with default None."""
+def test_form_invalid_regex_raises_value_error():
     form_def = {
         "fields": [
-            {"name": "email", "type": "text", "required": True},
-            {"name": "phone", "type": "text", "required": False},
+            {
+                "name": "weird",
+                "type": "string",
+                "required": True,
+                "pattern": "(",
+            }
         ]
     }
-
-    model_cls, schema = compile_form_model(form_def)
-
-    # Test with only required field
-    instance = model_cls(email="test@example.com")
-    assert cast(Any, instance).email == "test@example.com"
-    assert cast(Any, instance).phone is None
-
-    # Test with both fields
-    instance2 = model_cls(email="test@example.com", phone="123-456-7890")
-    assert cast(Any, instance2).phone == "123-456-7890"
-
-    # Verify required in schema
-    assert "email" in schema.get("required", [])
-    assert "phone" not in schema.get("required", [])
+    with pytest.raises(ValueError, match="Invalid regex"):
+        compile_form_model(form_def)
 
 
-def test_compile_form_model_boolean_field():
-    """Test boolean field compilation."""
-    form_def = {"fields": [{"name": "newsletter", "type": "boolean", "required": True}]}
-
-    model_cls, schema = compile_form_model(form_def)
-
-    instance = model_cls(newsletter=True)
-    assert cast(Any, instance).newsletter is True
-
-    instance2 = model_cls(newsletter=False)
-    assert cast(Any, instance2).newsletter is False
-
-    assert schema["properties"]["newsletter"]["type"] == "boolean"
-
-
-def test_compile_form_model_float_field():
-    """Test float field with validation."""
+def test_form_number_and_integer_with_minimum_maximum():
     form_def = {
-        "fields": [{"name": "price", "type": "float", "required": True, "min": 0.0, "max": 9999.99}]
+        "fields": [
+            {"name": "age", "type": "integer", "required": True, "minimum": 18, "maximum": 120},
+            {"name": "score", "type": "number", "required": True, "minimum": 0.0, "maximum": 1.0},
+        ]
     }
-
     model_cls, schema = compile_form_model(form_def)
 
-    instance = model_cls(price=99.99)
-    assert cast(Any, instance).price == 99.99
+    ok = model_cls(age=30, score=0.5)
+    assert cast(Any, ok).age == 30
+    assert abs(cast(Any, ok).score - 0.5) < 1e-9
 
-    # Test constraints
     with pytest.raises(ValidationError):
-        model_cls(price=-1.0)
+        model_cls(age=10, score=0.5)
+
+    with pytest.raises(ValidationError):
+        model_cls(age=30, score=2.0)
+
+    assert schema["properties"]["age"]["minimum"] == 18
+    assert schema["properties"]["age"]["maximum"] == 120
+    assert schema["properties"]["score"]["minimum"] == 0.0
+    assert schema["properties"]["score"]["maximum"] == 1.0
 
 
-def test_compile_form_model_unknown_type_defaults_to_str():
-    """Test unknown field types default to string."""
-    form_def = {"fields": [{"name": "unknown_field", "type": "unknown_type", "required": True}]}
-
+def test_form_boolean_and_optional_defaults_and_enum():
+    form_def = {
+        "fields": [
+            {"name": "newsletter", "type": "boolean", "required": True},
+            {"name": "nickname", "type": "string", "required": False, "default": None},
+            {"name": "role", "type": "string", "required": True, "enum": ["user", "admin"]},
+        ]
+    }
     model_cls, schema = compile_form_model(form_def)
+    inst = model_cls(newsletter=False, role="user")
+    assert cast(Any, inst).nickname is None
+    assert schema["properties"]["role"]["enum"] == ["user", "admin"]
 
-    instance = model_cls(unknown_field="test")
-    assert cast(Any, instance).unknown_field == "test"
+
+def test_form_unknown_type_is_error():
+    form_def = {"fields": [{"name": "x", "type": "unknown_type", "required": True}]}
+    with pytest.raises(ValueError, match="Unsupported form field type"):
+        compile_form_model(form_def)
 
 
-def test_compile_workflow_spec():
-    """Test workflow specification compilation."""
+# ---------------------------------------------------------------------------
+# compile_workflow_spec (light wrapper) + deep checks handled in compile_dsl
+# ---------------------------------------------------------------------------
+
+
+def test_compile_workflow_spec_passthrough():
     workflow_def = {
-        "steps": [{"id": "step1", "type": "tool_call"}, {"id": "step2", "type": "ai.assess"}]
+        "steps": [
+            {"id": "s1", "type": "tool.call"},
+            {"id": "s2", "type": "ai.extract", "instruction": "Do it"},
+        ]
     }
-
-    spec = compile_workflow_spec(workflow_def, "TestFlow")
-
-    assert spec["name"] == "TestFlow"
-    assert len(spec["steps"]) == 2
-    assert spec["steps"][0]["id"] == "step1"
-    assert spec["steps"][1]["id"] == "step2"
+    spec = compile_workflow_spec(workflow_def, "FlowName")
+    assert spec["name"] == "FlowName"
+    assert [s["id"] for s in spec["steps"]] == ["s1", "s2"]
 
 
-def test_compile_policies_with_defaults():
-    """Test policy compilation with default values."""
-    policies = compile_policies(None)
-
-    assert policies["budget"]["max_tokens"] == 100000
-    assert policies["budget"]["max_cost_usd"] == 10.0
-    assert policies["budget"]["max_steps"] == 50
-    assert policies["rate_limits"]["max_requests_per_minute"] == 60
-    assert policies["pii"]["enforce_redaction"] is True
+# ---------------------------------------------------------------------------
+# compile_policies (normalization)
+# ---------------------------------------------------------------------------
 
 
-def test_compile_policies_with_overrides():
-    """Test policy compilation with custom values."""
-    policies_def = {
-        "budget": {"max_tokens": 50000, "max_cost_usd": 5.0},
-        "pii": {"enforce_redaction": False},
-    }
-
-    policies = compile_policies(policies_def)
-
-    assert policies["budget"]["max_tokens"] == 50000
-    assert policies["budget"]["max_cost_usd"] == 5.0
-    assert policies["budget"]["max_steps"] == 50  # Default
-    assert policies["pii"]["enforce_redaction"] is False
+def test_compile_policies_defaults_shape():
+    pol = compile_policies(None)
+    assert pol["budget_usd"] == 10.0
+    assert pol["defaults"]["timeout_ms"] == 15000
+    assert pol["defaults"]["continue_on_fail"] is False
+    assert pol["defaults"]["retry"] == {}
+    assert pol["pii"]["allow"] is False
+    assert isinstance(pol["rate_limits"], dict)
 
 
-def test_compile_dsl_full_integration():
-    """Test full DSL compilation end-to-end."""
+def test_compile_policies_overrides():
+    pol = compile_policies(
+        {
+            "budget_usd": 3.5,
+            "concurrency": {"per_flow": 2},
+            "defaults": {
+                "timeout_ms": 5000,
+                "continue_on_fail": True,
+                "retry": {"attempts": 2, "backoff": {"mode": "exponential", "base_ms": 100}},
+            },
+            "pii": {"allow": True},
+            "rate_limits": {"http_request": {"rpm": 120}},
+        }
+    )
+    assert pol["budget_usd"] == 3.5
+    assert pol["concurrency"]["per_flow"] == 2
+    assert pol["defaults"]["timeout_ms"] == 5000
+    assert pol["defaults"]["continue_on_fail"] is True
+    assert pol["defaults"]["retry"]["attempts"] == 2
+    assert pol["defaults"]["retry"]["backoff"]["mode"] == "exponential"
+    assert pol["pii"]["allow"] is True
+    assert pol["rate_limits"]["http_request"]["rpm"] == 120
+
+
+def test_compile_policies_validation_errors():
+    with pytest.raises(ValueError, match="budget_usd"):
+        compile_policies({"budget_usd": -1})
+
+    with pytest.raises(ValueError, match="concurrency.per_flow"):
+        compile_policies({"concurrency": {"per_flow": 0}})
+
+    with pytest.raises(ValueError, match="backoff.mode"):
+        compile_policies({"defaults": {"retry": {"backoff": {"mode": "bad"}}}})
+
+
+# ---------------------------------------------------------------------------
+# compile_dsl – workflow deep validation (all allowed step types)
+# ---------------------------------------------------------------------------
+
+
+def _base(prefix_steps: str) -> str:
+    """Helper to wrap steps in a valid DSL document."""
+    return f"""
+schema_version: 1
+flow:
+  name: FlowX
+form:
+  fields: []
+workflow:
+  steps:
+{prefix_steps}
+"""
+
+
+def test_dsl_tool_call_and_ai_steps_and_credentials_ok():
     yaml_content = """
+schema_version: 1
+flow: { name: FlowX }
+credentials:
+  - name: github
+  - name: slack
+workflow:
+  steps:
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: { url: "https://example.com", method: "GET" }
+      uses_credentials: ["github"]
+    - id: a1
+      type: ai.extract
+      instruction: "Extract data"
+      expect: { type: object, properties: { x: { type: string } } }
+"""
+    compiled = compile_dsl(yaml_content)
+    ids = [s["id"] for s in compiled.workflow_spec["steps"]]
+    assert ids == ["t1", "a1"]
+    assert compiled.credentials == ["github", "slack"]
+
+
+def test_dsl_condition_and_human_and_webhook_and_artifacts():
+    steps = """
+    - id: c1
+      type: condition
+      if: "${{ input.value > 0 }}"
+    - id: h1
+      type: human.approval
+      params: { approvers: ["alice"] }
+    - id: w1
+      type: webhook.wait
+      params: { event_name: "payment.succeeded" }
+    - id: s1
+      type: artifact.store
+      params: { name: "doc", content: "hello" }
+    - id: r1
+      type: artifact.retrieve
+      params: { name: "doc" }
+"""
+    compiled = compile_dsl(_base(steps))
+    assert [s["type"] for s in compiled.workflow_spec["steps"]] == [
+        "condition",
+        "human.approval",
+        "webhook.wait",
+        "artifact.store",
+        "artifact.retrieve",
+    ]
+
+
+def test_dsl_group_parallel_and_group_map_minimal():
+    steps = """
+    - id: p1
+      type: group.parallel
+      join: all
+      steps:
+        - id: t1
+          type: tool.call
+          tool: http_request
+          params: { url: "https://a" }
+        - id: t2
+          type: noop
+    - id: m1
+      type: group.map
+      foreach: "${{ input.items }}"
+      as: "item"
+      steps:
+        - id: t3
+          type: noop
+"""
+    compiled = compile_dsl(_base(steps))
+    s = compiled.workflow_spec["steps"]
+    assert s[0]["type"] == "group.parallel" and s[0]["join"] == "all"
+    assert s[1]["type"] == "group.map" and s[1]["foreach"] and s[1]["as"]
+
+
+def test_dsl_noop_ok():
+    compiled = compile_dsl(_base("    - id: n1\n      type: noop\n"))
+    assert compiled.workflow_spec["steps"][0]["id"] == "n1"
+
+
+# ---------------------------------------------------------------------------
+# compile_dsl – failure cases (shape + cross-references)
+# ---------------------------------------------------------------------------
+
+
+def test_dsl_unknown_step_type_raises():
+    steps = """
+    - id: bad
+      type: totally.unknown
+"""
+    with pytest.raises(ValueError, match="Unknown step type"):
+        compile_dsl(_base(steps))
+
+
+def test_dsl_missing_required_keys_per_type():
+    with pytest.raises(ValueError, match="missing key: tool"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      params: {}
+"""
+            )
+        )
+
+    with pytest.raises(ValueError, match="requires 'instruction'"):
+        compile_dsl(
+            _base(
+                """
+    - id: a1
+      type: ai.extract
+"""
+            )
+        )
+
+    with pytest.raises(ValueError, match="group.parallel.steps"):
+        compile_dsl(
+            _base(
+                """
+    - id: p1
+      type: group.parallel
+      join: any
+      steps: []
+"""
+            )
+        )
+
+    with pytest.raises(ValueError, match="group.map.steps"):
+        compile_dsl(
+            _base(
+                """
+    - id: m1
+      type: group.map
+      foreach: "${{ items }}"
+      as: it
+      steps: []
+"""
+            )
+        )
+
+
+def test_dsl_params_must_be_object_when_present():
+    with pytest.raises(ValueError, match="params must be an object"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: 42
+"""
+            )
+        )
+
+    with pytest.raises(ValueError, match="webhook.wait requires params.event_name"):
+        compile_dsl(
+            _base(
+                """
+    - id: w1
+      type: webhook.wait
+      params: {}
+"""
+            )
+        )
+
+
+def test_dsl_duplicate_step_ids_disallowed():
+    with pytest.raises(ValueError, match="Duplicate step id"):
+        compile_dsl(
+            _base(
+                """
+    - id: s
+      type: noop
+    - id: s
+      type: noop
+"""
+            )
+        )
+
+
+def test_dsl_uses_credentials_must_exist_and_be_list():
+    doc = """
+schema_version: 1
+flow: { name: FlowX }
+credentials:
+  - name: known
+workflow:
+  steps:
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      uses_credentials: ["known", "missing"]
+"""
+    with pytest.raises(ValueError, match="unknown credentials"):
+        compile_dsl(doc)
+
+    doc2 = """
+schema_version: 1
+flow: { name: FlowX }
+credentials:
+  - name: known
+workflow:
+  steps:
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      uses_credentials: "known"
+"""
+    with pytest.raises(ValueError, match="string list"):
+        compile_dsl(doc2)
+
+
+def test_dsl_retry_and_backoff_validation():
+    # attempts < 0
+    with pytest.raises(ValueError, match="attempts must be >= 0"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      retry: { attempts: -1 }
+"""
+            )
+        )
+    # bad backoff mode
+    with pytest.raises(ValueError, match="backoff.mode"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      retry: { attempts: 1, backoff: { mode: "bad" } }
+"""
+            )
+        )
+    # negative base_ms
+    with pytest.raises(ValueError, match="backoff.base_ms"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      retry: { attempts: 1, backoff: { mode: "linear", base_ms: -1 } }
+"""
+            )
+        )
+    # jitter must be bool
+    with pytest.raises(ValueError, match="jitter must be boolean"):
+        compile_dsl(
+            _base(
+                """
+    - id: t1
+      type: tool.call
+      tool: http_request
+      params: {}
+      retry: { attempts: 1, backoff: { mode: "linear", jitter: "yes" } }
+"""
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# triggers normalization
+# ---------------------------------------------------------------------------
+
+
+def test_triggers_defaults_and_overrides():
+    doc = """
+schema_version: 1
+flow: { name: FlowX }
+triggers:
+  manual: false
+  webhook: { event: "issue.opened", path: "/hook", signature_header: "X-Sig" }
+  schedule: { cron: "0 * * * *", timezone: "Europe/Amsterdam" }
+workflow:
+  steps: [ { id: s1, type: noop } ]
+"""
+    compiled = compile_dsl(doc)
+    t = compiled.triggers
+    assert t["manual"] is False
+    assert t["webhook"]["event"] == "issue.opened"
+    assert t["schedule"]["cron"] == "0 * * * *"
+
+
+def test_triggers_default_manual_true_when_absent():
+    compiled = compile_dsl(
+        """
+schema_version: 1
+flow: { name: FlowX }
+workflow:
+  steps: [ { id: s1, type: noop } ]
+"""
+    )
+    assert compiled.triggers["manual"] is True
+
+
+# ---------------------------------------------------------------------------
+# Full integration happy-path
+# ---------------------------------------------------------------------------
+
+
+def test_full_integration():
+    yaml_content = """
+schema_version: 1
 flow:
   name: UserOnboarding
   version: "1.0"
   description: Onboard new users
+  labels: { domain: "user", stage: "prod" }
+  owners: ["team-a@example.com"]
 
 form:
   fields:
     - name: email
-      type: text
+      type: string
       required: true
-      regex: "^[a-zA-Z0-9_]+@[a-zA-Z0-9]+[.][a-z]+$"
+      format: email
     - name: age
-      type: number
+      type: integer
       required: true
-      min: 18
-      max: 120
+      minimum: 18
+      maximum: 120
+
+credentials:
+  - name: github_token
+  - name: slack_webhook
+
+policies:
+  budget_usd: 5.0
+  defaults:
+    timeout_ms: 10000
+    retry: { attempts: 1, backoff: { mode: exponential, base_ms: 100, jitter: true } }
+  pii: { allow: true }
+  rate_limits:
+    http_request: { rpm: 120 }
 
 workflow:
   steps:
     - id: validate_email
-      type: tool_call
+      type: tool.call
       tool: http_request
+      params: { url: "https://example.com/validate", method: "GET" }
       description: Validate email address
+      uses_credentials: [ "github_token" ]
+
     - id: assess_risk
-      type: ai.assess
-      description: Assess user risk level
-
-policies:
-  budget:
-    max_tokens: 50000
-    max_cost_usd: 5.0
-  pii:
-    enforce_redaction: true
-
-credentials:
-  uses:
-    - github_token
-    - slack_webhook
+      type: ai.extract
+      instruction: "Assess user risk level"
+      expect:
+        type: object
+        properties:
+          risk: { type: string, enum: ["low", "medium", "high"] }
+        required: ["risk"]
 """
-
     compiled = compile_dsl(yaml_content)
 
-    # Verify flow metadata
+    # Flow meta
     assert compiled.flow_name == "UserOnboarding"
     assert compiled.flow_version == "1.0"
     assert compiled.flow_description == "Onboard new users"
 
-    # Verify form model
-    assert compiled.form_model is not None
+    # Form model & schema
     instance = compiled.form_model(email="test@example.com", age=25)
     assert cast(Any, instance).email == "test@example.com"
     assert cast(Any, instance).age == 25
-
-    # Verify form schema
-    assert "properties" in compiled.form_schema
     assert "email" in compiled.form_schema["properties"]
     assert "age" in compiled.form_schema["properties"]
 
-    # Verify workflow spec
-    assert compiled.workflow_spec["name"] == "UserOnboarding"
-    assert len(compiled.workflow_spec["steps"]) == 2
-    assert compiled.workflow_spec["steps"][0]["id"] == "validate_email"
+    # Policies normalized
+    pol = compiled.policies
+    assert pol["budget_usd"] == 5.0
+    assert pol["defaults"]["timeout_ms"] == 10000
+    assert pol["defaults"]["retry"]["attempts"] == 1
+    assert pol["defaults"]["retry"]["backoff"]["mode"] == "exponential"
+    assert pol["pii"]["allow"] is True
+    assert pol["rate_limits"]["http_request"]["rpm"] == 120
 
-    # Verify policies
-    assert compiled.policies["budget"]["max_tokens"] == 50000
-    assert compiled.policies["pii"]["enforce_redaction"] is True
+    # Workflow spec
+    steps = compiled.workflow_spec["steps"]
+    assert steps[0]["id"] == "validate_email"
+    assert steps[0]["type"] == "tool.call"
+    assert steps[1]["type"] == "ai.extract"
 
-    # Verify credentials
-    assert len(compiled.credentials) == 2
-    assert "github_token" in compiled.credentials
-
-
-def test_compile_dsl_invalid_yaml_syntax():
-    """Test compilation fails with invalid YAML."""
-    invalid_yaml = """
-flow:
-  name: Test
-  bad indent
-"""
-    with pytest.raises(ValueError, match="Invalid YAML syntax"):
-        compile_dsl(invalid_yaml)
-
-
-def test_form_model_invalid_regex():
-    """Test that invalid regex patterns are caught."""
-    form_def = {
-        "fields": [{"name": "username", "type": "text", "required": True, "regex": "^[a-z]+$"}]
-    }
-
-    model_cls, _ = compile_form_model(form_def)
-
-    # Valid pattern
-    model_cls(username="abc")
-
-    # Invalid pattern
-    with pytest.raises(ValidationError):
-        model_cls(username="ABC123")
+    # Credentials
+    assert set(compiled.credentials) == {"github_token", "slack_webhook"}

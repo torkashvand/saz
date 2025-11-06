@@ -132,7 +132,6 @@ class RulePlanner:
         # Late import to avoid heavy module import at planner import-time
         from saz.agents.ai_ops import AI_OPS  # noqa: WPS433 (intentional local import)
 
-        # mypy-safe: allow None from get(), but keep runtime behavior identical
         op_type: str = cast(str, step_def.get("type"))  # e.g., "ai.extract", "ai.generate"
         params: dict[str, Any] = step_def.get("params", {})
         retry: dict[str, Any] = step_def.get("retry", {})

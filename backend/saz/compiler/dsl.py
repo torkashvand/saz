@@ -1,74 +1,365 @@
 """YAML DSL Compiler for Saz.
 
-Parses single-file YAML with sections:
-- flow: metadata (name, version, description)
-- form: fields with validation
-- triggers: manual, webhook, schedule
-- workflow: steps (tool calls, AI ops, conditionals, approvals)
-- policies: budget, rate_limits, pii
-- credentials: uses list
+Strict DSL (schema_version: 1) with deep, friendly runtime validation.
 
-Produces:
-- Pydantic form model
-- JSON Schema for UI
-- Workflow specification for rule planner
-- Policy configuration
+Top-level sections:
+- flow: { name (req), version?, description?, labels?, owners? }
+- credentials:
+    Either:
+      - list of { name, required_scopes?[] }
+    Or (legacy):
+      - object: { uses: [ "credA", "credB" ] }
+- triggers?: { manual?, webhook{event?,path?,signature_header?}?, schedule{cron?,timezone?}? }
+- policies?: {
+    budget_usd?, concurrency{per_flow?, per_user?}?,
+    defaults?{ retry{attempts?,backoff{mode,base_ms?,max_ms?,jitter?}?}?,
+               timeout_ms?, continue_on_fail? },
+    pii?{ allow? }, rate_limits?{ <tool_name>: { rpm } }
+  }
+- form?: { fields: [ { name, type(string|integer|number|boolean|text), required?,
+                      enum?, pattern?/regex?, minLength?, maxLength?, format?,
+                      minimum?/min?, maximum?/max?, description?, title?, default? }, ... ] }
+- workflow: { steps: [ step, ... ] }   # non-empty
+
+Allowed step types (enforced at compile time):
+- tool.call         : { id, type, tool, params, expect? }
+- ai.extract        : { id, type, instruction, params?, expect? }
+- ai.generate       : { id, type, instruction, params?, expect? }
+- ai.transform      : { id, type, instruction, params?, expect? }
+- ai.route          : { id, type, instruction, branches_enum?, params?, expect? }
+- condition         : { id, type, if }
+- human.approval    : { id, type, params?, expect? }
+- webhook.wait      : { id, type, params{ event_name }, expect? }
+- artifact.store    : { id, type, params, expect? }
+- artifact.retrieve : { id, type, params, expect? }
+- group.parallel    : { id, type, steps[...], join: all|any }
+- group.map         : { id, type, foreach, as, steps[ ... ] }
+- noop              : { id, type }
+
+Optional (per step):
+- uses_credentials?: [credential_name, ...]
+- retry?: { attempts?: int>=0, backoff?: { mode, base_ms?, max_ms?, jitter? } }
+- description?: string
+- expect?: JSON Schema–ish dict
+
+Output:
+- DSLCompiled with form_model, form_schema, workflow_spec, triggers, policies, credentials, raw_dsl
 """
 
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
 from typing import Any, cast
 
 import structlog
 import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, create_model
 
 logger = structlog.get_logger(__name__)
 
+# -------------------------------------------------------------------------------------- #
+# JSON Schema (draft 2020-12) — intentionally relaxed at the STEP level so compile-time
+# validation can produce friendly, precise errors that match tests.
+# -------------------------------------------------------------------------------------- #
 
+_DSL_SCHEMA: dict[str, Any] | None = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["schema_version", "flow", "workflow"],
+    "properties": {
+        "schema_version": {"const": 1},
+        "flow": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "version": {"type": "string"},
+                "description": {"type": "string"},
+                "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+                "owners": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        # Accept BOTH modern list form and legacy { uses: [...] } form
+        "credentials": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["name"],
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "required_scopes": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["uses"],
+                    "properties": {"uses": {"type": "array", "items": {"type": "string"}}},
+                },
+            ]
+        },
+        "triggers": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "manual": {"type": "boolean"},
+                "webhook": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "event": {"type": "string"},
+                        "path": {"type": "string"},
+                        "signature_header": {"type": "string"},
+                    },
+                },
+                "schedule": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "cron": {"type": "string"},
+                        "timezone": {"type": "string"},
+                    },
+                },
+            },
+        },
+        "policies": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "budget_usd": {"type": "number", "minimum": 0},
+                "concurrency": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "per_flow": {"type": "integer", "minimum": 1},
+                        "per_user": {"type": "integer", "minimum": 1},
+                    },
+                },
+                "defaults": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "retry": {"$ref": "#/$defs/retry"},
+                        "timeout_ms": {"type": "integer", "minimum": 1},
+                        "continue_on_fail": {"type": "boolean"},
+                    },
+                },
+                "pii": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"allow": {"type": "boolean"}},
+                },
+                "rate_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["rpm"],
+                        "properties": {"rpm": {"type": "integer", "minimum": 1}},
+                    },
+                },
+            },
+        },
+        "form": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["fields"],
+            "properties": {
+                "fields": {"type": "array", "items": {"$ref": "#/$defs/form_field"}},
+            },
+        },
+        "workflow": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["steps"],
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "minItems": 1,
+                    # Make step validation very light at parse time:
+                    "items": {"$ref": "#/$defs/stepBase"},
+                }
+            },
+        },
+    },
+    "$defs": {
+        "backoff": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "mode": {"enum": ["constant", "linear", "exponential"]},
+                "base_ms": {"type": "integer", "minimum": 0},
+                "max_ms": {"type": "integer", "minimum": 0},
+                "jitter": {"type": "boolean"},
+            },
+        },
+        "retry": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "attempts": {"type": "integer", "minimum": 0},
+                "backoff": {"$ref": "#/$defs/backoff"},
+            },
+        },
+        "form_field": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name", "type"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                # Accept 'text' alias; parse-time normalization will convert to 'string'
+                "type": {"enum": ["string", "integer", "number", "boolean", "text"]},
+                "required": {"type": "boolean"},
+                "enum": {"type": "array"},
+                "pattern": {"type": "string"},
+                "minLength": {"type": "integer", "minimum": 0},
+                "maxLength": {"type": "integer", "minimum": 0},
+                "format": {"enum": ["email", "uri"]},
+                # Accept both canonical and aliases (minimum/maximum and min/max)
+                "minimum": {"type": "number"},
+                "maximum": {"type": "number"},
+                "min": {"type": "number"},
+                "max": {"type": "number"},
+                "description": {"type": "string"},
+                "title": {"type": "string"},
+                "default": {},
+                # Allow 'regex' as alias for 'pattern'
+                "regex": {"type": "string"},
+            },
+        },
+        # Super-light step shape, so deep checks happen in compile_dsl()
+        "stepBase": {
+            "type": "object",
+            "required": ["id", "type"],
+            "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "type": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
+    },
+}
+
+# -------------------------------------------------------------------------------------- #
+# Runtime constants                                                                      #
+# -------------------------------------------------------------------------------------- #
+
+_ALLOWED_STEP_TYPES: set[str] = {
+    "tool.call",
+    "condition",
+    "human.approval",
+    "webhook.wait",
+    "artifact.store",
+    "artifact.retrieve",
+    "ai.extract",
+    "ai.generate",
+    "ai.transform",
+    "ai.route",
+    "group.parallel",
+    "group.map",
+    "noop",
+}
+
+# Legacy/ergonomic aliases
+_STEP_ALIASES: dict[str, str] = {
+    "http.request": "tool.call",  # normalize http.request → tool.call
+}
+
+_STR_FORMAT_PATTERNS: dict[str, str] = {
+    "email": r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$",
+    "uri": r"^[a-zA-Z][a-zA-Z0-9+.\-]*://.+$",
+}
+
+# -------------------------------------------------------------------------------------- #
+# Result wrapper                                                                         #
+# -------------------------------------------------------------------------------------- #
+
+
+@dataclass
 class DSLCompiled:
     """Result of compiling a DSL YAML."""
 
-    def __init__(
-        self,
-        flow_name: str,
-        flow_version: str | None,
-        flow_description: str | None,
-        form_model: type[BaseModel],
-        form_schema: dict,
-        workflow_spec: dict,
-        triggers: dict,
-        policies: dict,
-        credentials: list[str],
-        raw_dsl: dict,
-    ):
-        self.flow_name = flow_name
-        self.flow_version = flow_version
-        self.flow_description = flow_description
-        self.form_model = form_model
-        self.form_schema = form_schema
-        self.workflow_spec = workflow_spec
-        self.triggers = triggers
-        self.policies = policies
-        self.credentials = credentials
-        self.raw_dsl = raw_dsl
+    flow_name: str
+    flow_version: str | None
+    flow_description: str | None
+    form_model: type[BaseModel]
+    form_schema: dict[str, Any]
+    workflow_spec: dict[str, Any]
+    triggers: dict[str, Any]
+    policies: dict[str, Any]
+    credentials: list[str]
+    raw_dsl: dict[str, Any]
 
     @property
     def json_schema(self) -> dict[str, Any]:
-        """Generate JSON schema for form (for UI rendering)."""
         return self.form_schema
 
 
-def parse_yaml(yaml_content: str) -> dict:
-    """Parse YAML and validate structure.
+# -------------------------------------------------------------------------------------- #
+# Helpers                                                                                #
+# -------------------------------------------------------------------------------------- #
 
-    Args:
-        yaml_content: YAML string content
 
-    Returns:
-        Parsed YAML dict
+def _normalize_pre_schema(dsl: dict[str, Any]) -> dict[str, Any]:
+    """Normalize common aliases before JSON-Schema validation."""
+    # schema_version: accept 1, 1.0, "1", and `_schema_version`
+    if "_schema_version" in dsl and "schema_version" not in dsl:
+        dsl["schema_version"] = dsl.pop("_schema_version")
 
-    Raises:
-        ValueError: If YAML is invalid or missing required sections
-    """
+    sv = dsl.get("schema_version")
+    if isinstance(sv, int | float) and (sv == 1 or sv == 1.0):
+        dsl["schema_version"] = 1
+    elif isinstance(sv, str) and sv.strip() == "1":
+        dsl["schema_version"] = 1
+
+    # form field aliases
+    form = dsl.get("form")
+    if isinstance(form, dict):
+        fields = form.get("fields", [])
+        if isinstance(fields, list):
+            for fd in fields:
+                if not isinstance(fd, dict):
+                    continue
+                t = fd.get("type")
+                # Normalize type aliases *before* schema validation
+                if t == "text":
+                    fd["type"] = "string"
+                elif t == "int":
+                    fd["type"] = "integer"
+                elif t == "float":
+                    fd["type"] = "number"
+
+                # regex -> pattern
+                if "regex" in fd and "pattern" not in fd:
+                    fd["pattern"] = fd["regex"]
+                fd.pop("regex", None)
+
+                # min/max -> minimum/maximum
+                if "min" in fd and "minimum" not in fd:
+                    fd["minimum"] = fd["min"]
+                if "max" in fd and "maximum" not in fd:
+                    fd["maximum"] = fd["max"]
+                fd.pop("min", None)
+                fd.pop("max", None)
+
+    return dsl
+
+
+# -------------------------------------------------------------------------------------- #
+# Parse & top-level validation                                                           #
+# -------------------------------------------------------------------------------------- #
+
+
+def parse_yaml(yaml_content: str) -> dict[str, Any]:
+    """Parse YAML and perform structural checks with friendly errors."""
     try:
         dsl = yaml.safe_load(yaml_content)
     except yaml.YAMLError as e:
@@ -77,194 +368,426 @@ def parse_yaml(yaml_content: str) -> dict:
     if not isinstance(dsl, dict):
         raise ValueError("YAML root must be a dictionary")
 
-    # Validate required sections
-    if "flow" not in dsl:
-        raise ValueError("Missing required section: flow")
-    if "name" not in dsl["flow"]:
+    dsl = _normalize_pre_schema(dsl)
+
+    # Friendly errors expected by tests
+    if "schema_version" not in dsl:
+        raise ValueError(
+            "Missing required property 'schema_version'; "
+            "add 'schema_version: 1' at the top of the file"
+        )
+    if "flow" not in dsl or not isinstance(dsl["flow"], dict) or "name" not in dsl["flow"]:
         raise ValueError("flow.name is required")
-
-    # Form section is optional
-    if "form" in dsl and "fields" not in dsl["form"]:
-        raise ValueError("form.fields is required when form section is present")
-
-    if "workflow" not in dsl:
-        raise ValueError("Missing required section: workflow")
+    if "workflow" not in dsl or not isinstance(dsl["workflow"], dict):
+        raise ValueError("workflow is required")
     if "steps" not in dsl["workflow"]:
         raise ValueError("workflow.steps is required")
+    if isinstance(dsl["workflow"]["steps"], list) and len(dsl["workflow"]["steps"]) == 0:
+        raise ValueError("workflow.steps must be non-empty")
+    if "form" in dsl:
+        if not isinstance(dsl["form"], dict) or "fields" not in dsl["form"]:
+            raise ValueError("form.fields is required")
 
-    fields_count = len(dsl.get("form", {}).get("fields", []))
+    # JSON Schema pass
+    validator = Draft202012Validator(_DSL_SCHEMA)  # type: ignore[name-defined]
+    errors = sorted(validator.iter_errors(dsl), key=lambda e: list(e.path))
+    if errors:
+        first = errors[0]
+        path = "/".join(str(p) for p in first.path) or "<root>"
+        raise ValueError(f"DSL does not conform to schema at {path}: {first.message}")
+
     logger.info(
         "dsl_parsed",
         flow_name=dsl["flow"]["name"],
-        fields_count=fields_count,
+        fields_count=len(dsl.get("form", {}).get("fields", [])),
         steps_count=len(dsl["workflow"]["steps"]),
+        schema_version=dsl.get("schema_version"),
     )
-
     return dsl
 
 
-def compile_form_model(form_def: dict) -> tuple[type[BaseModel], dict]:
-    """Compile form definition to Pydantic model and JSON Schema.
+# -------------------------------------------------------------------------------------- #
+# Form compilation                                                                       #
+# -------------------------------------------------------------------------------------- #
 
-    Args:
-        form_def: Form section from YAML
 
-    Returns:
-        Tuple of (Pydantic model class, JSON Schema dict)
-    """
-    fields_def = form_def.get("fields", [])
+def _pydantic_type(field_type: str) -> type:
+    # Canonical + aliases; forward-looking (no legacy int-for-number).
+    match field_type:
+        case "string" | "text":
+            return str
+        case "integer" | "int":
+            return int
+        case "number" | "float":
+            return float
+        case "boolean":
+            return bool
+        case "array":
+            return list
+        case "object":
+            return dict
+        case _:
+            raise ValueError(f"Unsupported form field type: {field_type!r}")
 
-    # Build Pydantic field definitions
-    pydantic_fields = {}
-    for field_def in fields_def:
-        field_name = field_def["name"]
-        field_type_str = field_def.get("type", "text")
-        is_required = field_def.get("required", True)
 
-        # Map YAML types to Python types
-        type_map = {
-            "text": str,
-            "number": int,
-            "float": float,
-            "boolean": bool,
-        }
-        base_type = type_map.get(field_type_str, str)
+def compile_form_model(form_def: dict[str, Any]) -> tuple[type[BaseModel], dict[str, Any]]:
+    """Compile form definition to Pydantic model and JSON Schema."""
+    fields_def: list[dict[str, Any]] = form_def.get("fields", [])
 
-        # Build Field kwargs for validation
+    pyd_fields: dict[str, tuple[Any, Any]] = {}
+
+    for fd in fields_def:
+        if not isinstance(fd, dict):
+            raise ValueError("form.fields items must be objects")
+        if "name" not in fd or "type" not in fd:
+            raise ValueError("Each form field requires 'name' and 'type'")
+
+        name: str = fd["name"]
+        type_str: str = fd["type"]
+        required: bool = bool(fd.get("required", True))
+
+        base_type = _pydantic_type(type_str)
+
         field_kwargs: dict[str, Any] = {}
-        if not is_required:
-            field_kwargs["default"] = None
 
-        if "regex" in field_def and isinstance(base_type, type) and base_type is str:
-            field_kwargs["pattern"] = field_def["regex"]
-        if "min" in field_def and base_type in (int, float):
-            field_kwargs["ge"] = field_def["min"]
-        if "max" in field_def and base_type in (int, float):
-            field_kwargs["le"] = field_def["max"]
-        if "description" in field_def:
-            field_kwargs["description"] = field_def["description"]
+        # string constraints
+        if base_type is str:
+            if "minLength" in fd:
+                field_kwargs["min_length"] = int(fd["minLength"])
+            if "maxLength" in fd:
+                field_kwargs["max_length"] = int(fd["maxLength"])
+            pattern = fd.get("pattern") or fd.get("regex")
+            fmt = fd.get("format")
+            if fmt and fmt in _STR_FORMAT_PATTERNS and not pattern:
+                pattern = _STR_FORMAT_PATTERNS[fmt]
+            if pattern:
+                try:
+                    re.compile(pattern)
+                except re.error as e:
+                    raise ValueError(f"Invalid regex for field '{name}': {e}") from None
+                field_kwargs["pattern"] = pattern
 
-        # Create field
-        if is_required:
-            pydantic_fields[field_name] = (
-                base_type,
-                Field(**field_kwargs) if field_kwargs else ...,
-            )
+        # numeric constraints (support canonical + min/max aliases)
+        if base_type in (int, float):
+            if "minimum" in fd or "min" in fd:
+                field_kwargs["ge"] = fd.get("minimum", fd.get("min"))
+            if "maximum" in fd or "max" in fd:
+                field_kwargs["le"] = fd.get("maximum", fd.get("max"))
+
+        # metadata
+        if "description" in fd:
+            field_kwargs["description"] = fd["description"]
+        if "title" in fd:
+            field_kwargs["title"] = fd["title"]
+
+        # explicit default (including None)
+        explicit_default_present = "default" in fd
+        explicit_default = fd.get("default", None)
+
+        # enum (UI uses JSON Schema enum)
+        if "enum" in fd and isinstance(fd["enum"], list):
+            field_kwargs.setdefault("json_schema_extra", {})
+            field_kwargs["json_schema_extra"]["enum"] = fd["enum"]
+
+        if required:
+            if explicit_default_present:
+                pyd_fields[name] = (base_type, Field(default=explicit_default, **field_kwargs))
+            else:
+                pyd_fields[name] = (base_type, Field(**field_kwargs) if field_kwargs else ...)
         else:
-            # Mypy can't infer union types in tuples - cast to satisfy type checker
-            pydantic_fields[field_name] = cast(Any, (base_type | None, Field(**field_kwargs)))
+            pyd_fields[name] = (base_type | None, Field(default=explicit_default, **field_kwargs))
 
-    # Create dynamic Pydantic model - cast needed for dynamic field definitions
-    model_cls = create_model("DynamicForm", **pydantic_fields)  # type: ignore[call-overload]
+    model_cls = create_model("FormModel", **pyd_fields)  # type: ignore[call-overload]
+    json_schema = cast(dict[str, Any], model_cls.model_json_schema())
 
-    # Generate JSON Schema
-    json_schema = model_cls.model_json_schema()
+    # move our "enum" back into properties for consumers
+    for _, spec in json_schema.get("properties", {}).items():
+        extra = spec.get("json_schema_extra")
+        if isinstance(extra, dict) and "enum" in extra:
+            spec["enum"] = extra["enum"]
+            spec.pop("json_schema_extra", None)
 
     return cast(type[BaseModel], model_cls), json_schema
 
 
-def compile_workflow_spec(workflow_def: dict, flow_name: str) -> dict:
-    """Compile workflow definition to execution spec.
-
-    Args:
-        workflow_def: Workflow section from YAML
-        flow_name: Flow name for default workflow name
-
-    Returns:
-        Workflow specification dict
-    """
-    return {
-        "name": flow_name,
-        "steps": workflow_def.get("steps", []),
-    }
+# -------------------------------------------------------------------------------------- #
+# Workflow validation & normalization                                                    #
+# -------------------------------------------------------------------------------------- #
 
 
-def compile_policies(policies_def: dict | None) -> dict:
-    """Compile policies section with defaults.
+def _require_keys(step: dict[str, Any], keys: list[str]) -> None:
+    for k in keys:
+        if k not in step:
+            sid = step.get("id", "<missing-id>")
+            raise ValueError(f"workflow step '{sid}' missing key: {k}")
 
-    Args:
-        policies_def: Policies section from YAML
 
-    Returns:
-        Policy configuration dict
-    """
-    if not policies_def:
-        return {
-            "budget": {
-                "max_tokens": 100000,
-                "max_cost_usd": 10.0,
-                "max_steps": 50,
-                "max_time_seconds": 3600,
-            },
-            "rate_limits": {"max_requests_per_minute": 60},
-            "pii": {"enforce_redaction": True, "allowed_fields": []},
+def _validate_retry(retry: dict[str, Any]) -> None:
+    if not isinstance(retry, dict):
+        raise ValueError("retry must be an object")
+    if "attempts" in retry and int(retry["attempts"]) < 0:
+        raise ValueError("retry.attempts must be >= 0")
+    backoff = retry.get("backoff")
+    if backoff is not None:
+        if not isinstance(backoff, dict):
+            raise ValueError("retry.backoff must be an object")
+        mode = backoff.get("mode")
+        if mode not in {"constant", "linear", "exponential"}:
+            raise ValueError("retry.backoff.mode must be constant|linear|exponential")
+        for k in ("base_ms", "max_ms"):
+            if k in backoff and int(backoff[k]) < 0:
+                raise ValueError(f"retry.backoff.{k} must be >= 0")
+        if "jitter" in backoff and not isinstance(backoff["jitter"], bool):
+            raise ValueError("retry.backoff.jitter must be boolean")
+
+
+def _validate_and_normalize_steps(
+    steps: list[dict[str, Any]], credential_names: set[str]
+) -> list[dict[str, Any]]:
+    seen_ids: set[str] = set()
+    norm: list[dict[str, Any]] = []
+
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise ValueError(f"workflow.steps[{idx}] must be an object")
+
+        # id
+        sid = step.get("id")
+        if not sid or not isinstance(sid, str):
+            raise ValueError(f"workflow.steps[{idx}] must include string 'id'")
+        if sid in seen_ids:
+            raise ValueError(f"Duplicate step id: {sid}")
+        seen_ids.add(sid)
+
+        # type + alias normalize
+        stype_raw: str = cast(str, step.get("type", "tool.call"))
+        stype = _STEP_ALIASES.get(stype_raw, stype_raw)
+        step["type"] = stype
+
+        # Legacy normalization for http.request
+        if stype_raw == "http.request":
+            step.setdefault("params", {})
+            step.setdefault("tool", "http_request")
+            for k in ("url", "method", "headers", "body", "timeout_ms"):
+                if k in step:
+                    step["params"][k] = step.pop(k)
+
+        if stype not in _ALLOWED_STEP_TYPES:
+            raise ValueError(f"Unknown step type '{stype}' in step '{sid}'")
+
+        # per-type requirements
+        if stype == "tool.call":
+            _require_keys(step, ["tool", "params"])
+            if not isinstance(step["params"], dict):
+                raise ValueError(f"step '{sid}' params must be an object")
+        elif stype in {"ai.extract", "ai.generate", "ai.transform", "ai.route"}:
+            if "instruction" not in step:
+                # Match test expectation wording:
+                raise ValueError("requires 'instruction'")
+        elif stype == "condition":
+            _require_keys(step, ["if"])
+        elif stype == "human.approval":
+            pass
+        elif stype == "webhook.wait":
+            params = step.get("params")
+            if not isinstance(params, dict) or "event_name" not in params:
+                raise ValueError(f"step '{sid}' webhook.wait requires params.event_name")
+        elif stype in {"artifact.store", "artifact.retrieve"}:
+            _require_keys(step, ["params"])
+            if not isinstance(step["params"], dict):
+                raise ValueError(f"step '{sid}' params must be an object")
+        elif stype == "group.parallel":
+            _require_keys(step, ["steps", "join"])
+            if step["join"] not in {"all", "any"}:
+                raise ValueError(f"step '{sid}' group.parallel.join must be 'all' or 'any'")
+            inner = step["steps"]
+            if not isinstance(inner, list) or not inner:
+                raise ValueError(f"step '{sid}' group.parallel.steps must be a non-empty list")
+            for j, inner_step in enumerate(inner):
+                if (
+                    not isinstance(inner_step, dict)
+                    or "id" not in inner_step
+                    or "type" not in inner_step
+                ):
+                    raise ValueError(f"step '{sid}' group.parallel.steps[{j}] must include id/type")
+        elif stype == "group.map":
+            _require_keys(step, ["foreach", "as", "steps"])
+            if not isinstance(step["steps"], list) or not step["steps"]:
+                raise ValueError(f"step '{sid}' group.map.steps must be a non-empty list")
+        elif stype == "noop":
+            pass
+
+        # uses_credentials
+        creds = step.get("uses_credentials", [])
+        if creds is None:
+            creds = []
+        if not isinstance(creds, list) or not all(isinstance(c, str) for c in creds):
+            raise ValueError(f"step '{sid}' uses_credentials must be a string list if present")
+        unknown = [c for c in creds if c not in credential_names]
+        if unknown:
+            raise ValueError(f"step '{sid}' references unknown credentials: {unknown}")
+
+        # retry (optional)
+        if "retry" in step:
+            _validate_retry(cast(dict[str, Any], step["retry"]))
+
+        # ensure containers exist
+        step.setdefault("params", step.get("params", {}))
+        step.setdefault("retry", step.get("retry", {}))
+        norm.append(step)
+
+    return norm
+
+
+def compile_workflow_spec(workflow_def: dict[str, Any], flow_name: str) -> dict[str, Any]:
+    """Build workflow spec skeleton; deep validation happens elsewhere."""
+    steps = cast(list[dict[str, Any]], workflow_def.get("steps", []))
+    return {"name": flow_name, "steps": steps}
+
+
+# -------------------------------------------------------------------------------------- #
+# Triggers / Policies / Credentials                                                      #
+# -------------------------------------------------------------------------------------- #
+
+
+def _compile_triggers(triggers: dict[str, Any] | None) -> dict[str, Any]:
+    if not triggers:
+        return {"manual": True}
+    out: dict[str, Any] = {"manual": bool(triggers.get("manual", True))}
+    if "webhook" in triggers:
+        wh = triggers["webhook"] or {}
+        out["webhook"] = {
+            "event": wh.get("event"),
+            "path": wh.get("path"),
+            "signature_header": wh.get("signature_header"),
         }
+    if "schedule" in triggers:
+        sch = triggers["schedule"] or {}
+        out["schedule"] = {"cron": sch.get("cron"), "timezone": sch.get("timezone")}
+    return out
 
-    # Merge with defaults
-    budget = policies_def.get("budget", {})
-    rate_limits = policies_def.get("rate_limits", {})
-    pii = policies_def.get("pii", {})
+
+def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
+    p = p or {}
+    defaults = p.get("defaults", {})
+    retry = defaults.get("retry", {})
+
+    if "budget_usd" in p and float(p["budget_usd"]) < 0:
+        raise ValueError("policies.budget_usd must be >= 0")
+    if "concurrency" in p:
+        conc = p["concurrency"]
+        if not isinstance(conc, dict):
+            raise ValueError("policies.concurrency must be an object")
+        for key in ("per_flow", "per_user"):
+            if key in conc and int(conc[key]) < 1:
+                raise ValueError(f"policies.concurrency.{key} must be >= 1")
+    if retry:
+        _validate_retry(retry)
 
     return {
-        "budget": {
-            "max_tokens": budget.get("max_tokens", 100000),
-            "max_cost_usd": budget.get("max_cost_usd", 10.0),
-            "max_steps": budget.get("max_steps", 50),
-            "max_time_seconds": budget.get("max_time_seconds", 3600),
+        "budget_usd": float(p.get("budget_usd", 10.0)),
+        "concurrency": p.get("concurrency", {}),
+        "defaults": {
+            "retry": retry,
+            "timeout_ms": int(defaults.get("timeout_ms", 15_000)),
+            "continue_on_fail": bool(defaults.get("continue_on_fail", False)),
         },
-        "rate_limits": {"max_requests_per_minute": rate_limits.get("max_requests_per_minute", 60)},
-        "pii": {
-            "enforce_redaction": pii.get("enforce_redaction", True),
-            "allowed_fields": pii.get("allowed_fields", []),
-        },
+        "pii": {"allow": bool(p.get("pii", {}).get("allow", False))},
+        "rate_limits": p.get("rate_limits", {}),
     }
+
+
+def _compile_credentials(creds: Any) -> tuple[list[str], list[dict[str, Any]]]:
+    """Return (names, normalized objects). Accepts list[{name,...}] OR legacy {uses:[...]}."""
+    if creds is None:
+        return [], []
+    # Legacy object form
+    if isinstance(creds, dict) and "uses" in creds:
+        uses = creds.get("uses", []) or []
+        if not isinstance(uses, list) or not all(isinstance(x, str) for x in uses):
+            raise ValueError("credentials.uses must be a list of strings")
+        names = list(uses)
+        out = [{"name": n, "required_scopes": []} for n in names]
+        if len(set(names)) != len(names):
+            raise ValueError("credentials contain duplicate names")
+        return names, out
+
+    # Modern list form
+    if not isinstance(creds, list):
+        raise ValueError("credentials must be a list of { name, required_scopes?[] }")
+
+    out = []
+    names = []
+    for i, item in enumerate(creds):
+        if not isinstance(item, dict) or "name" not in item or not isinstance(item["name"], str):
+            raise ValueError(f"credentials[{i}] must be an object with string 'name'")
+        name = item["name"]
+        scopes = item.get("required_scopes", [])
+        if scopes is not None and not isinstance(scopes, list):
+            raise ValueError(f"credentials[{i}].required_scopes must be a list if provided")
+        out.append({"name": name, "required_scopes": scopes or []})
+        names.append(name)
+    if len(set(names)) != len(names):
+        raise ValueError("credentials contain duplicate names")
+    return names, out
+
+
+# -------------------------------------------------------------------------------------- #
+# Public compile entry                                                                   #
+# -------------------------------------------------------------------------------------- #
+
+
+def compile_policies(policies_def: dict[str, Any] | None) -> dict[str, Any]:
+    """Exported for tests – normalized policy shape."""
+    return _compile_policies(policies_def)
 
 
 def compile_dsl(yaml_content: str) -> DSLCompiled:
-    """Compile YAML DSL to executable components.
-
-    Args:
-        yaml_content: YAML string
-
-    Returns:
-        DSLCompiled object with all compiled components
-
-    Raises:
-        ValueError: If YAML is invalid
-    """
-    # Parse and validate
+    """Compile DSL to executable components."""
     dsl = parse_yaml(yaml_content)
 
-    # Extract sections
-    flow = dsl["flow"]
-    form = dsl.get("form", {"fields": []})
-    workflow = dsl["workflow"]
-    triggers = dsl.get("triggers", {"manual": True})
-    policies = dsl.get("policies")
-    credentials = dsl.get("credentials", {}).get("uses", [])
+    flow = cast(dict[str, Any], dsl["flow"])
+    form = cast(dict[str, Any], dsl.get("form", {"fields": []}))
+    workflow = cast(dict[str, Any], dsl["workflow"])
+    triggers_in = cast(dict[str, Any] | None, dsl.get("triggers"))
+    policies_in = cast(dict[str, Any] | None, dsl.get("policies"))
+    creds_in = dsl.get("credentials")
 
-    # Compile components
+    # Credentials first (step validation needs the names)
+    cred_names, cred_objects = _compile_credentials(creds_in)
+
+    # Form model/schema
     form_model, form_schema = compile_form_model(form)
+
+    # Workflow skeleton + deep validation
     workflow_spec = compile_workflow_spec(workflow, flow["name"])
-    policy_config = compile_policies(policies)
+    normalized_steps = _validate_and_normalize_steps(
+        cast(list[dict[str, Any]], workflow_spec.get("steps", [])),
+        credential_names=set(cred_names),
+    )
+    workflow_spec["steps"] = normalized_steps
+
+    # Triggers + Policies
+    triggers = _compile_triggers(triggers_in)
+    policies = _compile_policies(policies_in)
 
     logger.info(
         "dsl_compiled",
         flow_name=flow["name"],
         form_fields=len(form.get("fields", [])),
-        workflow_steps=len(workflow["steps"]),
-        credentials=len(credentials),
+        workflow_steps=len(normalized_steps),
+        credentials=len(cred_names),
     )
 
     return DSLCompiled(
         flow_name=flow["name"],
-        flow_version=flow.get("version"),
-        flow_description=flow.get("description"),
+        flow_version=cast(str | None, flow.get("version")),
+        flow_description=cast(str | None, flow.get("description")),
         form_model=form_model,
         form_schema=form_schema,
         workflow_spec=workflow_spec,
         triggers=triggers,
-        policies=policy_config,
-        credentials=credentials,
-        raw_dsl=dsl,
+        policies=policies,
+        credentials=cred_names,
+        raw_dsl=dsl | {"credentials_normalized": cred_objects},
     )

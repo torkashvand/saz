@@ -155,7 +155,10 @@ def test_executor_agent_grounds_step():
         }
     }
 
-    current_data = {"user_id": "12345", "other_data": "test"}
+    current_data = {
+        "form_data": {"user_id": "12345", "other_data": "test"},
+        "step_results": {},
+    }
 
     tool_call = executor.ground(
         step=step, tool_registry=tool_registry, current_data=current_data, run_id="run-123"
@@ -220,7 +223,12 @@ def test_executor_agent_nested_variable_substitution():
 
     tool_registry = {"test_tool": {"name": "test_tool", "inputSchema": {"required": []}}}
 
-    current_data = {"user": {"email": "test@example.com", "address": {"city": "San Francisco"}}}
+    current_data = {
+        "form_data": {
+            "user": {"email": "test@example.com", "address": {"city": "San Francisco"}},
+        },
+        "step_results": {},
+    }
 
     tool_call = executor.ground(
         step=step, tool_registry=tool_registry, current_data=current_data, run_id="run-123"

@@ -76,5 +76,5 @@ class Critique(BaseModel):
     reasoning: str = Field(..., description="Detailed analysis of step result")
     issues: list[str] = Field(default_factory=list, description="Problems found (empty if pass)")
     safety_flags: list[str] = Field(default_factory=list, description="Security/policy concerns")
-    suggestions: dict[str, str] = Field(default_factory=dict, description="What to do next")
+    suggestions: dict[str, str | None] = Field(default_factory=dict, description="What to do next")
     confidence: float = Field(..., ge=0, le=1, description="Confidence in verdict (0-1)")

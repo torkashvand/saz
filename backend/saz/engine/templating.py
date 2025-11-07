@@ -1,247 +1,213 @@
-"""Templating engine for Saz workflows.
+"""Templating engine for Saz workflows (strict semantics).
 
-Supports:
-- {{ $form.field }} - Access form payload (native types)
-- {{ $step('step_id').prop }} - Access prior step results
-- {{ $env('VAR_NAME') }} - Read environment variable
-- {{ $secret('SECRET_NAME') }} - Retrieve credential (requires vault)
+Supported forms:
+  - {{ $form.path.to.value }}
+  - {{ $step('step_id') }} or {{ $step('step_id').deep.path[.index] }}
+    * STRICT: reads ONLY step_results[step_id]['output']; no aliases or metadata.
+  - {{ $env('NAME') }}           -> returns None when missing or empty
+  - {{ $secret('NAME') }}        -> raises ValueError when missing
 
-Native type support: If template is the entire string value, return the native type.
-Otherwise, perform string interpolation.
+Resolution rules:
+  - If the whole string is a single template, return the native type.
+  - In mixed strings, dicts, and lists, values are interpolated; unknown or None -> "".
+  - Inside dict/list values that are a single template resolving to None, coerce to "".
 """
+
+from __future__ import annotations
 
 import json
 import os
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 
-class TemplateContext:
-    """Context for template resolution."""
+_SINGLE_EXPR_RE: Final[re.Pattern[str]] = re.compile(r'^\{\{\s*(.+?)\s*\}\}$')
+_EXPR_RE: Final[re.Pattern[str]] = re.compile(r'\{\{\s*(.+?)\s*\}\}')
 
+
+# Sentinel to distinguish "unknown expression" from a real None result
+class _UNRESOLVED_T: ...
+
+
+_UNRESOLVED = _UNRESOLVED_T()
+
+
+class TemplateContext:
     def __init__(
         self,
         form_data: dict[str, Any],
         step_results: dict[str, Any],
         secret_resolver: Callable[[str], str | None] | None = None,
-    ):
-        """
-        Initialize template context.
-
-        Args:
-            form_data: Initial form payload
-            step_results: Dictionary of step_id -> result
-            secret_resolver: Function to resolve secrets (step_id, secret_name) -> value
-        """
-        self.form_data = form_data
-        self.step_results = step_results
+    ) -> None:
+        self.form_data = form_data or {}
+        self.step_results = step_results or {}
         self.secret_resolver: Callable[[str], str | None] = secret_resolver or (lambda name: None)
         self.logger = logger.bind(component="templating")
 
+    # ------------------------------- Public API -------------------------------
+
     def resolve(self, template: Any) -> Any:
-        """
-        Resolve a template value.
-
-        Args:
-            template: Value to resolve (str, dict, list, or primitive)
-
-        Returns:
-            Resolved value with native types
-        """
+        """Resolve a value (str, dict, list, or primitive)."""
         if isinstance(template, str):
             return self._resolve_string(template)
-        elif isinstance(template, dict):
-            return {key: self.resolve(value) for key, value in template.items()}
-        elif isinstance(template, list):
-            return [self.resolve(item) for item in template]
-        else:
-            # Primitive value, return as-is
-            return template
+
+        if isinstance(template, dict):
+            out: dict[str, Any] = {}
+            for k, v in template.items():
+                # For container values that are a single template resolving to None, coerce to ""
+                if isinstance(v, str) and _SINGLE_EXPR_RE.match(v):
+                    rv = self._resolve_string(v)
+                    out[k] = "" if rv is None else rv
+                else:
+                    out[k] = self.resolve(v)
+            return out
+
+        if isinstance(template, list):
+            out_list: list[Any] = []
+            for item in template:
+                if isinstance(item, str) and _SINGLE_EXPR_RE.match(item):
+                    rv = self._resolve_string(item)
+                    out_list.append("" if rv is None else rv)
+                else:
+                    out_list.append(self.resolve(item))
+            return out_list
+
+        # primitives
+        return template
+
+    # ------------------------------- Core string resolution -------------------
 
     def _resolve_string(self, template: str) -> Any:
-        """
-        Resolve a string template.
+        # Entire string is a single expression
+        m = _SINGLE_EXPR_RE.match(template)
+        if m:
+            expr = m.group(1)
+            val = self._evaluate_expression(expr)
+            # Unknown expression stays literal in single-expr case
+            if val is _UNRESOLVED:
+                return "{{ " + expr + " }}"
+            return val  # may be None (allowed at top-level)
 
-        If the entire string is a single template expression, return native type.
-        Otherwise, perform string interpolation.
-
-        Args:
-            template: Template string
-
-        Returns:
-            Resolved value (native type or interpolated string)
-        """
-        # Check if entire string is a single template expression
-        single_expr = re.match(r'^\{\{\s*(.+?)\s*\}\}$', template)
-        if single_expr:
-            # Entire string is a template - return native type
-            expr = single_expr.group(1)
-            return self._evaluate_expression(expr)
-
-        # Multiple expressions or mixed content - string interpolation
-        def replacer(match: Any) -> str:
-            expr = match.group(1).strip()
-            value = self._evaluate_expression(expr)
-            # Convert to string for interpolation
-            if value is None:
+        # Mixed/interpolated string
+        def _replacer(mm: re.Match[str]) -> str:
+            expr = mm.group(1).strip()
+            val = self._evaluate_expression(expr)
+            # Unknown or None -> empty in mixed strings
+            if val is _UNRESOLVED or val is None:
                 return ""
-            elif isinstance(value, dict | list):
-                return json.dumps(value)
-            else:
-                return str(value)
+            if isinstance(val, dict | list):
+                return json.dumps(val, ensure_ascii=False)
+            return str(val)
 
-        pattern = r'\{\{\s*(.+?)\s*\}\}'
-        result = re.sub(pattern, replacer, template)
-        return result
+        return _EXPR_RE.sub(_replacer, template)
+
+    # ------------------------------- Expression evaluation --------------------
 
     def _evaluate_expression(self, expr: str) -> Any:
-        """
-        Evaluate a template expression.
-
-        Supports:
-        - $form.field
-        - $step('step_id').prop
-        - $env('VAR_NAME')
-        - $secret('SECRET_NAME')
-
-        Args:
-            expr: Expression string (without {{ }})
-
-        Returns:
-            Evaluated value
-        """
         expr = expr.strip()
 
-        # $form.field
-        if expr.startswith('$form.'):
-            field_name = expr[6:]  # Remove "$form."
-            return self._resolve_form_field(field_name)
+        # $form.path
+        if expr.startswith("$form."):
+            return self._resolve_form(expr[6:])
 
-        # $step('step_id').prop or $step('step_id')
+        # $step('id')[.path]
         step_match = re.match(r"\$step\(['\"](.+?)['\"]\)(?:\.(.+))?", expr)
         if step_match:
             step_id = step_match.group(1)
             prop_path = step_match.group(2)
-            return self._resolve_step_result(step_id, prop_path)
+            return self._resolve_step_output(step_id, prop_path)
 
-        # $env('VAR_NAME')
+        # $env('NAME')
         env_match = re.match(r"\$env\(['\"](.+?)['\"]\)", expr)
         if env_match:
-            var_name = env_match.group(1)
-            return self._resolve_env(var_name)
+            name = env_match.group(1)
+            return self._resolve_env(name)
 
-        # $secret('SECRET_NAME')
-        secret_match = re.match(r"\$secret\(['\"](.+?)['\"]\)", expr)
-        if secret_match:
-            secret_name = secret_match.group(1)
-            return self._resolve_secret(secret_name)
+        # $secret('NAME')
+        sec_match = re.match(r"\$secret\(['\"](.+?)['\"]\)", expr)
+        if sec_match:
+            name = sec_match.group(1)
+            return self._resolve_secret(name)
 
         self.logger.warning("unresolved_expression", expr=expr)
-        return f"{{{{ {expr} }}}}"  # Return as-is if unresolved
+        return _UNRESOLVED
 
-    def _resolve_form_field(self, field_path: str) -> Any:
-        """
-        Resolve $form.field expression.
+    # ------------------------------- Resolvers --------------------------------
 
-        Args:
-            field_path: Field path (e.g., "username" or "user.name")
+    def _resolve_form(self, path: str) -> Any:
+        return self._walk_path(self.form_data, path, on_missing=lambda: self._warn_form(path))
 
-        Returns:
-            Field value from form data
-        """
-        # Support nested paths with dot notation
-        parts = field_path.split('.')
-        value = self.form_data
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                self.logger.warning(
-                    "form_field_not_found",
-                    field_path=field_path,
-                    available_fields=list(self.form_data.keys()),
-                )
-                return None
-        return value
-
-    def _resolve_step_result(self, step_id: str, prop_path: str | None) -> Any:
-        """
-        Resolve $step('step_id').prop expression.
-
-        Args:
-            step_id: Step identifier
-            prop_path: Optional property path (e.g., "output.value")
-
-        Returns:
-            Step result or property value
-        """
-        # Look for step result with key pattern: step_id_result or step_id
-        if f"{step_id}_result" in self.step_results:
-            step_result = self.step_results[f"{step_id}_result"]
-        elif step_id in self.step_results:
-            step_result = self.step_results[step_id]
-        else:
+    def _resolve_step_output(self, step_id: str, prop_path: str | None) -> Any:
+        if step_id not in self.step_results or not isinstance(self.step_results[step_id], dict):
             self.logger.warning(
                 "step_result_not_found",
                 step_id=step_id,
-                available_steps=list(self.step_results.keys()),
+                available=list(self.step_results.keys()),
             )
             return None
 
-        # If no property path, return entire result
-        if not prop_path:
-            return step_result
+        step_obj = self.step_results[step_id]
+        if "output" not in step_obj:
+            self.logger.warning("step_output_missing", step_id=step_id, keys=list(step_obj.keys()))
+            return None
 
-        # Navigate property path
-        parts = prop_path.split('.')
-        value = step_result
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                self.logger.warning("step_property_not_found", step_id=step_id, prop_path=prop_path)
-                return None
-        return value
+        output = step_obj["output"]
+        if prop_path is None or prop_path == "":
+            return output
 
-    def _resolve_env(self, var_name: str) -> str | None:
+        return self._walk_path(
+            output,
+            prop_path,
+            on_missing=lambda: self._warn_step_prop(step_id, prop_path),
+        )
+
+    def _resolve_env(self, name: str) -> Any:
+        val = os.getenv(name)
+        if not val:  # missing or empty -> None
+            self.logger.warning("env_var_not_found", var=name)
+            return None
+        return val
+
+    def _resolve_secret(self, name: str) -> str:
+        val = self.secret_resolver(name)
+        if val is None:
+            self.logger.error("secret_not_found", secret_name=name)
+            raise ValueError(f"Secret '{name}' not found. Please configure credential.")
+        return val
+
+    # ------------------------------- Helpers ----------------------------------
+
+    def _walk_path(self, obj: Any, dotted: str, *, on_missing: Callable[[], None]) -> Any:
         """
-        Resolve $env('VAR_NAME') expression.
-
-        Args:
-            var_name: Environment variable name
-
-        Returns:
-            Environment variable value or None
+        Walk a dotted path through dicts and lists. Numeric segments index lists.
+        Returns None on any miss (and calls on_missing()).
         """
-        value = os.getenv(var_name)
-        if value is None:
-            self.logger.warning("env_var_not_found", var_name=var_name)
-        return value
+        cur = obj
+        for seg in dotted.split("."):
+            if isinstance(cur, dict) and seg in cur:
+                cur = cur[seg]
+                continue
+            if isinstance(cur, list) and seg.isdigit():
+                idx = int(seg)
+                if 0 <= idx < len(cur):
+                    cur = cur[idx]
+                    continue
+            on_missing()
+            return None
+        return cur
 
-    def _resolve_secret(self, secret_name: str) -> str | None:
-        """
-        Resolve $secret('SECRET_NAME') expression.
+    def _warn_form(self, path: str) -> None:
+        self.logger.warning(
+            "form_field_not_found", field_path=path, available=list(self.form_data.keys())
+        )
 
-        Args:
-            secret_name: Secret/credential name
-
-        Returns:
-            Secret value or None
-
-        Raises:
-            ValueError: If secret not found and required
-        """
-        value = self.secret_resolver(secret_name)
-        if value is None:
-            error_msg = f"Secret '{secret_name}' not found. Please configure credential."
-            self.logger.error("secret_not_found", secret_name=secret_name)
-            raise ValueError(error_msg)
-        return value
+    def _warn_step_prop(self, step_id: str, prop: str) -> None:
+        self.logger.warning("step_output_property_not_found", step_id=step_id, prop_path=prop)
 
 
 def resolve_template(
@@ -250,17 +216,4 @@ def resolve_template(
     step_results: dict[str, Any],
     secret_resolver: Callable[[str], str | None] | None = None,
 ) -> Any:
-    """
-    Convenience function to resolve a template.
-
-    Args:
-        template: Template value to resolve
-        form_data: Form payload
-        step_results: Step results dictionary
-        secret_resolver: Function to resolve secrets
-
-    Returns:
-        Resolved value
-    """
-    context = TemplateContext(form_data, step_results, secret_resolver)
-    return context.resolve(template)
+    return TemplateContext(form_data, step_results, secret_resolver).resolve(template)

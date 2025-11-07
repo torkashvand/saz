@@ -55,17 +55,10 @@ class ExecutorAgent:
 
         tool_spec = tool_registry[step.tool_name]
 
-        # Substitute variables in input template using new templating engine
-        # Extract form data and step results from current_data
-        form_data = {k: v for k, v in current_data.items() if not k.endswith('_result')}
-        step_results: dict[str, Any] = {
-            k: v for k, v in current_data.items() if k.endswith('_result')
-        }
-
         grounded_args = resolve_template(
             step.input_template,
-            form_data=form_data,
-            step_results=step_results,
+            form_data=current_data.get('form_data', {}),
+            step_results=current_data.get('step_results', {}),
             secret_resolver=self.secret_resolver,
         )
 

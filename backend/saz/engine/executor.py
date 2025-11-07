@@ -552,17 +552,10 @@ class WorkflowExecutor:
         """
         # 1. Ground step
         tool_specs_dict = self.tool_registry.get_tool_specs_dict()
-        # Expose step results under both raw ids and *_result keys for templating
-        step_results_with_suffix = {f"{k}_result": v for k, v in context["step_results"].items()}
-        current_data = {
-            **context["form_data"],
-            **context["step_results"],
-            **step_results_with_suffix,
-        }
         tool_call = self.executor_agent.ground(
             step=plan_step,
             tool_registry=tool_specs_dict,
-            current_data=current_data,
+            current_data=context,
             run_id=run_id,
         )
 

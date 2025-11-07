@@ -310,10 +310,6 @@ class DSLCompiled:
 
 def _normalize_pre_schema(dsl: dict[str, Any]) -> dict[str, Any]:
     """Normalize common aliases before JSON-Schema validation."""
-    # schema_version: accept 1, 1.0, "1", and `_schema_version`
-    if "_schema_version" in dsl and "schema_version" not in dsl:
-        dsl["schema_version"] = dsl.pop("_schema_version")
-
     sv = dsl.get("schema_version")
     if isinstance(sv, int | float) and (sv == 1 or sv == 1.0):
         dsl["schema_version"] = 1

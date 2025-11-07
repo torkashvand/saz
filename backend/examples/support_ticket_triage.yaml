@@ -1,5 +1,6 @@
 # Unified DSL Example: Support Ticket Triage
 # Demonstrates Extract → Route → Generate → Store with AI operations
+schema_version: 1
 
 flow:
   name: support_ticket_triage
@@ -9,19 +10,20 @@ flow:
 form:
   fields:
     - name: ticket_text
-      type: text
+      type: string          # 'text' alias is normalized, but keep canonical
       required: true
       description: Support ticket content
     - name: customer_email
-      type: text
+      type: string
       required: true
       description: Customer email address
+      format: email
 
 triggers:
   manual: true
   webhook:
-    path: "/support-ticket"
-    method: POST
+    path: "/support-ticket"    # schema allows: event?, path?, signature_header?
+    # method is not allowed by your schema
 
 workflow:
   steps:
@@ -56,9 +58,9 @@ workflow:
       instruction: "Determine the correct team to handle this ticket based on category and priority."
       params:
         data:
-          category: "{{ $step('extract_ticket_data').category }}"
-          priority: "{{ $step('extract_ticket_data').priority }}"
-          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
+          category: "{{ $step('extract_ticket_data').output.category }}"
+          priority: "{{ $step('extract_ticket_data').output.priority }}"
+          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
       branches_enum:
         - engineering_urgent
         - engineering_normal
@@ -68,21 +70,27 @@ workflow:
       temperature: 0.1
       max_tokens: 256
 
-    # Step 3: Score ticket complexity for SLA assignment
+    # Step 3: Score ticket complexity for SLA assignment (use ai.transform)
     - id: score_complexity
-      type: ai.score
-      instruction: "Score the technical complexity of this ticket from 0 (simple) to 1 (very complex)"
+      type: ai.transform
+      instruction: |
+        Return ONLY a JSON object with a single field "score" in [0,1].
+        Calibrate using the rubric:
+        0.0-0.3: Simple questions/FAQ/basic troubleshooting
+        0.3-0.6: Moderate; needs docs lookup/basic debugging
+        0.6-0.8: Complex; code review/system investigation
+        0.8-1.0: Critical bug, security, or architectural problem
       params:
         data:
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').category }}"
-      rubric: |
-        0.0-0.3: Simple questions, FAQ, basic troubleshooting
-        0.3-0.6: Moderate issues requiring documentation lookup or basic debugging
-        0.6-0.8: Complex technical issues requiring code review or system investigation
-        0.8-1.0: Critical bugs, security issues, or architectural problems
+          category: "{{ $step('extract_ticket_data').output.category }}"
+      expect:
+        type: object
+        properties:
+          score: { type: number, minimum: 0, maximum: 1 }
+        required: [score]
       temperature: 0.1
-      max_tokens: 512
+      max_tokens: 256
 
     # Step 4: Generate auto-response based on routing
     - id: generate_response
@@ -92,27 +100,35 @@ workflow:
         data:
           customer_email: "{{ $form.customer_email }}"
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').category }}"
-          priority: "{{ $step('extract_ticket_data').priority }}"
-          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
-          routed_to: "{{ $step('route_ticket').route }}"
-          complexity_score: "{{ $step('score_complexity').score }}"
+          category: "{{ $step('extract_ticket_data').output.category }}"
+          priority: "{{ $step('extract_ticket_data').output.priority }}"
+          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          routed_to: "{{ $step('route_ticket').output.route }}"
+          complexity_score: "{{ $step('score_complexity').output.score }}"
       word_cap: 200
       temperature: 0.4
       max_tokens: 1024
 
-    # Step 5: Evaluate response for quality and tone
+    # Step 5: Evaluate response for quality and tone (use ai.extract to return JSON)
     - id: evaluate_response
-      type: ai.evaluate
-      instruction: "Check if the response meets our quality standards: professional tone, acknowledges customer issue, provides clear timeline, no jargon."
+      type: ai.extract
+      instruction: |
+        Evaluate the email for: professional tone, issue acknowledgment,
+        clear timeline, and minimal jargon. Return ONLY JSON with:
+        { "meets_standards": boolean, "issues": [string], "summary": string }
       params:
         data:
-          response: "{{ $step('generate_response') }}"
-          customer_sentiment: "{{ $step('extract_ticket_data').sentiment }}"
-      temperature: 0.1
-      max_tokens: 512
+          response_text: "{{ $step('generate_response').output.text }}"
+          customer_sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+      schema:
+        type: object
+        properties:
+          meets_standards: { type: boolean }
+          issues: { type: array, items: { type: string } }
+          summary: { type: string }
+        required: [meets_standards]
 
-    # Step 6: Send response via HTTP (if evaluation passes)
+    # Step 6: Send response via HTTP (always; or gate with a condition step if needed)
     - id: send_response
       type: tool.call
       tool: http_request
@@ -125,13 +141,12 @@ workflow:
         body:
           to: "{{ $form.customer_email }}"
           subject: "Your support ticket has been received"
-          body: "{{ $step('generate_response') }}"
+          body: "{{ $step('generate_response').output.text }}"
           template: "support_acknowledgment"
       expect:
         type: object
         properties:
-          message_id:
-            type: string
+          message_id: { type: string }
 
     # Step 7: Store complete ticket data as artifact
     - id: store_ticket_artifact
@@ -141,24 +156,23 @@ workflow:
         content:
           original_ticket: "{{ $form.ticket_text }}"
           customer_email: "{{ $form.customer_email }}"
-          extracted: "{{ $step('extract_ticket_data') }}"
-          routing: "{{ $step('route_ticket') }}"
-          complexity: "{{ $step('score_complexity') }}"
-          response: "{{ $step('generate_response') }}"
-          evaluation: "{{ $step('evaluate_response') }}"
-          email_sent: "{{ $step('send_response').message_id }}"
+          extracted: "{{ $step('extract_ticket_data').output }}"
+          routing: "{{ $step('route_ticket').output }}"
+          complexity: "{{ $step('score_complexity').output }}"
+          response: "{{ $step('generate_response').output }}"
+          evaluation: "{{ $step('evaluate_response').output }}"
+          email_sent: "{{ $step('send_response').output.message_id }}"
 
 policies:
-  budget:
-    max_tokens: 10000
-    max_cost_usd: 0.50
-    max_steps: 20
-    max_time_seconds: 300
+  budget_usd: 0.50                 # compiler supports cost budget (not token/step/time)
+  defaults:
+    timeout_ms: 300000             # ~300s end-to-end ceiling
+    continue_on_fail: false
   rate_limits:
-    max_requests_per_minute: 30
+    http_request:
+      rpm: 30
   pii:
-    enforce_redaction: true
-    allowed_fields: [customer_email]
+    allow: false
 
 credentials:
   uses: [email_api_token]

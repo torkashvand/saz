@@ -181,7 +181,6 @@ class TemplateContext:
             Step result or property value
         """
         # Look for step result with key pattern: step_id_result or step_id
-        step_result = None
         if f"{step_id}_result" in self.step_results:
             step_result = self.step_results[f"{step_id}_result"]
         elif step_id in self.step_results:

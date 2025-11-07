@@ -47,7 +47,7 @@ Reasoning: {step_reasoning}
 ## Safety Checks
 - Does the result contain PII that should be redacted?
 - Does the result violate any security policies?
-- Does the result match expected schema?
+- Does the result match the expected schema?
 - Is there evidence of errors or partial failures?
 
 ## Output Format
@@ -67,7 +67,7 @@ Generate a JSON critique with this EXACT structure:
 ## Verdict Guidelines
 - **pass**: Step succeeded, output matches schema, no safety issues
 - **fail**: Unrecoverable error, invalid output, or safety violation
-- **replan**: Step partially succeeded but needs different approach
+- **replan**: Step partially succeeded but needs a different approach
 - **escalate_to_human**: Ambiguous result requiring human judgment
 
 Generate the critique now."""

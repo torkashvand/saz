@@ -15,7 +15,33 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-
+# Cross-type priority: higher number wins and keeps its span; lower overlapping spans are dropped.
+_PRIORITY: dict[str, int] = {
+    # Most structured / should dominate
+    "credit_card": 90,
+    "iban": 90,
+    "jwt": 85,
+    "email": 80,
+    "ssn": 80,
+    # Vendor tokens above generic/entropy
+    "google_api_key": 75,
+    "github_token": 75,
+    "sendgrid": 75,
+    "stripe_sk": 75,
+    "slack_token": 75,
+    "twilio": 75,
+    "aws_access_key_id": 75,
+    # Generic tokens
+    "api_key": 72,
+    # KV secrets before generic/entropy
+    "kv_secret": 70,
+    "entropy_token": 55,
+    # IP/MAC/phone — lowest among overlaps with numbers
+    "ipv6": 50,
+    "ipv4": 50,
+    "mac": 50,
+    "phone": 40,
+}
 # ------------------------------ Data structures ---------------------------------------- #
 
 
@@ -95,6 +121,26 @@ def _entropy_bits_per_char(s: str) -> float:
     return -sum((c / n) * log2(c / n) for c in freq.values())
 
 
+def _has_structured_sequences(s: str) -> bool:
+    """Heuristic: penalize obvious alphabet/digit runs that inflate entropy."""
+    low = s.lower()
+    # Simple checks: full alpha run or long digit run or long repeated pattern
+    if "abcdefghijklmnopqrstuvwxyz" in low or "0123456789" in s:
+        return True
+    # Any 6+ strictly increasing alnum sequence (cheap check)
+    streak = 1
+    last = None
+    for ch in low:
+        if last is not None and ch.isalnum() and last.isalnum() and (ord(ch) - ord(last) == 1):
+            streak += 1
+            if streak >= 6:
+                return True
+        else:
+            streak = 1
+        last = ch
+    return False
+
+
 # ------------------------------ Detector ------------------------------------------------ #
 
 
@@ -112,7 +158,24 @@ class PIIDetector:
     """
 
     _BASE_FLAGS = re.IGNORECASE | re.MULTILINE
-
+    _IPV6_RE = re.compile(
+        r"""
+        (?<![0-9A-Fa-f:])                              # no hex/colon just before
+        (?:
+            (?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}   # 8 hextets (no compression)
+          | (?:[0-9A-Fa-f]{1,4}:){1,7}:                # :: trailing
+          | :(?::[0-9A-Fa-f]{1,4}){1,7}                # :: leading
+          | (?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}
+          | (?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}
+          | (?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}
+          | (?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}
+          | (?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}
+          | [0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})
+        )
+        (?![0-9A-Fa-f:])                               # no hex/colon just after
+        """,
+        re.VERBOSE | re.IGNORECASE,
+    )
     _DEFAULT_SPECS: dict[str, PatternSpec] = {
         "email": PatternSpec(
             re.compile(r"\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b", _BASE_FLAGS)
@@ -126,7 +189,7 @@ class PIIDetector:
         "credit_card": PatternSpec(re.compile(r"\b(?:\d[ -]?){13,19}\b")),
         "iban": PatternSpec(re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b", _BASE_FLAGS)),
         "ipv4": PatternSpec(re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
-        "ipv6": PatternSpec(re.compile(r"\b(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}\b", re.IGNORECASE)),
+        "ipv6": PatternSpec(_IPV6_RE),
         "mac": PatternSpec(re.compile(r"\b[0-9A-F]{2}(?:[:-][0-9A-F]{2}){5}\b", re.IGNORECASE)),
         "jwt": PatternSpec(
             re.compile(r"\beyJ[0-9A-Za-z_\-]+?\.[0-9A-Za-z_\-]+?\.[0-9A-Za-z_\-]+?\b")
@@ -141,11 +204,14 @@ class PIIDetector:
         "api_key": PatternSpec(re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")),  # generic
         "kv_secret": PatternSpec(
             re.compile(
-                r"""(?:
-                    password|passwd|pwd|secret|token|bearer|authorization|
-                    api[_-]?key|access[_-]?key|client[_-]?secret
-                )\s*[:=]\s*(?P<val>[^\s'"]{8,})""",
-                _BASE_FLAGS,
+                r"""(?ix)                             # ignorecase, verbose
+        \b(                                   # key must be a standalone token
+            password|passwd|pwd|secret|token|bearer|authorization|
+            api[_-]?key|access[_-]?key|client[_-]?secret
+        )\b
+        \s*[:=]\s*
+        (?P<val>[^\s'"]{8,})                  # capture only the value
+        """
             )
         ),
         "entropy_token": PatternSpec(re.compile(r"\b[A-Za-z0-9_\-]{24,}\b")),
@@ -336,11 +402,18 @@ class PIIDetector:
         return True, None
 
     def _validate_phone(self, value: str) -> tuple[bool, str | None]:
+        """Basic check: at least 7 digits."""
         digits = re.sub(r"\D", "", value)
         return (len(digits) >= 7, None if len(digits) >= 7 else "too-short")
 
     def _validate_entropy(self, value: str) -> tuple[bool, str | None]:
-        return (_entropy_bits_per_char(value) >= self.entropy_threshold, "high-entropy")
+        h = _entropy_bits_per_char(value)
+        if _has_structured_sequences(value):
+            h -= 1.0  # small penalty for obvious sequences
+        return (
+            h >= self.entropy_threshold,
+            "high-entropy" if h >= self.entropy_threshold else "low-entropy",
+        )
 
     # ----------------------------------- Maskers --------------------------------------- #
 
@@ -417,14 +490,31 @@ class PIIDetector:
 
     @staticmethod
     def _dedupe(items: list[Finding]) -> list[Finding]:
-        # Prefer longer spans when overlaps occur; drop exact duplicates
-        items.sort(key=lambda f: (f.start, -f.end))
-        out: list[Finding] = []
+        """Deduplicate & resolve overlapping findings based on priority & span."""
+        if not items:
+            return []
+
+        def pri(t: str) -> int:
+            return _PRIORITY.get(t, 50)
+
+        # Higher priority first, then longer span, then earlier start
+        items.sort(key=lambda f: (-pri(f.type), -(f.end - f.start), f.start))
+
+        kept: list[Finding] = []
         for f in items:
-            if out and f.start >= out[-1].start and f.end <= out[-1].end and f.type == out[-1].type:
-                continue
-            out.append(f)
-        uniq: dict[tuple[str, int, int, str], Finding] = {
-            (f.type, f.start, f.end, f.value): f for f in out
-        }
-        return list(uniq.values())
+            drop = False
+            for k in kept:
+                # exact same span but different type → keep both
+                if f.start == k.start and f.end == k.end and f.type != k.type:
+                    continue
+                # fully contained in already-kept span → drop
+                if f.start >= k.start and f.end <= k.end:
+                    drop = True
+                    break
+            if not drop:
+                kept.append(f)
+
+        uniq: dict[tuple[str, int, int, str], Finding] = {}
+        for f in kept:
+            uniq[(f.type, f.start, f.end, f.value)] = f
+        return sorted(uniq.values(), key=lambda f: f.start)

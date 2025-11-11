@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { WorkflowGraph } from '@/components/workflow-graph';
 import { CollapsibleJson } from '@/components/json-view';
+import { RunConsole } from '@/components/run-console';
 import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
@@ -368,8 +369,11 @@ export default function RunDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="timeline" className="w-full">
+      <Tabs defaultValue="console" className="w-full">
         <TabsList className="w-full">
+          <TabsTrigger value="console" className="flex-1">
+            Console
+          </TabsTrigger>
           <TabsTrigger value="timeline" className="flex-1">
             Timeline
           </TabsTrigger>
@@ -383,6 +387,15 @@ export default function RunDetailPage() {
             Cost Breakdown
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="console" className="mt-6">
+          <RunConsole
+            runId={runId}
+            runStatus={run.status}
+            startedAt={run.started_at}
+            completedAt={run.completed_at}
+          />
+        </TabsContent>
 
         <TabsContent value="timeline" className="mt-6">
           <Card>

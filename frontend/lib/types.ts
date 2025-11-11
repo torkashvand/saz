@@ -240,6 +240,129 @@ export interface WSEvent {
   data: Record<string, any>;
 }
 
+// --- Telemetry Events ---
+
+export type TelemetryEventType =
+  | 'trace.plan'
+  | 'trace.step.grounded'
+  | 'trace.policy.check'
+  | 'trace.tool.start'
+  | 'trace.tool.end'
+  | 'trace.route.chosen'
+  | 'trace.critique'
+  | 'trace.usage'
+  | 'trace.progress';
+
+export interface PIIStats {
+  tokenized_count: number;
+  detokenized_paths: string[];
+  blocked_paths: string[];
+}
+
+export interface PlanStep {
+  id: string;
+  intent: string;
+  deps: string[];
+}
+
+export interface TelemetryPlanEvent {
+  type: 'trace.plan';
+  run_id: string;
+  total_steps: number;
+  steps: PlanStep[];
+  timestamp: string;
+}
+
+export interface TelemetryStepGroundedEvent {
+  type: 'trace.step.grounded';
+  run_id: string;
+  step_id: string;
+  intent: string;
+  input_summary: string;
+  timestamp: string;
+}
+
+export interface TelemetryPolicyCheckEvent {
+  type: 'trace.policy.check';
+  run_id: string;
+  step_id: string;
+  tool: string;
+  allowed: boolean;
+  reason?: string;
+  pii_stats?: PIIStats;
+  timestamp: string;
+}
+
+export interface TelemetryToolStartEvent {
+  type: 'trace.tool.start';
+  run_id: string;
+  step_id: string;
+  tool: string;
+  attempt: number;
+  timestamp: string;
+}
+
+export interface TelemetryToolEndEvent {
+  type: 'trace.tool.end';
+  run_id: string;
+  step_id: string;
+  tool: string;
+  duration_ms: number;
+  status: 'success' | 'error';
+  error_type?: string;
+  timestamp: string;
+}
+
+export interface TelemetryRouteChosenEvent {
+  type: 'trace.route.chosen';
+  run_id: string;
+  step_id: string;
+  route: string;
+  signal_summary: string;
+  timestamp: string;
+}
+
+export interface TelemetryCritiqueEvent {
+  type: 'trace.critique';
+  run_id: string;
+  step_id: string;
+  verdict: 'PASS' | 'FAIL' | 'ESCALATE' | 'REPLAN';
+  confidence: number;
+  issues: string[];
+  summary: string;
+  timestamp: string;
+}
+
+export interface TelemetryUsageEvent {
+  type: 'trace.usage';
+  run_id: string;
+  step_id: string;
+  tokens: number;
+  cost_usd: number;
+  duration_ms: number;
+  timestamp: string;
+}
+
+export interface TelemetryProgressEvent {
+  type: 'trace.progress';
+  run_id: string;
+  completed: number;
+  total: number;
+  percent: number;
+  timestamp: string;
+}
+
+export type TelemetryEvent =
+  | TelemetryPlanEvent
+  | TelemetryStepGroundedEvent
+  | TelemetryPolicyCheckEvent
+  | TelemetryToolStartEvent
+  | TelemetryToolEndEvent
+  | TelemetryRouteChosenEvent
+  | TelemetryCritiqueEvent
+  | TelemetryUsageEvent
+  | TelemetryProgressEvent;
+
 // ========== Additional Types ==========
 
 export interface WorkflowSummary {

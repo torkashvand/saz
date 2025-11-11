@@ -155,7 +155,63 @@ _DSL_SCHEMA: dict[str, Any] | None = {
                 "pii": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {"allow": {"type": "boolean"}},
+                    "properties": {
+                        "allow": {
+                            "type": "boolean",
+                            "description": (
+                                "If true, PII is allowed (less restrictive). "
+                                "If false, PII is blocked by default."
+                            ),
+                        },
+                        "tokenize_model_inputs": {
+                            "type": "boolean",
+                            "description": (
+                                "If true, PII is tokenized before model tool invocations. "
+                                "Default: true."
+                            ),
+                        },
+                        "exceptions": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "oneOf": [
+                                            {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "required": ["allow"],
+                                                "properties": {
+                                                    "allow": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                        "description": (
+                                                            "Dotted paths where PII is allowed "
+                                                            "for this tool"
+                                                        ),
+                                                    }
+                                                },
+                                            },
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                                "description": (
+                                                    "Shorthand: array of dotted paths where "
+                                                    "PII is allowed"
+                                                ),
+                                            },
+                                        ]
+                                    },
+                                    "description": (
+                                        "Per-tool PII allow-lists. Maps tool name to "
+                                        "allowed argument paths."
+                                    ),
+                                }
+                            },
+                            "description": "Exceptions to PII blocking rules",
+                        },
+                    },
                 },
                 "rate_limits": {
                     "type": "object",

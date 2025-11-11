@@ -576,7 +576,7 @@ class WorkflowExecutor:
         step.step_type = plan_step.action.value
         self.uow.commit()
 
-        # 2. Policy check
+        # 2. Policy check (before tokenization, to detect raw PII)
         allowed, reason = self.policy_engine.check_tool_call(
             tool_name=tool_call.tool,
             arguments=tool_call.arguments,
@@ -596,6 +596,22 @@ class WorkflowExecutor:
                 },
             )
             raise PolicyViolation(f"Tool call blocked: {reason}")
+
+        # 2a. Apply PII transformations based on tool type
+        # - Model tools: tokenize inputs (LLMs never see raw PII)
+        # - Outbound tools: selectively detokenize based on allow-list
+        if self.policy_engine._is_model_tool(tool_call.tool):
+            tool_call.arguments = self.policy_engine.tokenize_arguments(
+                tool_name=tool_call.tool,
+                arguments=tool_call.arguments,
+                run_id=run_id,
+            )
+        elif self.policy_engine._is_outbound_tool(tool_call.tool):
+            tool_call.arguments = self.policy_engine.detokenize_arguments(
+                tool_name=tool_call.tool,
+                arguments=tool_call.arguments,
+                run_id=run_id,
+            )
 
         # 3. Execute tool
         logger.info(
@@ -637,7 +653,8 @@ class WorkflowExecutor:
 
         # 5. Redact PII from output
         redacted_result = self.policy_engine.redact_output(
-            result if isinstance(result, dict) else {"value": result}
+            data=result if isinstance(result, dict) else {"value": result},
+            run_id=run_id,
         )
 
         # 6. Critique result
@@ -805,6 +822,9 @@ class WorkflowExecutor:
             f"{budget_stats['time']['used_seconds']:.1f}s"
         )
 
+        # Clear token vault for this run
+        self.policy_engine.clear_token_vault(run_id)
+
     async def _fail_run(self, run_id: str, error: dict) -> None:
         """
         Mark run as failed and broadcast event.
@@ -822,6 +842,9 @@ class WorkflowExecutor:
         await broadcast_events(events)
 
         logger.error(f"Run {run_id} failed: {error.get('message', 'Unknown error')}")
+
+        # Clear token vault for this run
+        self.policy_engine.clear_token_vault(run_id)
 
     def _get_current_step(self, run_id: str, step_id: str) -> Step:
         """Get current step entity from database using repository pattern"""

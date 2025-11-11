@@ -16,6 +16,14 @@ export function useRegisterFlow() {
   });
 }
 
+export function useFlowDetail(flowId: string | null) {
+  return useQuery({
+    queryKey: ['flow-detail', flowId],
+    queryFn: () => api.getFlow(flowId!),
+    enabled: !!flowId,
+  });
+}
+
 export function useFlowGraph(flowId: string | null) {
   return useQuery({
     queryKey: ['flow-graph', flowId],

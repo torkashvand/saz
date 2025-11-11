@@ -15,27 +15,39 @@ import type { RegisterFlowResponse, CompileFlowResponse } from '@/lib/types';
 // Dynamically import Monaco editor to avoid SSR issues
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
-const EXAMPLE_YAML = `flow:
-  name: simple_support_ticket
+const EXAMPLE_YAML = `# Unified DSL Example: Support Ticket Triage
+# Demonstrates Extract → Route → Generate → Store with AI operations
+schema_version: 1
+
+flow:
+  name: support_ticket_triage
   version: "1.0"
-  description: AI-powered ticket triage with auto-response
+  description: AI-powered support ticket processing with routing and auto-response
 
 form:
   fields:
     - name: ticket_text
-      type: text
+      type: string          # 'text' alias is normalized, but keep canonical
       required: true
       description: Support ticket content
     - name: customer_email
-      type: text
+      type: string
       required: true
       description: Customer email address
+      format: email
+
+triggers:
+  manual: true
+  webhook:
+    path: "/support-ticket"    # schema allows: event?, path?, signature_header?
+    # method is not allowed by your schema
 
 workflow:
   steps:
-    - id: extract_data
+    # Step 1: Extract structured data from unstructured ticket
+    - id: extract_ticket_data
       type: ai.extract
-      instruction: "Extract category, priority, and sentiment"
+      instruction: "Extract the key information from this support ticket: issue category, priority level, product name, and customer sentiment."
       params:
         data:
           text: "{{ $form.ticket_text }}"
@@ -44,28 +56,144 @@ workflow:
         properties:
           category:
             type: string
-            enum: [technical, billing, general]
+            enum: [technical, billing, feature_request, bug_report, general]
           priority:
             type: string
-            enum: [low, medium, high]
+            enum: [low, medium, high, critical]
+          product:
+            type: string
           sentiment:
             type: string
-            enum: [positive, neutral, negative]
+            enum: [positive, neutral, negative, angry]
+        required: [category, priority, sentiment]
+      temperature: 0.1
+      max_tokens: 512
 
-    - id: generate_response
-      type: ai.generate
-      instruction: "Write a professional acknowledgment email"
+    # Step 2: Route based on extracted priority and category
+    - id: route_ticket
+      type: ai.route
+      instruction: "Determine the correct team to handle this ticket based on category and priority."
+      params:
+        data:
+          category: "{{ $step('extract_ticket_data').output.category }}"
+          priority: "{{ $step('extract_ticket_data').output.priority }}"
+          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+      branches_enum:
+        - engineering_urgent
+        - engineering_normal
+        - billing_team
+        - sales_team
+        - support_tier1
+      temperature: 0.1
+      max_tokens: 256
+
+    # Step 3: Score ticket complexity for SLA assignment (use ai.transform)
+    - id: score_complexity
+      type: ai.transform
+      instruction: |
+        Return ONLY a JSON object with a single field "score" in [0,1].
+        Calibrate using the rubric:
+        0.0-0.3: Simple questions/FAQ/basic troubleshooting
+        0.3-0.6: Moderate; needs docs lookup/basic debugging
+        0.6-0.8: Complex; code review/system investigation
+        0.8-1.0: Critical bug, security, or architectural problem
       params:
         data:
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_data').category }}"
-      word_cap: 150
+          category: "{{ $step('extract_ticket_data').output.category }}"
+      expect:
+        type: object
+        properties:
+          score: { type: number, minimum: 0, maximum: 1 }
+        required: [score]
+      temperature: 0.1
+      max_tokens: 256
+
+    # Step 4: Generate auto-response based on routing
+    - id: generate_response
+      type: ai.generate
+      instruction: "Write a professional acknowledgment email for the customer. Reference their issue, acknowledge their sentiment, and provide an expected response time based on priority and complexity."
+      params:
+        data:
+          customer_email: "{{ $form.customer_email }}"
+          ticket: "{{ $form.ticket_text }}"
+          category: "{{ $step('extract_ticket_data').output.category }}"
+          priority: "{{ $step('extract_ticket_data').output.priority }}"
+          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          routed_to: "{{ $step('route_ticket').output.route }}"
+          complexity_score: "{{ $step('score_complexity').output.score }}"
+      word_cap: 200
       temperature: 0.4
+      max_tokens: 1024
+
+    # Step 5: Evaluate response for quality and tone (use ai.extract to return JSON)
+    - id: evaluate_response
+      type: ai.extract
+      instruction: |
+        Evaluate the email for: professional tone, issue acknowledgment,
+        clear timeline, and minimal jargon. Return ONLY JSON with:
+        { "meets_standards": boolean, "issues": [string], "summary": string }
+      params:
+        data:
+          response_text: "{{ $step('generate_response').output.text }}"
+          customer_sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+      schema:
+        type: object
+        properties:
+          meets_standards: { type: boolean }
+          issues: { type: array, items: { type: string } }
+          summary: { type: string }
+        required: [meets_standards]
+
+    # Step 6: Send response via HTTP (always; or gate with a condition step if needed)
+    - id: send_response
+      type: tool.call
+      tool: http_request
+      description: Send auto-response email to customer
+      params:
+        method: POST
+        url: "https://api.example.com/emails/send"
+        headers:
+          Authorization: "Bearer {{ $secret('email_api_token') }}"
+        body:
+          to: "{{ $form.customer_email }}"
+          subject: "Your support ticket has been received"
+          body: "{{ $step('generate_response').output.text }}"
+          template: "support_acknowledgment"
+      expect:
+        type: object
+        properties:
+          message_id: { type: string }
+
+    # Step 7: Store complete ticket data as artifact
+    - id: store_ticket_artifact
+      type: artifact.store
+      params:
+        name: "ticket_{{ $form.customer_email }}_{{ $env('TIMESTAMP') }}"
+        content:
+          original_ticket: "{{ $form.ticket_text }}"
+          customer_email: "{{ $form.customer_email }}"
+          extracted: "{{ $step('extract_ticket_data').output }}"
+          routing: "{{ $step('route_ticket').output }}"
+          complexity: "{{ $step('score_complexity').output }}"
+          response: "{{ $step('generate_response').output }}"
+          evaluation: "{{ $step('evaluate_response').output }}"
+          email_sent: "{{ $step('send_response').output.message_id }}"
 
 policies:
-  budget:
-    max_tokens: 5000
-    max_cost_usd: 0.25`;
+  budget_usd: 0.50                 # compiler supports cost budget (not token/step/time)
+  defaults:
+    timeout_ms: 300000             # ~300s end-to-end ceiling
+    continue_on_fail: false
+  rate_limits:
+    http_request:
+      rpm: 30
+  pii:
+    allow: false
+
+credentials:
+  uses: [email_api_token]
+`;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -83,13 +211,6 @@ export default function RegisterPage() {
   useEffect(() => {
     const saved = localStorage.getItem('last_yaml');
     if (saved) setYaml(saved);
-
-    const savedFlow = localStorage.getItem('last_registered_flow');
-    if (savedFlow) {
-      try {
-        setRegisteredFlow(JSON.parse(savedFlow));
-      } catch {}
-    }
   }, []);
 
   const handleValidate = async () => {
@@ -152,7 +273,8 @@ export default function RegisterPage() {
       setRegisteredFlow(result);
       setCompiledFlow(null); // Clear compiled preview after registration
       localStorage.setItem('last_yaml', yaml);
-      localStorage.setItem('last_registered_flow', JSON.stringify(result));
+      // Store only the flow ID, not the entire response (prevents schema issues)
+      localStorage.setItem('last_flow_id', result.id);
 
       toast({
         title: 'Success',
@@ -296,31 +418,31 @@ export default function RegisterPage() {
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Total Steps</div>
                       <div className="text-2xl font-bold mt-1">
-                        {(registeredFlow || compiledFlow)!.workflow_summary.steps_count}
+                        {(registeredFlow || compiledFlow)?.workflow_summary?.steps_count ?? 0}
                       </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">AI Steps</div>
                       <div className="text-2xl font-bold mt-1">
-                        {(registeredFlow || compiledFlow)!.workflow_summary.ai_steps}
+                        {(registeredFlow || compiledFlow)?.workflow_summary?.ai_steps ?? 0}
                       </div>
                     </div>
                     <div className="border rounded p-3">
                       <div className="text-xs text-muted-foreground">Credentials</div>
                       <div className="text-sm mt-1">
-                        {(registeredFlow || compiledFlow)!.workflow_summary.credentials?.length ||
+                        {(registeredFlow || compiledFlow)?.workflow_summary?.credentials?.length ||
                           'None'}
                       </div>
                     </div>
                   </div>
-                  {(registeredFlow || compiledFlow)!.workflow_summary.credentials &&
-                    (registeredFlow || compiledFlow)!.workflow_summary.credentials.length > 0 && (
+                  {(registeredFlow || compiledFlow)?.workflow_summary?.credentials &&
+                    (registeredFlow || compiledFlow)?.workflow_summary.credentials.length > 0 && (
                       <div className="border rounded p-3">
                         <div className="text-xs text-muted-foreground mb-2">
                           Required Credentials
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {(registeredFlow || compiledFlow)!.workflow_summary.credentials.map(
+                          {(registeredFlow || compiledFlow)?.workflow_summary.credentials.map(
                             (cred) => (
                               <span
                                 key={cred}

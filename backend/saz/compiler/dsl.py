@@ -390,7 +390,7 @@ def parse_yaml(yaml_content: str) -> dict[str, Any]:
             raise ValueError("form.fields is required")
 
     # JSON Schema pass
-    validator = Draft202012Validator(_DSL_SCHEMA)  # type: ignore[name-defined]
+    validator = Draft202012Validator(_DSL_SCHEMA)
     errors = sorted(validator.iter_errors(dsl), key=lambda e: list(e.path))
     if errors:
         first = errors[0]

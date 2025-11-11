@@ -1,6 +1,7 @@
 """Clean v1 API with Repository + UnitOfWork + Service architecture."""
 
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
@@ -28,7 +29,7 @@ from saz.services.run_service import RunService
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup/shutdown using FastAPI lifespan (replaces deprecated on_event)."""
     database_url = os.environ.get("DATABASE_URL")
 
@@ -734,7 +735,7 @@ async def resume_run(
     id: str,
     payload: dict[str, Any] | None = None,
     uow: UnitOfWork = Depends(get_uow),
-):
+) -> dict[str, Any] | JSONResponse:
     """
     Resume a suspended run (e.g., after human approval).
 

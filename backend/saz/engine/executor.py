@@ -29,6 +29,7 @@ from saz.agents.schemas import (
     Verdict,
 )
 from saz.api.websocket import broadcast_events
+from saz.db.models import Step
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.events import (
     RunCompleted,
@@ -822,7 +823,7 @@ class WorkflowExecutor:
 
         logger.error(f"Run {run_id} failed: {error.get('message', 'Unknown error')}")
 
-    def _get_current_step(self, run_id: str, step_id: str):
+    def _get_current_step(self, run_id: str, step_id: str) -> Step:
         """Get current step entity from database using repository pattern"""
         assert self.uow.steps is not None
         step = self.uow.steps.get_by_name(run_id, step_id)

@@ -224,6 +224,26 @@ _DSL_SCHEMA: dict[str, Any] | None = {
                 },
             },
         },
+        "telemetry": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "trace_level": {
+                    "type": "string",
+                    "enum": ["off", "meta", "brief", "verbose"],
+                    "description": (
+                        "Trace level: off (no telemetry), meta (minimal), "
+                        "brief (+ tool calls/policy), verbose (+ input summaries)"
+                    ),
+                },
+                "sample_rate": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "description": "Sampling rate for telemetry (0.0-1.0, default 1.0)",
+                },
+            },
+        },
         "form": {
             "type": "object",
             "additionalProperties": False,

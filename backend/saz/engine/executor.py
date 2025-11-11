@@ -41,6 +41,20 @@ from saz.domain.events import (
 )
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
+from saz.telemetry import (
+    CritiqueEvent,
+    PIIStats,
+    PlanGeneratedEvent,
+    PolicyCheckEvent,
+    RunProgressEvent,
+    StepGroundedEvent,
+    TelemetryConfig,
+    TelemetryLevel,
+    TelemetrySanitizer,
+    ToolEndEvent,
+    ToolStartEvent,
+    UsageEvent,
+)
 from saz.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -107,6 +121,10 @@ class WorkflowExecutor:
         self.critic = critic
         self.policy_engine = policy_engine
 
+        # Telemetry (will be initialized per-run from DSL)
+        self.telemetry_config: TelemetryConfig | None = None
+        self.telemetry_sanitizer = TelemetrySanitizer(pii_detector=policy_engine.pii_detector)
+
         # Set secret resolver for executor agent
         self.executor_agent.secret_resolver = self._resolve_secret
 
@@ -152,6 +170,10 @@ class WorkflowExecutor:
             policies_dict = flow.definition.get("policies", {})
             self.policy_engine.initialize_from_dsl(run_id, policies_dict)
 
+            # Initialize telemetry from DSL
+            telemetry_dict = flow.definition.get("telemetry")
+            self.telemetry_config = TelemetryConfig.from_dsl(telemetry_dict)
+
             # Initialize execution context
             context: dict[str, Any] = {
                 "run_id": run_id,
@@ -179,6 +201,26 @@ class WorkflowExecutor:
                 f"Generated plan with {len(plan.steps)} steps for run {run_id} "
                 f"(estimated: ${plan.estimated_cost_usd:.3f}, {plan.estimated_time_seconds}s)"
             )
+
+            # Emit plan generated telemetry event
+            if self.telemetry_config and self.telemetry_config.is_enabled():
+                steps_summary = [
+                    {
+                        "id": step.step_id,
+                        "intent": self.telemetry_sanitizer.sanitize_intent(step),
+                        "deps": getattr(step, "dependencies", []),
+                    }
+                    for step in plan.steps
+                ]
+
+                await self._emit_telemetry(
+                    PlanGeneratedEvent(
+                        run_id=run_id,
+                        total_steps=len(plan.steps),
+                        steps=steps_summary,
+                    ),
+                    level=TelemetryLevel.META,
+                )
 
             # Execute plan steps sequentially
             for step_number, plan_step in enumerate(plan.steps):
@@ -209,6 +251,35 @@ class WorkflowExecutor:
 
                     # Record step execution in policy engine
                     self.policy_engine.record_step(run_id)
+
+                    # Emit usage telemetry event (if tokens/cost available)
+                    step_entity = self._get_current_step(run_id, plan_step.step_id)
+                    if step_entity.tokens and step_entity.tokens > 0:
+                        await self._emit_telemetry(
+                            UsageEvent(
+                                run_id=run_id,
+                                step_id=plan_step.step_id,
+                                tokens=step_entity.tokens or 0,
+                                cost_usd=step_entity.cost_usd or 0.0,
+                                duration_ms=0.0,  # Would need timing tracking
+                            ),
+                            level=TelemetryLevel.BRIEF,
+                        )
+
+                    # Emit progress telemetry event
+                    completed = len(context["completed_steps"])
+                    total = len(plan.steps)
+                    percent = (completed / total) * 100 if total > 0 else 0
+
+                    await self._emit_telemetry(
+                        RunProgressEvent(
+                            run_id=run_id,
+                            completed=completed,
+                            total=total,
+                            percent=percent,
+                        ),
+                        level=TelemetryLevel.META,
+                    )
 
                 except PolicyViolation as step_error:
                     # Policy violation - always fail immediately
@@ -576,12 +647,47 @@ class WorkflowExecutor:
         step.step_type = plan_step.action.value
         self.uow.commit()
 
+        # Emit step grounded telemetry event
+        await self._emit_telemetry(
+            StepGroundedEvent(
+                run_id=run_id,
+                step_id=plan_step.step_id,
+                intent=self.telemetry_sanitizer.sanitize_intent(plan_step),
+                input_summary=self.telemetry_sanitizer.sanitize_input_summary(tool_call.arguments),
+            ),
+            level=TelemetryLevel.VERBOSE,
+        )
+
         # 2. Policy check (before tokenization, to detect raw PII)
         allowed, reason = self.policy_engine.check_tool_call(
             tool_name=tool_call.tool,
             arguments=tool_call.arguments,
             run_id=run_id,
         )
+        # Get PII stats for telemetry
+        pii_stats_data = None
+        if run_id in self.policy_engine._token_vaults:
+            vault = self.policy_engine._token_vaults[run_id]
+            stats = vault.get_stats()
+            pii_stats_data = PIIStats(
+                tokenized_count=stats.get("total_tokens", 0),
+                detokenized_paths=[],
+                blocked_paths=[],
+            )
+
+        # Emit policy check telemetry event
+        await self._emit_telemetry(
+            PolicyCheckEvent(
+                run_id=run_id,
+                step_id=plan_step.step_id,
+                tool=tool_call.tool,
+                allowed=allowed,
+                reason=reason,
+                pii_stats=pii_stats_data,
+            ),
+            level=TelemetryLevel.BRIEF,
+        )
+
         if not allowed:
             # Record policy violation
             step.policy_flags = {"blocked": True, "reason": reason}
@@ -618,13 +724,47 @@ class WorkflowExecutor:
             f"Executing tool {tool_call.tool} with idempotency key {tool_call.idempotency_key}"
         )
 
-        result = await self.tool_registry.execute_tool(
-            tool_name=tool_call.tool,
-            arguments=tool_call.arguments,
-            idempotency_key=tool_call.idempotency_key,
-            run_id=run_id,
-            step_id=plan_step.step_id,
+        # Emit tool start telemetry event
+        tool_start_time = datetime.now()
+        await self._emit_telemetry(
+            ToolStartEvent(
+                run_id=run_id,
+                step_id=plan_step.step_id,
+                tool=tool_call.tool,
+                attempt=1,
+            ),
+            level=TelemetryLevel.BRIEF,
         )
+
+        # Execute tool
+        tool_status = "success"
+        tool_error_type = None
+        try:
+            result = await self.tool_registry.execute_tool(
+                tool_name=tool_call.tool,
+                arguments=tool_call.arguments,
+                idempotency_key=tool_call.idempotency_key,
+                run_id=run_id,
+                step_id=plan_step.step_id,
+            )
+        except Exception as tool_error:
+            tool_status = "error"
+            tool_error_type = type(tool_error).__name__
+            raise
+        finally:
+            # Emit tool end telemetry event
+            tool_duration_ms = (datetime.now() - tool_start_time).total_seconds() * 1000
+            await self._emit_telemetry(
+                ToolEndEvent(
+                    run_id=run_id,
+                    step_id=plan_step.step_id,
+                    tool=tool_call.tool,
+                    duration_ms=tool_duration_ms,
+                    status=tool_status,
+                    error_type=tool_error_type,
+                ),
+                level=TelemetryLevel.BRIEF,
+            )
 
         # 4. Extract and record AI usage
         tokens = 0
@@ -680,6 +820,19 @@ class WorkflowExecutor:
                 "confidence": critique.confidence,
                 "issues_count": len(critique.issues),
             },
+        )
+
+        # Emit critique telemetry event
+        await self._emit_telemetry(
+            CritiqueEvent(
+                run_id=run_id,
+                step_id=plan_step.step_id,
+                verdict=critique.verdict.value,
+                confidence=critique.confidence,
+                issues=[str(issue)[:80] for issue in critique.issues[:5]],
+                summary=self.telemetry_sanitizer.sanitize_critique_summary(critique.model_dump()),
+            ),
+            level=TelemetryLevel.META,
         )
 
         # 7. Handle verdict
@@ -853,6 +1006,37 @@ class WorkflowExecutor:
         if not step:
             raise ValueError(f"Step not found: {step_id}")
         return step
+
+    async def _emit_telemetry(
+        self, event: Any, level: TelemetryLevel = TelemetryLevel.META
+    ) -> None:
+        """
+        Emit telemetry event if enabled.
+
+        Args:
+            event: Telemetry event with to_dict() method
+            level: Minimum level required to emit
+        """
+        if not self.telemetry_config or not self.telemetry_config.should_emit(level):
+            return
+
+        try:
+            # Convert event to dict and add to domain events
+            event_dict = event.to_dict()
+
+            # Create a domain event wrapper for telemetry
+            from saz.domain.events import TelemetryEvent
+
+            telemetry_event = TelemetryEvent(event_dict)
+            self.uow.add_event(telemetry_event)
+            self.uow.commit()
+
+            # Broadcast immediately
+            events = self.uow.collect_events()
+            await broadcast_events(events)
+
+        except Exception as e:
+            logger.warning(f"Failed to emit telemetry: {e}")
 
     def _resolve_secret(self, secret_name: str) -> str | None:
         """

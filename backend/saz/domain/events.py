@@ -144,3 +144,26 @@ class StepFailed(DomainEvent):
                 "error": error,
             },
         )
+
+
+# Telemetry Events
+@dataclass
+class TelemetryEvent(DomainEvent):
+    """Event: Telemetry trace event."""
+
+    def __init__(self, trace_data: dict[str, Any]):
+        """
+        Initialize telemetry event.
+
+        Args:
+            trace_data: Telemetry event data with 'type', 'run_id', etc.
+        """
+        run_id = trace_data.get("run_id", "unknown")
+        event_type = trace_data.get("type", "trace.unknown")
+
+        super().__init__(
+            event_type=event_type,
+            aggregate_id=run_id,
+            timestamp=datetime.now(UTC),
+            data=trace_data,
+        )

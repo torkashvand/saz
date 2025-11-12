@@ -288,8 +288,7 @@ def test_dsl_tool_call_and_ai_steps_and_credentials_ok():
 schema_version: 1
 flow: { name: FlowX }
 credentials:
-  - name: github
-  - name: slack
+  uses: [github, slack]
 workflow:
   steps:
     - id: t1
@@ -473,7 +472,7 @@ def test_dsl_uses_credentials_must_exist_and_be_list():
 schema_version: 1
 flow: { name: FlowX }
 credentials:
-  - name: known
+  uses: [known]
 workflow:
   steps:
     - id: t1
@@ -489,7 +488,7 @@ workflow:
 schema_version: 1
 flow: { name: FlowX }
 credentials:
-  - name: known
+  uses: [known]
 workflow:
   steps:
     - id: t1
@@ -620,8 +619,7 @@ form:
       maximum: 120
 
 credentials:
-  - name: github_token
-  - name: slack_webhook
+  uses: [github_token, slack_webhook]
 
 policies:
   budget_usd: 5.0

@@ -41,7 +41,7 @@ workflow:
       instruction: "Extract data"
 
 credentials:
-  - name: api_key
+  uses: [api_key]
 """
 
     response = client.post("/api/v1/flows/compile", json={"yaml": yaml_content})

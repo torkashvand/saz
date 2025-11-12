@@ -91,28 +91,11 @@ _DSL_SCHEMA: dict[str, Any] | None = {
                 "owners": {"type": "array", "items": {"type": "string"}},
             },
         },
-        # Accept BOTH modern list form and legacy { uses: [...] } form
         "credentials": {
-            "oneOf": [
-                {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["name"],
-                        "properties": {
-                            "name": {"type": "string", "minLength": 1},
-                            "required_scopes": {"type": "array", "items": {"type": "string"}},
-                        },
-                    },
-                },
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["uses"],
-                    "properties": {"uses": {"type": "array", "items": {"type": "string"}}},
-                },
-            ]
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["uses"],
+            "properties": {"uses": {"type": "array", "items": {"type": "string"}}},
         },
         "triggers": {
             "type": "object",
@@ -502,7 +485,7 @@ def parse_yaml(yaml_content: str) -> dict[str, Any]:
 
 
 def _pydantic_type(field_type: str) -> type:
-    # Canonical + aliases; forward-looking (no legacy int-for-number).
+    """Map DSL field type to Python type."""
     match field_type:
         case "string" | "text":
             return str
@@ -779,37 +762,22 @@ def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _compile_credentials(creds: Any) -> tuple[list[str], list[dict[str, Any]]]:
-    """Return (names, normalized objects). Accepts list[{name,...}] OR legacy {uses:[...]}."""
+    """Extract credential names from credentials section."""
     if creds is None:
         return [], []
-    # Legacy object form
-    if isinstance(creds, dict) and "uses" in creds:
-        uses = creds.get("uses", []) or []
-        if not isinstance(uses, list) or not all(isinstance(x, str) for x in uses):
-            raise ValueError("credentials.uses must be a list of strings")
-        names = list(uses)
-        out = [{"name": n, "required_scopes": []} for n in names]
-        if len(set(names)) != len(names):
-            raise ValueError("credentials contain duplicate names")
-        return names, out
 
-    # Modern list form
-    if not isinstance(creds, list):
-        raise ValueError("credentials must be a list of { name, required_scopes?[] }")
+    if not isinstance(creds, dict) or "uses" not in creds:
+        raise ValueError("credentials must be an object with 'uses' array")
 
-    out = []
-    names = []
-    for i, item in enumerate(creds):
-        if not isinstance(item, dict) or "name" not in item or not isinstance(item["name"], str):
-            raise ValueError(f"credentials[{i}] must be an object with string 'name'")
-        name = item["name"]
-        scopes = item.get("required_scopes", [])
-        if scopes is not None and not isinstance(scopes, list):
-            raise ValueError(f"credentials[{i}].required_scopes must be a list if provided")
-        out.append({"name": name, "required_scopes": scopes or []})
-        names.append(name)
+    uses = creds.get("uses", []) or []
+    if not isinstance(uses, list) or not all(isinstance(x, str) for x in uses):
+        raise ValueError("credentials.uses must be a list of strings")
+
+    names = list(uses)
     if len(set(names)) != len(names):
         raise ValueError("credentials contain duplicate names")
+
+    out = [{"name": n, "required_scopes": []} for n in names]
     return names, out
 
 

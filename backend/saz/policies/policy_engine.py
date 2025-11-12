@@ -200,7 +200,7 @@ class PolicyEngine:
 
         For model tools: PII check is informational only (will be tokenized)
         For outbound tools: PII is blocked on non-approved paths
-        For other tools: Legacy behavior (warn or block based on enforce_pii_redaction)
+        For other tools: Block if enforce_pii_redaction is True
 
         Args:
             tool_name: Name of tool
@@ -278,7 +278,7 @@ class PolicyEngine:
                         allowed_paths=list(allowed_paths),
                     )
             else:
-                # Other tools: legacy behavior
+                # Other tools (artifact, webhook, etc): check enforcement flag
                 self.logger.warning(
                     "pii_detected_in_tool_args", tool=tool_name, run_id=run_id, paths=pii_paths
                 )

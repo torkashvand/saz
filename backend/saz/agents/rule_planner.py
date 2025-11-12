@@ -1,17 +1,15 @@
-"""Rule-based Planner - Deterministic workflow execution (no LLM by default).
+"""Rule-based Planner - Deterministic workflow execution.
 
-Reads workflow steps directly from YAML spec.
-Only invokes LLM for optional "ai.assess" step type.
-Cost-efficient: ~$0 for typical workflows vs $0.10+ for LLM planner.
+Reads workflow steps directly from YAML spec and converts them to executable plan steps.
+Pure deterministic parsing - no LLM calls.
+Cost-efficient: $0 for all workflows vs $0.10+ for LLM planner.
 """
 
-import json
 from collections.abc import Callable
 from typing import Any, cast
 from uuid import uuid4
 
 import structlog
-from litellm import completion
 
 from .schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
 
@@ -31,16 +29,10 @@ _AI_EXTRA_KEYS: tuple[str, ...] = (
 
 
 class RulePlanner:
-    """Deterministic rule-based planner (LLM-free by default)."""
+    """Deterministic rule-based planner - pure YAML parsing, no LLM."""
 
-    def __init__(self, model: str = "gpt-4o-mini") -> None:
-        """
-        Initialize rule planner.
-
-        Args:
-            model: LLM model for optional ai.assess steps (cheaper model default)
-        """
-        self.model = model
+    def __init__(self) -> None:
+        """Initialize rule planner."""
         self.logger = logger.bind(agent="rule_planner")
 
         # Map exact step types to parser methods (dynamic for ai.* handled separately)
@@ -53,7 +45,7 @@ class RulePlanner:
             "artifact.retrieve": self._parse_artifact_retrieve,
         }
 
-    async def plan(  # noqa: D401
+    async def plan(
         self,
         workflow_spec: dict[str, Any],
         tool_registry: list[dict[str, Any]],
@@ -63,7 +55,15 @@ class RulePlanner:
         budget: dict[str, Any],
     ) -> ExecutionPlan:
         """
-        Generate execution plan from workflow spec (deterministic).
+        Generate deterministic execution plan from workflow spec.
+
+        Args:
+            workflow_spec: Workflow specification with steps
+            tool_registry: Available tools (unused - kept for protocol compatibility)
+            run_id: Run identifier
+            completed_steps: Already completed step IDs
+            current_data: Execution context (unused - kept for protocol compatibility)
+            budget: Budget constraints (unused - kept for protocol compatibility)
 
         Returns:
             ExecutionPlan with steps parsed from YAML
@@ -76,27 +76,23 @@ class RulePlanner:
             steps_total=len(steps_spec),
         )
 
-        # Filter out already-completed steps (preserve order)
+        # Filter out already-completed steps
         remaining_steps = [s for s in steps_spec if s.get("id") not in completed_steps]
 
         plan_steps: list[PlanStep] = []
-        llm_cost: float = 0.0  # kept for compatibility; only used by ai.assess path
 
         for step_def in remaining_steps:
             step_type: str = step_def.get("type", "tool.call")
 
             if step_type.startswith("ai."):
-                # Treat ai.* as tool-run via ai_ops runner (same as original behavior)
-                plan_step = self._parse_ai_op(step_def, tool_registry)
+                plan_step = self._parse_ai_op(step_def)
             else:
                 parser = self._parsers.get(step_type)
                 if not parser:
-                    # Original behavior: raise on unknown type
                     raise RuntimeError(f"unknown step type: {step_type}")
                 plan_step = parser(step_def)
 
             plan_steps.append(plan_step)
-            # Log per-step parsing for traceability without changing behavior
             self.logger.debug(
                 "parsed_step",
                 step_id=plan_step.step_id,
@@ -107,8 +103,8 @@ class RulePlanner:
         plan = ExecutionPlan(
             plan_id=str(uuid4()),
             steps=plan_steps,
-            estimated_cost_usd=llm_cost,
-            estimated_time_seconds=len(plan_steps) * 2,  # preserve original estimate heuristic
+            estimated_cost_usd=0.0,
+            estimated_time_seconds=len(plan_steps) * 2,
             reasoning="Deterministic rule-based plan from YAML workflow spec",
         )
 
@@ -116,8 +112,6 @@ class RulePlanner:
             "plan_generated_deterministic",
             plan_id=plan.plan_id,
             steps_count=len(plan_steps),
-            llm_steps=sum(1 for s in plan_steps if s.action == StepAction.AI_ASSESS),
-            llm_cost=llm_cost,
         )
         return plan
 
@@ -125,9 +119,7 @@ class RulePlanner:
     # Parsers (behavior preserved)
     # ---------------------------
 
-    def _parse_ai_op(
-        self, step_def: dict[str, Any], _tool_registry: list[dict[str, Any]]
-    ) -> PlanStep:
+    def _parse_ai_op(self, step_def: dict[str, Any]) -> PlanStep:
         """Parse ai.* step from YAML (handled as a TOOL_CALL to ai_ops)."""
         # Late import to avoid heavy module import at planner import-time
         from saz.agents.ai_ops import AI_OPS  # noqa: WPS433 (intentional local import)
@@ -261,85 +253,3 @@ class RulePlanner:
             max_retries=3,
             reasoning=step_def.get("description", "Retrieve artifact"),
         )
-
-    # ---------------------------
-    # Optional ai.assess helper
-    # (kept for parity; not called by plan())
-    # ---------------------------
-
-    async def _parse_ai_assess(  # noqa: D401
-        self, step_def: dict[str, Any], current_data: dict[str, Any], budget: dict[str, Any]
-    ) -> tuple[PlanStep, float]:
-        """
-        Parse ai.assess step (uses LLM with strict schema).
-
-        Returns:
-            Tuple of (PlanStep, cost_usd)
-        """
-        self.logger.info("ai_assess_invoked", step_id=step_def["id"])
-
-        prompt = (
-            "Assess the following data and provide a structured decision.\n\n"
-            f"Step description: {step_def.get('description', 'Assess data')}\n"
-            f"Current data: {json.dumps(current_data, indent=2, default=str)}\n\n"
-            "Expected output schema:\n"
-            f"{json.dumps(step_def.get('expect', {}), indent=2)}\n\n"
-            "Respond with ONLY valid JSON matching the expected schema. Be concise."
-        )
-
-        try:
-            response = completion(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a data assessment agent. Always respond with valid JSON."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-            )
-
-            # litellm-style response access preserved
-            assessment_result = json.loads(response.choices[0].message.content)
-            tokens_used = response.usage.total_tokens
-            # Rough estimate (same idea as original; number unchanged)
-            cost = (tokens_used / 1_000_000) * 0.20
-
-            self.logger.info(
-                "ai_assess_complete", step_id=step_def["id"], tokens=tokens_used, cost_usd=cost
-            )
-
-            return (
-                PlanStep(
-                    step_id=step_def["id"],
-                    action=StepAction.AI_ASSESS,
-                    tool_name=None,
-                    input_template={"assessment_result": assessment_result},
-                    expected_output_schema=step_def.get("expect", {}),
-                    error_handling=ErrorHandling.FAIL,
-                    max_retries=0,
-                    reasoning=f"AI assessment: {step_def.get('description', 'Assess')}",
-                ),
-                cost,
-            )
-
-        except Exception as e:  # noqa: BLE001
-            self.logger.error("ai_assess_failed", step_id=step_def["id"], error=str(e))
-            # Preserve the original fallback behavior
-            return (
-                PlanStep(
-                    step_id=step_def["id"],
-                    action=StepAction.TOOL_CALL,
-                    tool_name="artifact_store",
-                    input_template={"name": f"{step_def['id']}_error", "content": str(e)},
-                    expected_output_schema={},
-                    error_handling=ErrorHandling.FAIL,
-                    max_retries=0,
-                    reasoning=f"AI assessment failed: {str(e)}",
-                ),
-                0.0,
-            )

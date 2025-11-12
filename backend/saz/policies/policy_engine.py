@@ -26,7 +26,6 @@ MODEL_TOOLS = {
     "ai.translate",
     "ai.summarize",
     "ai.fix_json",
-    "ai.transform",  # Additional AI operation
 }
 
 OUTBOUND_TOOLS = {

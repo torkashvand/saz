@@ -201,8 +201,7 @@ def compile_flow(req: CompileFlowRequest) -> CompileFlowResponse:
 
         # Extract workflow info
         workflow_steps = compiled.workflow_spec.get("steps", [])
-        ai_step_types = {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
-        ai_steps_count = sum(1 for step in workflow_steps if step.get("type") in ai_step_types)
+        ai_steps_count = sum(1 for step in workflow_steps if step.get("type", "").startswith("ai."))
 
         workflow_summary = WorkflowSummary(
             steps_count=len(workflow_steps),
@@ -216,7 +215,7 @@ def compile_flow(req: CompileFlowRequest) -> CompileFlowResponse:
             flow_description=compiled.flow_description,
             form_schema=compiled.form_schema,
             workflow_summary=workflow_summary,
-            warnings=[],
+            warnings=compiled.warnings,
         )
     except ValueError as e:
         raise ValueError(f"Compilation failed: {str(e)}") from None

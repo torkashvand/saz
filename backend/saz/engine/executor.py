@@ -18,8 +18,7 @@ from typing import Any
 
 from saz.agents.critic import CriticAgent
 from saz.agents.executor import ExecutorAgent
-from saz.agents.planner import PlannerAgent
-from saz.agents.rule_planner import RulePlanner
+from saz.agents.planner_protocol import Planner
 from saz.agents.schemas import (
     Critique,
     ErrorHandling,
@@ -98,7 +97,7 @@ class WorkflowExecutor:
         self,
         uow: UnitOfWork,
         tool_registry: ToolRegistry,
-        planner: PlannerAgent | RulePlanner,
+        planner: Planner,
         executor_agent: ExecutorAgent,
         critic: CriticAgent,
         policy_engine: PolicyEngine,
@@ -109,7 +108,7 @@ class WorkflowExecutor:
         Args:
             uow: Unit of work for database operations
             tool_registry: Tool registry
-            planner: Planner agent (PlannerAgent or RulePlanner)
+            planner: Planner (any implementation of Planner protocol)
             executor_agent: Executor agent for grounding
             critic: Critic agent for validation
             policy_engine: Policy engine for enforcement

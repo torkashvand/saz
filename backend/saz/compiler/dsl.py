@@ -1,49 +1,55 @@
 """YAML DSL Compiler for Saz.
 
-Strict DSL (schema_version: 1) with deep, friendly runtime validation.
+Strict DSL (schema_version: 1) with compile-time validation.
 
 Top-level sections:
 - flow: { name (req), version?, description?, labels?, owners? }
-- credentials:
-    Either:
-      - list of { name, required_scopes?[] }
-    Or (legacy):
-      - object: { uses: [ "credA", "credB" ] }
+- credentials: { uses: [ "credA", "credB" ] }
 - triggers?: { manual?, webhook{event?,path?,signature_header?}?, schedule{cron?,timezone?}? }
 - policies?: {
-    budget_usd?, concurrency{per_flow?, per_user?}?,
-    defaults?{ retry{attempts?,backoff{mode,base_ms?,max_ms?,jitter?}?}?,
-               timeout_ms?, continue_on_fail? },
-    pii?{ allow? }, rate_limits?{ <tool_name>: { rpm } }
+    budget_usd?,
+    pii?{ allow?, tokenize_model_inputs?, exceptions?{ tools?{ <tool>: [path, ...] } } },
+    rate_limits?{ <tool_name>: { rpm } }
   }
-- form?: { fields: [ { name, type(string|integer|number|boolean|text), required?,
-                      enum?, pattern?/regex?, minLength?, maxLength?, format?,
-                      minimum?/min?, maximum?/max?, description?, title?, default? }, ... ] }
-- workflow: { steps: [ step, ... ] }   # non-empty
+- telemetry?: { trace_level?: "off"|"meta"|"brief"|"verbose", sample_rate?: 0.0-1.0 }
+- form?: { fields: [ { name, type, required?, enum?, pattern?, min?, max?, description?, ... } ] }
+- workflow: { steps: [ step, ... ] }
 
-Allowed step types (enforced at compile time):
+Allowed step types:
 - tool.call         : { id, type, tool, params, expect? }
-- ai.extract        : { id, type, instruction, params?, expect? }
-- ai.generate       : { id, type, instruction, params?, expect? }
-- ai.transform      : { id, type, instruction, params?, expect? }
-- ai.route          : { id, type, instruction, branches_enum?, params?, expect? }
+- ai.assess         : { id, type, instruction, params?, expect? }  # Classification/decisions
+- ai.extract        : { id, type, instruction, params?, expect? }  # Structured data extraction
+- ai.generate       : { id, type, instruction, params? }           # Text generation (emails, etc)
+- ai.route          : { id, type, instruction, branches_enum?, params? }  # Branch selection
+- ai.score          : { id, type, instruction, params? }           # Numeric scoring (0-1)
+- ai.normalize      : { id, type, instruction, params? }           # Canonicalize entities
+- ai.match          : { id, type, instruction, params? }           # Entity resolution
+- ai.evaluate       : { id, type, instruction, params? }           # Guardrail QA
+- ai.compare        : { id, type, instruction, params? }           # Semantic diff
+- ai.translate      : { id, type, instruction, params? }           # Language translation
+- ai.summarize      : { id, type, instruction, params? }           # Text summarization
+- ai.fix_json       : { id, type, instruction, params? }           # JSON repair
+- ai.plan           : { id, type, instruction, params? }           # Tool call planning
 - condition         : { id, type, if }
 - human.approval    : { id, type, params?, expect? }
-- webhook.wait      : { id, type, params{ event_name }, expect? }
-- artifact.store    : { id, type, params, expect? }
-- artifact.retrieve : { id, type, params, expect? }
-- group.parallel    : { id, type, steps[...], join: all|any }
-- group.map         : { id, type, foreach, as, steps[ ... ] }
+- webhook.wait      : { id, type, params{ event_name } }
+- artifact.store    : { id, type, params }
+- artifact.retrieve : { id, type, params }
+- group.parallel    : { id, type, steps[], join: all|any }
+- group.map         : { id, type, foreach, as, steps[] }
 - noop              : { id, type }
 
-Optional (per step):
-- uses_credentials?: [credential_name, ...]
-- retry?: { attempts?: int>=0, backoff?: { mode, base_ms?, max_ms?, jitter? } }
-- description?: string
-- expect?: JSON Schema–ish dict
+Template syntax:
+- {{ $form.field_name }}                    → Form data
+- {{ $step('step_id').field }}              → Step output field (output key is implicit!)
+- {{ $step('step_id') }}                    → Full step output
+- {{ $env('VAR') }}                         → Environment variable
+- {{ $secret('NAME') }}                     → Credential value
+
+IMPORTANT: Do NOT use {{ $step('id').output.field }} - the .output is automatic!
 
 Output:
-- DSLCompiled with form_model, form_schema, workflow_spec, triggers, policies, credentials, raw_dsl
+- DSLCompiled with form_model, form_schema, workflow_spec, triggers, policies, credentials, warnings
 """
 
 from __future__ import annotations
@@ -655,10 +661,10 @@ def _validate_and_normalize_steps(
             _require_keys(step, ["tool", "params"])
             if not isinstance(step["params"], dict):
                 raise ValueError(f"step '{sid}' params must be an object")
-        elif stype in {"ai.extract", "ai.generate", "ai.transform", "ai.route"}:
+        elif stype.startswith("ai."):
+            # All AI operations require instruction
             if "instruction" not in step:
-                # Match test expectation wording:
-                raise ValueError("requires 'instruction'")
+                raise ValueError(f"step '{sid}' requires 'instruction'")
         elif stype == "condition":
             _require_keys(step, ["if"])
         elif stype == "human.approval":

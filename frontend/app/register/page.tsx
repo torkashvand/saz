@@ -87,12 +87,11 @@ workflow:
       temperature: 0.1
       max_tokens: 256
 
-    # Step 3: Score ticket complexity for SLA assignment (use ai.transform)
+    # Step 3: Score ticket complexity for SLA assignment
     - id: score_complexity
-      type: ai.transform
+      type: ai.score
       instruction: |
-        Return ONLY a JSON object with a single field "score" in [0,1].
-        Calibrate using the rubric:
+        Score the ticket complexity from 0 to 1 using this rubric:
         0.0-0.3: Simple questions/FAQ/basic troubleshooting
         0.3-0.6: Moderate; needs docs lookup/basic debugging
         0.6-0.8: Complex; code review/system investigation
@@ -101,11 +100,6 @@ workflow:
         data:
           ticket: "{{ $form.ticket_text }}"
           category: "{{ $step('extract_ticket_data').category }}"
-      expect:
-        type: object
-        properties:
-          score: { type: number, minimum: 0, maximum: 1 }
-        required: [score]
       temperature: 0.1
       max_tokens: 256
 
@@ -135,7 +129,7 @@ workflow:
         { "meets_standards": boolean, "issues": [string], "summary": string }
       params:
         data:
-          response_text: "{{ $step('generate_response').text }}"
+          response_text: "{{ $step('generate_response') }}"
           customer_sentiment: "{{ $step('extract_ticket_data').sentiment }}"
       schema:
         type: object
@@ -158,7 +152,7 @@ workflow:
         body:
           to: "{{ $form.customer_email }}"
           subject: "Your support ticket has been received"
-          body: "{{ $step('generate_response').text }}"
+          body: "{{ $step('generate_response') }}"
           template: "support_acknowledgment"
       expect:
         type: object

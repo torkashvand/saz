@@ -243,13 +243,10 @@ def register_flow(
         raise NotFoundError("Flow was created but not found")
 
     # Use compiled workflow summary
+    workflow_steps = compiled.workflow_spec.get("steps", [])
     workflow_summary = WorkflowSummary(
-        steps_count=len(compiled.workflow_spec.get("steps", [])),
-        ai_steps=sum(
-            1
-            for step in compiled.workflow_spec.get("steps", [])
-            if step.get("type") in {"ai.extract", "ai.generate", "ai.route", "ai.transform"}
-        ),
+        steps_count=len(workflow_steps),
+        ai_steps=sum(1 for step in workflow_steps if step.get("type", "").startswith("ai.")),
         credentials=compiled.credentials,
     )
 

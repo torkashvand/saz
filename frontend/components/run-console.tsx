@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Filter } from 'lucide-react';
 import { useTelemetryEvents } from '@/lib/use-telemetry-events';
 import { TelemetryTimeline } from './telemetry-timeline';
@@ -22,6 +22,13 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'errors' | 'policy'>('all');
 
+  // Debug: log events as they arrive
+  useEffect(() => {
+    if (events.length > 0) {
+      console.log('[Console] Total events:', events.length, 'Last:', events[events.length - 1].type);
+    }
+  }, [events]);
+
   // Calculate elapsed time
   const elapsedMs = useMemo(() => {
     if (!startedAt) return undefined;
@@ -33,21 +40,30 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
   // Filter events based on selected filter
   const filteredEvents = useMemo(() => {
     if (filter === 'errors') {
-      return events.filter(
-        (e) =>
-          (e.type === 'trace.tool.end' && e.status === 'error') ||
-          (e.type === 'trace.critique' && e.verdict !== 'PASS') ||
-          (e.type === 'trace.policy.check' && !e.allowed),
-      );
+      return events.filter((e) => {
+        if (e.type === 'trace.tool.end') {
+          return e.status === 'error';
+        }
+        if (e.type === 'trace.critique') {
+          return e.verdict !== 'PASS';
+        }
+        if (e.type === 'trace.policy.check') {
+          return !e.allowed;
+        }
+        return false;
+      });
     } else if (filter === 'policy') {
-      return events.filter(
-        (e) =>
-          e.type === 'trace.policy.check' ||
-          (e.type === 'trace.tool.start' &&
-            events.some(
-              (pe) => pe.type === 'trace.policy.check' && (pe as any).step_id === (e as any).step_id,
-            )),
-      );
+      return events.filter((e) => {
+        if (e.type === 'trace.policy.check') {
+          return true;
+        }
+        if (e.type === 'trace.tool.start') {
+          return events.some(
+            (pe) => pe.type === 'trace.policy.check' && pe.step_id === e.step_id,
+          );
+        }
+        return false;
+      });
     }
     return events;
   }, [events, filter]);
@@ -65,15 +81,18 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
 
   return (
     <div className="relative">
-      {/* Connection status indicator */}
-      {!isConnected && (
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-            Reconnecting to telemetry stream...
-          </div>
+      {/* Connection status and info */}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className={`flex items-center gap-2 text-sm ${isConnected ? 'text-green-600' : 'text-yellow-600'}`}>
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
+          {isConnected ? 'Live telemetry connected' : 'Reconnecting...'}
         </div>
-      )}
+        {events.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            {events.length} events captured
+          </div>
+        )}
+      </div>
 
       {/* Progress Header */}
       <TelemetryProgressHeader

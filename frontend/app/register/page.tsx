@@ -75,9 +75,9 @@ workflow:
       instruction: "Determine the correct team to handle this ticket based on category and priority."
       params:
         data:
-          category: "{{ $step('extract_ticket_data').output.category }}"
-          priority: "{{ $step('extract_ticket_data').output.priority }}"
-          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
       branches_enum:
         - engineering_urgent
         - engineering_normal
@@ -100,7 +100,7 @@ workflow:
       params:
         data:
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').output.category }}"
+          category: "{{ $step('extract_ticket_data').category }}"
       expect:
         type: object
         properties:
@@ -117,11 +117,11 @@ workflow:
         data:
           customer_email: "{{ $form.customer_email }}"
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').output.category }}"
-          priority: "{{ $step('extract_ticket_data').output.priority }}"
-          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
-          routed_to: "{{ $step('route_ticket').output.route }}"
-          complexity_score: "{{ $step('score_complexity').output.score }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
+          routed_to: "{{ $step('route_ticket').route }}"
+          complexity_score: "{{ $step('score_complexity').score }}"
       word_cap: 200
       temperature: 0.4
       max_tokens: 1024
@@ -135,8 +135,8 @@ workflow:
         { "meets_standards": boolean, "issues": [string], "summary": string }
       params:
         data:
-          response_text: "{{ $step('generate_response').output.text }}"
-          customer_sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          response_text: "{{ $step('generate_response').text }}"
+          customer_sentiment: "{{ $step('extract_ticket_data').sentiment }}"
       schema:
         type: object
         properties:
@@ -158,7 +158,7 @@ workflow:
         body:
           to: "{{ $form.customer_email }}"
           subject: "Your support ticket has been received"
-          body: "{{ $step('generate_response').output.text }}"
+          body: "{{ $step('generate_response').text }}"
           template: "support_acknowledgment"
       expect:
         type: object
@@ -173,12 +173,12 @@ workflow:
         content:
           original_ticket: "{{ $form.ticket_text }}"
           customer_email: "{{ $form.customer_email }}"
-          extracted: "{{ $step('extract_ticket_data').output }}"
-          routing: "{{ $step('route_ticket').output }}"
-          complexity: "{{ $step('score_complexity').output }}"
-          response: "{{ $step('generate_response').output }}"
-          evaluation: "{{ $step('evaluate_response').output }}"
-          email_sent: "{{ $step('send_response').output.message_id }}"
+          extracted: "{{ $step('extract_ticket_data') }}"
+          routing: "{{ $step('route_ticket') }}"
+          complexity: "{{ $step('score_complexity') }}"
+          response: "{{ $step('generate_response') }}"
+          evaluation: "{{ $step('evaluate_response') }}"
+          email_sent: "{{ $step('send_response').message_id }}"
 
 policies:
   budget_usd: 0.50                 # compiler supports cost budget (not token/step/time)

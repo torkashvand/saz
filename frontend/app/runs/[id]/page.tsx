@@ -129,6 +129,7 @@ export default function RunDetailPage() {
   const { toast } = useToast();
   const { data: run, isLoading: isLoadingRun } = useRunDetails(runId);
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
+  const [activeTab, setActiveTab] = useState('console');
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -369,7 +370,7 @@ export default function RunDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="console" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full">
           <TabsTrigger value="console" className="flex-1">
             Console
@@ -389,12 +390,15 @@ export default function RunDetailPage() {
         </TabsList>
 
         <TabsContent value="console" className="mt-6">
-          <RunConsole
-            runId={runId}
-            runStatus={run.status}
-            startedAt={run.started_at}
-            completedAt={run.completed_at}
-          />
+          {/* Keep RunConsole mounted even when tab switches */}
+          <div style={{ display: activeTab === 'console' ? 'block' : 'none' }}>
+            <RunConsole
+              runId={runId}
+              runStatus={run.status}
+              startedAt={run.started_at}
+              completedAt={run.completed_at}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="timeline" className="mt-6">

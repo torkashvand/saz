@@ -49,13 +49,15 @@ Output:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import structlog
 import yaml
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, create_model
+
+from .template_validator import validate_templates
 
 logger = structlog.get_logger(__name__)
 
@@ -337,17 +339,21 @@ _ALLOWED_STEP_TYPES: set[str] = {
     "artifact.retrieve",
     "ai.extract",
     "ai.generate",
-    "ai.transform",
     "ai.route",
+    "ai.score",
+    "ai.assess",
+    "ai.normalize",
+    "ai.match",
+    "ai.evaluate",
+    "ai.compare",
+    "ai.translate",
+    "ai.summarize",
+    "ai.fix_json",
     "group.parallel",
     "group.map",
     "noop",
 }
 
-# Legacy/ergonomic aliases
-_STEP_ALIASES: dict[str, str] = {
-    "http.request": "tool.call",  # normalize http.request → tool.call
-}
 
 _STR_FORMAT_PATTERNS: dict[str, str] = {
     "email": r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$",
@@ -373,6 +379,7 @@ class DSLCompiled:
     policies: dict[str, Any]
     credentials: list[str]
     raw_dsl: dict[str, Any]
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def json_schema(self) -> dict[str, Any]:
@@ -636,18 +643,9 @@ def _validate_and_normalize_steps(
             raise ValueError(f"Duplicate step id: {sid}")
         seen_ids.add(sid)
 
-        # type + alias normalize
-        stype_raw: str = cast(str, step.get("type", "tool.call"))
-        stype = _STEP_ALIASES.get(stype_raw, stype_raw)
+        # Get step type
+        stype: str = cast(str, step.get("type", "tool.call"))
         step["type"] = stype
-
-        # Legacy normalization for http.request
-        if stype_raw == "http.request":
-            step.setdefault("params", {})
-            step.setdefault("tool", "http_request")
-            for k in ("url", "method", "headers", "body", "timeout_ms"):
-                if k in step:
-                    step["params"][k] = step.pop(k)
 
         if stype not in _ALLOWED_STEP_TYPES:
             raise ValueError(f"Unknown step type '{stype}' in step '{sid}'")
@@ -848,12 +846,25 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     triggers = _compile_triggers(triggers_in)
     policies = _compile_policies(policies_in)
 
+    # Validate template expressions
+    form_field_names = [f["name"] for f in form.get("fields", [])]
+    step_ids = [s["id"] for s in normalized_steps]
+    template_warnings, template_errors = validate_templates(
+        workflow_spec, form_field_names, step_ids
+    )
+
+    # Raise errors if any template validation failed
+    if template_errors:
+        error_msg = "Template validation failed:\n" + "\n".join(f"  - {e}" for e in template_errors)
+        raise ValueError(error_msg)
+
     logger.info(
         "dsl_compiled",
         flow_name=flow["name"],
         form_fields=len(form.get("fields", [])),
         workflow_steps=len(normalized_steps),
         credentials=len(cred_names),
+        template_warnings=len(template_warnings),
     )
 
     return DSLCompiled(
@@ -867,4 +878,5 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
         policies=policies,
         credentials=cred_names,
         raw_dsl=dsl | {"credentials_normalized": cred_objects},
+        warnings=template_warnings,
     )

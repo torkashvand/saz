@@ -58,9 +58,9 @@ workflow:
       instruction: "Determine the correct team to handle this ticket based on category and priority."
       params:
         data:
-          category: "{{ $step('extract_ticket_data').output.category }}"
-          priority: "{{ $step('extract_ticket_data').output.priority }}"
-          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
       branches_enum:
         - engineering_urgent
         - engineering_normal
@@ -70,12 +70,11 @@ workflow:
       temperature: 0.1
       max_tokens: 256
 
-    # Step 3: Score ticket complexity for SLA assignment (use ai.transform)
+    # Step 3: Score ticket complexity for SLA assignment
     - id: score_complexity
-      type: ai.transform
+      type: ai.score
       instruction: |
-        Return ONLY a JSON object with a single field "score" in [0,1].
-        Calibrate using the rubric:
+        Score the ticket complexity from 0 to 1 using this rubric:
         0.0-0.3: Simple questions/FAQ/basic troubleshooting
         0.3-0.6: Moderate; needs docs lookup/basic debugging
         0.6-0.8: Complex; code review/system investigation
@@ -83,12 +82,7 @@ workflow:
       params:
         data:
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').output.category }}"
-      expect:
-        type: object
-        properties:
-          score: { type: number, minimum: 0, maximum: 1 }
-        required: [score]
+          category: "{{ $step('extract_ticket_data').category }}"
       temperature: 0.1
       max_tokens: 256
 
@@ -100,11 +94,11 @@ workflow:
         data:
           customer_email: "{{ $form.customer_email }}"
           ticket: "{{ $form.ticket_text }}"
-          category: "{{ $step('extract_ticket_data').output.category }}"
-          priority: "{{ $step('extract_ticket_data').output.priority }}"
-          sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
-          routed_to: "{{ $step('route_ticket').output.route }}"
-          complexity_score: "{{ $step('score_complexity').output.score }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
+          routed_to: "{{ $step('route_ticket').route }}"
+          complexity_score: "{{ $step('score_complexity').score }}"
       word_cap: 200
       temperature: 0.4
       max_tokens: 1024
@@ -118,8 +112,8 @@ workflow:
         { "meets_standards": boolean, "issues": [string], "summary": string }
       params:
         data:
-          response_text: "{{ $step('generate_response').output.text }}"
-          customer_sentiment: "{{ $step('extract_ticket_data').output.sentiment }}"
+          response_text: "{{ $step('generate_response') }}"
+          customer_sentiment: "{{ $step('extract_ticket_data').sentiment }}"
       schema:
         type: object
         properties:
@@ -141,7 +135,7 @@ workflow:
         body:
           to: "{{ $form.customer_email }}"
           subject: "Your support ticket has been received"
-          body: "{{ $step('generate_response').output.text }}"
+          body: "{{ $step('generate_response') }}"
           template: "support_acknowledgment"
       expect:
         type: object
@@ -156,12 +150,12 @@ workflow:
         content:
           original_ticket: "{{ $form.ticket_text }}"
           customer_email: "{{ $form.customer_email }}"
-          extracted: "{{ $step('extract_ticket_data').output }}"
-          routing: "{{ $step('route_ticket').output }}"
-          complexity: "{{ $step('score_complexity').output }}"
-          response: "{{ $step('generate_response').output }}"
-          evaluation: "{{ $step('evaluate_response').output }}"
-          email_sent: "{{ $step('send_response').output.message_id }}"
+          extracted: "{{ $step('extract_ticket_data') }}"
+          routing: "{{ $step('route_ticket') }}"
+          complexity: "{{ $step('score_complexity') }}"
+          response: "{{ $step('generate_response') }}"
+          evaluation: "{{ $step('evaluate_response') }}"
+          email_sent: "{{ $step('send_response').message_id }}"
 
 policies:
   budget_usd: 0.50                 # compiler supports cost budget (not token/step/time)

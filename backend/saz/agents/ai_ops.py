@@ -58,7 +58,7 @@ AI_OPS: dict[str, AIOpSpec] = {
         name="ai.generate",
         description=(
             "Compose human-readable text (email, summary, message). "
-            "Returns text or JSON with 'content'."
+            "Returns plain text string in the output field."
         ),
         temperature=0.4,
         output_format="text",

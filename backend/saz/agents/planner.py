@@ -66,7 +66,8 @@ DO NOT use "manual" or any other values - they are invalid!
 
 ## Template Variable Syntax
 - For form data: {{{{ $form.field_name }}}}
-- For previous step results: {{{{ $step('step_id').output_field }}}}
+- For previous step results: {{{{ $step('step_id').field }}}} or {{{{ $step('step_id') }}}} for entire output
+  IMPORTANT: $step() automatically returns the 'output' key - do NOT use .output.field!
 - For environment variables: {{{{ $env('VAR_NAME') }}}}
 - For secrets: {{{{ $secret('SECRET_NAME') }}}}
 
@@ -77,7 +78,7 @@ DO NOT use "manual" or any other values - they are invalid!
 - If unclear, use "human_approval" action
 - ALWAYS use correct template syntax with $form. prefix for form data
 
-Generate the plan now."""
+Generate the plan now."""  # noqa: E501
 
 
 class PlannerAgent:

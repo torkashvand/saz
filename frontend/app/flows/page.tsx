@@ -13,10 +13,14 @@ export default function FlowsPage() {
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  const { data: flows, isLoading } = useQuery({
+  const { data: flows, isLoading, error, isError, failureCount } = useQuery({
     queryKey: ['flows', page],
     queryFn: () => api.listFlows({ limit, offset: page * limit }),
+    retry: false, // Disable retry to show error immediately
   });
+
+  // Debug logging
+  console.log('Query state:', { isLoading, isError, error, failureCount });
 
   const totalPages = flows ? Math.ceil(flows.total / limit) : 0;
 
@@ -32,7 +36,22 @@ export default function FlowsPage() {
         </Link>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Card className="p-12 text-center border-red-200 bg-red-50">
+          <div className="text-red-600 text-xl mb-3">⚠️</div>
+          <h3 className="text-lg font-semibold text-red-900 mb-2">Failed to Load Flows</h3>
+          <p className="text-red-700 mb-4">
+            {error instanceof Error ? error.message : 'An error occurred while fetching flows'}
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => window.location.reload()}
+            className="border-red-300 text-red-700 hover:bg-red-100"
+          >
+            Retry
+          </Button>
+        </Card>
+      ) : isLoading ? (
         <div className="text-center py-8">Loading flows...</div>
       ) : flows && flows.items.length > 0 ? (
         <>

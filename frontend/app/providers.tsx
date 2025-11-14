@@ -1,6 +1,6 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useGlobalEvents } from '@/lib/use-events';
 
@@ -13,6 +13,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
+        queryCache: new QueryCache({
+          onError: (error, query) => {
+            console.error('[React Query] Query failed:', {
+              error,
+              queryKey: query.queryKey,
+            });
+          },
+        }),
         defaultOptions: {
           queries: {
             staleTime: 60 * 1000,

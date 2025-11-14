@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { ErrorState } from '@/components/error-state';
 import Link from 'next/link';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,7 +27,7 @@ export default function RunsPage() {
   const [flowIdFilter, setFlowIdFilter] = useState('');
   const limit = 20;
 
-  const { data: runs, isLoading } = useQuery({
+  const { data: runs, isLoading, error, isError } = useQuery({
     queryKey: ['runs', page, statusFilter, flowIdFilter],
     queryFn: () =>
       api.listRuns({
@@ -119,7 +120,13 @@ export default function RunsPage() {
       )}
 
       {/* Runs List */}
-      {isLoading ? (
+      {isError ? (
+        <ErrorState
+          error={error}
+          title="Failed to Load Runs"
+          onRetry={() => window.location.reload()}
+        />
+      ) : isLoading ? (
         <div className="text-center py-8">Loading runs...</div>
       ) : runs && runs.items.length > 0 ? (
         <>

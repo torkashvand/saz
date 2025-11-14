@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCreateRun, useFlowDetail } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
+import { ErrorState } from '@/components/error-state';
 
 export default function NewRunPage() {
   const router = useRouter();
@@ -66,8 +67,21 @@ export default function NewRunPage() {
     );
   }
 
+  // Error loading flow
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <ErrorState
+          error={error}
+          title="Failed to Load Workflow"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
+
   // No flow ID or flow not found
-  if (!flowId || !flow || error) {
+  if (!flowId || !flow) {
     return (
       <div className="container mx-auto px-4 py-12">
         <Card className="max-w-lg mx-auto">

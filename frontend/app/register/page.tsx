@@ -10,6 +10,7 @@ import { useCompileFlow, useRegisterFlow, useFlowGraph } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
 import { JsonView } from '@/components/json-view';
 import { WorkflowGraph } from '@/components/workflow-graph';
+import { ApiError } from '@/lib/api';
 import type { RegisterFlowResponse, CompileFlowResponse } from '@/lib/types';
 
 // Dynamically import Monaco editor to avoid SSR issues
@@ -199,6 +200,7 @@ export default function RegisterPage() {
   const [compiledFlow, setCompiledFlow] = useState<CompileFlowResponse | null>(null);
   const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<Error | ApiError | null>(null);
 
   const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null);
 
@@ -261,6 +263,9 @@ export default function RegisterPage() {
       return;
     }
 
+    // Clear previous registration error
+    setRegistrationError(null);
+
     try {
       const result = await registerMutation.mutateAsync({ yaml });
 
@@ -275,6 +280,9 @@ export default function RegisterPage() {
         description: `Flow "${result.name}" registered successfully`,
       });
     } catch (error: any) {
+      // Store error for persistent display
+      setRegistrationError(error);
+
       toast({
         title: 'Registration Failed',
         description: error.message || 'An error occurred',
@@ -330,8 +338,9 @@ export default function RegisterPage() {
                   value={yaml}
                   onChange={(value) => {
                     setYaml(value || '');
-                    // Clear validation error when user edits
+                    // Clear errors when user edits
                     if (validationError) setValidationError(null);
+                    if (registrationError) setRegistrationError(null);
                   }}
                   theme="vs-dark"
                   options={{
@@ -363,6 +372,35 @@ export default function RegisterPage() {
                     <div className="text-xs text-red-700 font-mono whitespace-pre-wrap break-words">
                       {validationError}
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {registrationError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="text-red-600 text-xl">⚠️</div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-red-800 mb-1">
+                      Registration Failed
+                    </div>
+                    <div className="text-xs text-red-700 mb-2">
+                      {registrationError instanceof ApiError
+                        ? registrationError.message
+                        : registrationError instanceof Error
+                        ? registrationError.message
+                        : 'An error occurred while registering the flow'}
+                    </div>
+                    {registrationError instanceof ApiError && registrationError.details && (
+                      <div className="text-xs text-red-600 font-mono mb-2">
+                        {registrationError.details.map((d) => d.message).join(', ')}
+                      </div>
+                    )}
+                    {registrationError instanceof ApiError && registrationError.requestId && (
+                      <div className="text-xs text-red-500">
+                        Request ID: {registrationError.requestId}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

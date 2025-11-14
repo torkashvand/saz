@@ -3,6 +3,8 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useGlobalEvents } from '@/lib/use-events';
+import { toast } from '@/components/ui/use-toast';
+import { ApiError } from '@/lib/api';
 
 function EventsProvider() {
   useGlobalEvents();
@@ -19,12 +21,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
               error,
               queryKey: query.queryKey,
             });
+
+            // Show toast notification for query errors
+            const errorMessage =
+              error instanceof ApiError
+                ? error.message
+                : error instanceof Error
+                ? error.message
+                : 'An unexpected error occurred';
+
+            toast({
+              title: 'Request Failed',
+              description: errorMessage,
+              variant: 'destructive',
+            });
           },
         }),
         defaultOptions: {
           queries: {
             staleTime: 60 * 1000,
-            retry: 1,
+            retry: false, // Disable auto-retry to show errors immediately
+            refetchOnWindowFocus: false, // Prevent unwanted refetches
           },
         },
       }),

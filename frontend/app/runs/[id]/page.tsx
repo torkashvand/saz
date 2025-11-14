@@ -22,6 +22,7 @@ import {
 import { WorkflowGraph } from '@/components/workflow-graph';
 import { CollapsibleJson } from '@/components/json-view';
 import { RunConsole } from '@/components/run-console';
+import { ErrorState } from '@/components/error-state';
 import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
@@ -127,7 +128,7 @@ export default function RunDetailPage() {
   const router = useRouter();
   const runId = params.id as string;
   const { toast } = useToast();
-  const { data: run, isLoading: isLoadingRun } = useRunDetails(runId);
+  const { data: run, isLoading: isLoadingRun, error, isError } = useRunDetails(runId);
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
   const [activeTab, setActiveTab] = useState('console');
 
@@ -176,6 +177,18 @@ export default function RunDetailPage() {
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <ErrorState
+          error={error}
+          title="Failed to Load Run"
+          onRetry={() => window.location.reload()}
+        />
       </div>
     );
   }

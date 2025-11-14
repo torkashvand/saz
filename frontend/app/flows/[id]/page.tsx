@@ -6,18 +6,31 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { JsonView } from '@/components/json-view';
+import { ErrorState } from '@/components/error-state';
 import Link from 'next/link';
 
 export default function FlowDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
 
-  const { data: flow, isLoading } = useQuery({
+  const { data: flow, isLoading, error, isError } = useQuery({
     queryKey: ['flow', params.id],
     queryFn: () => api.getFlow(params.id),
   });
 
   if (isLoading) {
     return <div className="container mx-auto py-8 text-center">Loading flow...</div>;
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto py-8">
+        <ErrorState
+          error={error}
+          title="Failed to Load Flow"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
   }
 
   if (!flow) {

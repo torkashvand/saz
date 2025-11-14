@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import { ErrorState } from '@/components/error-state';
 import type {
   CredentialResponse,
   CreateCredentialRequest,
@@ -27,7 +28,7 @@ export default function CredentialsPage() {
   const [dataJson, setDataJson] = useState('{}');
 
   // Fetch credentials
-  const { data: credentials, isLoading } = useQuery({
+  const { data: credentials, isLoading, error, isError } = useQuery({
     queryKey: ['credentials'],
     queryFn: () => api.listCredentials(),
   });
@@ -232,7 +233,13 @@ export default function CredentialsPage() {
       )}
 
       {/* Credentials List */}
-      {isLoading ? (
+      {isError ? (
+        <ErrorState
+          error={error}
+          title="Failed to Load Credentials"
+          onRetry={() => window.location.reload()}
+        />
+      ) : isLoading ? (
         <div className="text-center py-8">Loading credentials...</div>
       ) : credentials && credentials.items.length > 0 ? (
         <div className="grid gap-4">

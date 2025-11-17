@@ -96,31 +96,31 @@ Use the budget wisely. Prefer shorter, effective plans over long chains of margi
 Return a **single JSON object** with this shape:
 
 ```jsonc
-{
+{{
   "plan_id": "<uuid>",
   "steps": [
-    {
+    {{
       "step_id": "<short snake_case id>",
       "action": "tool_call",
       "tool_name": "<exact tool name from registry>",
-      "input_template": {
+      "input_template": {{
         // JSON object. Values are template strings like:
-        // "{{ $form.field_name }}" or "{{ $step('previous_step').field }}"
-        // or "{{ $env('VAR_NAME') }}", "{{ $secret('NAME') }}"
-      },
-      "expected_output_schema": {
+        // "{{{{ $form.field_name }}}}" or "{{{{ $step('previous_step').field }}}}"
+        // or "{{{{ $env('VAR_NAME') }}}}", "{{{{ $secret('NAME') }}}}"
+      }},
+      "expected_output_schema": {{
         "type": "object",
-        "properties": {}
-      },
+        "properties": {{}}
+      }},
       "error_handling": "retry",
       "max_retries": 3,
       "reasoning": "<why this step exists, what it does, and how it uses its inputs>"
-    }
+    }}
   ],
   "estimated_cost_usd": 0.0,
   "estimated_time_seconds": 0,
   "reasoning": "<overall plan justification and high-level strategy>"
-}
+}}
 ```
 
 Notes:
@@ -148,15 +148,15 @@ Do **not** use any other values.
 You are generating **templates**, not concrete values.
 
 - Form data:
-  `{{ $form.field_name }}`
+  `{{{{ $form.field_name }}}}`
 - Previous step results:
-  `{{ $step('step_id').field }}`
-  or `{{ $step('step_id') }}` for the full output object
+  `{{{{ $step('step_id').field }}}}`
+  or `{{{{ $step('step_id') }}}}` for the full output object
   > `"$step()" already returns the output; do **not** use `.output.field`.
 - Environment variables:
-  `{{ $env('VAR_NAME') }}`
+  `{{{{ $env('VAR_NAME') }}}}`
 - Secrets:
-  `{{ $secret('SECRET_NAME') }}`
+  `{{{{ $secret('SECRET_NAME') }}}}`
 
 Make sure templates line up with what each tool expects as input.
 
@@ -184,7 +184,7 @@ Make sure templates line up with what each tool expects as input.
   - A global `reasoning` field for the plan.
   - A `reasoning` field for each step.
 - Respect the autonomy budget (tokens, cost, steps).
-- Prefer clear, auditable data flows using `$form`, `$step`, `$env`, and `$secret` templates exactly as specified.
+- Prefer clear, auditable data flows using templates ($form, $step, $env, $secret) exactly as specified.
 
 ---
 

@@ -6,15 +6,17 @@ Supports:
 - Credential injection (SSH keys, vault passwords)
 - Artifact storage (stdout, events, recap)
 - Allowlist policies for playbooks and inventories
+
+Uses ansible_runner library for enhanced execution capabilities.
 """
 
 import json
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import structlog
+
+from .ansible_runner_backend import AnsibleRunnerBackend
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +37,7 @@ class AnsibleTool:
         allowed_playbook_roots: list[str] | None = None,
         allowed_inventories: list[str] | None = None,
         artifact_storage_path: str = "/tmp/saz/ansible_artifacts",
+        runner_artifacts_dir: str = "/tmp/saz/ansible_runner",
     ):
         """
         Initialize Ansible tool.
@@ -43,11 +46,13 @@ class AnsibleTool:
             allowed_playbook_roots: List of allowed playbook directories
             allowed_inventories: List of allowed inventory paths
             artifact_storage_path: Path to store execution artifacts
+            runner_artifacts_dir: Path for ansible_runner internal artifacts
         """
         self.allowed_playbook_roots = allowed_playbook_roots or []
         self.allowed_inventories = allowed_inventories or []
         self.artifact_storage_path = Path(artifact_storage_path)
         self.artifact_storage_path.mkdir(parents=True, exist_ok=True)
+        self.backend = AnsibleRunnerBackend(runner_artifacts_dir=runner_artifacts_dir)
         self.logger = logger.bind(tool="ansible")
 
     @property
@@ -169,116 +174,55 @@ class AnsibleTool:
                 f"Inventory '{inventory}' not in allowed inventories: {self.allowed_inventories}"
             )
 
-        # Build ansible-playbook command
-        cmd = ["ansible-playbook", playbook, "-i", inventory]
+        # Execute via ansible_runner backend
+        result = await self.backend.execute(
+            mode=mode,
+            playbook=playbook,
+            inventory=inventory,
+            limit=limit,
+            tags=tags,
+            skip_tags=skip_tags,
+            extra_vars=extra_vars,
+            credentials=credentials,
+            verbosity=verbosity,
+            timeout=3600,
+            run_id=run_id,
+            step_id=step_id,
+        )
 
-        # Add mode flag
-        if mode == "check":
-            cmd.extend(["--check", "--diff"])
+        # Store enhanced artifacts
+        artifact_id = f"{run_id}_{step_id}_ansible"
+        artifact_path = self.artifact_storage_path / f"{artifact_id}.json"
+        artifact_data = {
+            "mode": mode,
+            "playbook": playbook,
+            "inventory": inventory,
+            "stdout": result["stdout"],
+            "return_code": result["return_code"],
+            "recap": result["recap"],
+            "events": result["events"],
+            "runner_artifacts_dir": result["runner_artifacts_dir"],
+        }
+        artifact_path.write_text(json.dumps(artifact_data, indent=2))
 
-        # Add limit
-        if limit:
-            cmd.extend(["--limit", limit])
+        self.logger.info(
+            "ansible_execute_complete",
+            mode=mode,
+            playbook=playbook,
+            return_code=result["return_code"],
+            recap=result["recap"],
+            artifact_id=artifact_id,
+        )
 
-        # Add tags
-        if tags:
-            cmd.extend(["--tags", ",".join(tags)])
-        if skip_tags:
-            cmd.extend(["--skip-tags", ",".join(skip_tags)])
-
-        # Add extra vars
-        if extra_vars:
-            cmd.extend(["--extra-vars", json.dumps(extra_vars)])
-
-        # Add verbosity
-        if verbosity > 0:
-            cmd.append(f"-{'v' * verbosity}")
-
-        # Inject credentials via temp files
-        ssh_key_file = None
-        vault_pass_file = None
-
-        try:
-            if credentials:
-                if "ssh_key" in credentials:
-                    ssh_key_file = tempfile.NamedTemporaryFile(
-                        mode='w', delete=False, suffix='_id_rsa'
-                    )
-                    ssh_key_file.write(credentials["ssh_key"])
-                    ssh_key_file.close()
-                    Path(ssh_key_file.name).chmod(0o600)
-                    cmd.extend(["--private-key", ssh_key_file.name])
-
-                if "vault_password" in credentials:
-                    vault_pass_file = tempfile.NamedTemporaryFile(
-                        mode='w', delete=False, suffix='_vault'
-                    )
-                    vault_pass_file.write(credentials["vault_password"])
-                    vault_pass_file.close()
-                    Path(vault_pass_file.name).chmod(0o600)
-                    cmd.extend(["--vault-password-file", vault_pass_file.name])
-
-            # Execute playbook
-            self.logger.info(
-                "ansible_command", cmd=" ".join(cmd[:6]) + " ..."
-            )  # Don't log full command
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600,  # 1 hour max
-            )
-
-            stdout = result.stdout
-            stderr = result.stderr
-            return_code = result.returncode
-
-            # Parse recap from stdout
-            recap = self._parse_recap(stdout)
-
-            # Store artifacts
-            artifact_id = f"{run_id}_{step_id}_ansible"
-            artifact_path = self.artifact_storage_path / f"{artifact_id}.json"
-            artifact_data = {
-                "mode": mode,
-                "playbook": playbook,
-                "inventory": inventory,
-                "stdout": stdout,
-                "stderr": stderr,
-                "return_code": return_code,
-                "recap": recap,
-            }
-            artifact_path.write_text(json.dumps(artifact_data, indent=2))
-
-            self.logger.info(
-                "ansible_execute_complete",
-                mode=mode,
-                playbook=playbook,
-                return_code=return_code,
-                recap=recap,
-                artifact_id=artifact_id,
-            )
-
-            # Determine success based on return code
-            if return_code != 0:
-                raise RuntimeError(f"Ansible playbook failed (code {return_code}): {stderr[:500]}")
-
-            return {
-                "status": "success",
-                "mode": mode,
-                "recap": recap,
-                "artifact_id": artifact_id,
-                "stdout_preview": stdout[:1000],
-                "changed": recap.get("changed", 0) > 0,
-            }
-
-        finally:
-            # Clean up temp files
-            if ssh_key_file and Path(ssh_key_file.name).exists():
-                Path(ssh_key_file.name).unlink()
-            if vault_pass_file and Path(vault_pass_file.name).exists():
-                Path(vault_pass_file.name).unlink()
+        # Return response
+        return {
+            "status": result["status"],
+            "mode": mode,
+            "recap": result["recap"],
+            "artifact_id": artifact_id,
+            "stdout_preview": result["stdout"][:1000],
+            "changed": result["changed"],
+        }
 
     def _is_allowed_playbook(self, playbook: str) -> bool:
         """Check if playbook is in allowed roots."""
@@ -306,45 +250,3 @@ class AnsibleTool:
             if inventory_path == allowed_path:
                 return True
         return False
-
-    def _parse_recap(self, stdout: str) -> dict[str, int]:
-        """
-        Parse Ansible recap from stdout.
-
-        Example:
-            PLAY RECAP *********************************************************************
-            host1                      : ok=5    changed=2    unreachable=0    failed=0
-                                         skipped=1    rescued=0    ignored=0
-        """
-        recap = {
-            "ok": 0,
-            "changed": 0,
-            "unreachable": 0,
-            "failed": 0,
-            "skipped": 0,
-            "rescued": 0,
-            "ignored": 0,
-        }
-
-        lines = stdout.split("\n")
-        in_recap = False
-
-        for line in lines:
-            if "PLAY RECAP" in line:
-                in_recap = True
-                continue
-
-            if in_recap and ":" in line:
-                # Parse recap line
-                parts = line.split(":")
-                if len(parts) >= 2:
-                    stats_str = parts[1]
-                    for key in recap.keys():
-                        if key + "=" in stats_str:
-                            try:
-                                val_str = stats_str.split(key + "=")[1].split()[0]
-                                recap[key] += int(val_str)
-                            except (IndexError, ValueError):
-                                pass
-
-        return recap

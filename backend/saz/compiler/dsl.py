@@ -1,4 +1,4 @@
-"""YAML DSL Compiler for Saz.
+"""YAML DSL (Domain Specific Language) Compiler for Saz.
 
 Strict DSL (schema_version: 1) with compile-time validation.
 

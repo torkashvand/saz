@@ -1,5 +1,11 @@
 # Example 3: Ansible deployment with dry-run approval
 # Use case: Safe infrastructure deployment with human gate
+#
+# Technical: This example uses the ansible_run tool which is powered by
+# ansible_runner library for enhanced execution with structured event capture,
+# better error handling, and comprehensive artifact storage.
+
+schema_version: 1
 
 flow:
   name: ansible_deployment
@@ -29,7 +35,6 @@ triggers:
   manual: true
   webhook:
     path: "/deploy"
-    method: POST
 
 workflow:
   steps:
@@ -58,8 +63,9 @@ workflow:
             type: string
       retry:
         attempts: 2
-        backoff: linear
-        max_delay: 10
+        backoff:
+          mode: linear
+          max_ms: 10000
 
     - id: store_dry_run_results
       type: artifact.store
@@ -105,8 +111,9 @@ workflow:
             type: string
       retry:
         attempts: 1
-        backoff: linear
-        max_delay: 30
+        backoff:
+          mode: linear
+          max_ms: 30000
 
     - id: verify_deployment
       type: condition
@@ -142,16 +149,12 @@ workflow:
           artifact: "{{ $step('apply_deployment').artifact_id }}"
 
 policies:
-  budget:
-    max_tokens: 10000
-    max_cost_usd: 1.00
-    max_steps: 30
-    max_time_seconds: 7200  # 2 hours
+  budget_usd: 1.00
   rate_limits:
-    max_requests_per_minute: 5
+    ansible_run:
+      rpm: 5
   pii:
-    enforce_redaction: true
-    allowed_fields: []
+    allow: false
 
 credentials:
   uses:

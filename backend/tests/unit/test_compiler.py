@@ -23,7 +23,9 @@ def test_parse_valid_yaml_minimal():
 _schema_version: 1
 flow:
   name: TestFlow
+  description: Minimal test workflow
 workflow:
+  planner_mode: deterministic
   steps:
     - id: s1
       type: noop
@@ -53,18 +55,26 @@ workflow: { steps: [ { id: s1, type: noop } ] }
     with pytest.raises(ValueError, match="flow.name is required"):
         parse_yaml(yaml_no_flow)
 
+    yaml_no_planner_mode = """
+schema_version: 1
+flow: { name: A, description: "Test workflow" }
+workflow: { steps: [] }
+"""
+    with pytest.raises(ValueError, match="workflow.planner_mode is required"):
+        parse_yaml(yaml_no_planner_mode)
+
     yaml_no_steps = """
 schema_version: 1
-flow: { name: A }
-workflow: {}
+flow: { name: A, description: "Test workflow" }
+workflow: { planner_mode: deterministic }
 """
     with pytest.raises(ValueError, match="workflow.steps is required"):
         parse_yaml(yaml_no_steps)
 
     yaml_empty_steps = """
 schema_version: 1
-flow: { name: A }
-workflow: { steps: [] }
+flow: { name: A, description: "Test workflow" }
+workflow: { planner_mode: deterministic, steps: [] }
 """
     with pytest.raises(ValueError, match="non-empty"):
         parse_yaml(yaml_empty_steps)
@@ -73,17 +83,17 @@ workflow: { steps: [] }
 def test_parse_form_optional_but_shape_checked():
     yaml_ok = """
 schema_version: 1
-flow: { name: A }
+flow: { name: A, description: "Test workflow" }
 form: { fields: [] }
-workflow: { steps: [ { id: s1, type: noop } ] }
+workflow: { planner_mode: deterministic, steps: [ { id: s1, type: noop } ] }
 """
     assert parse_yaml(yaml_ok)["form"]["fields"] == []
 
     yaml_bad = """
 schema_version: 1
-flow: { name: A }
+flow: { name: A, description: "Test workflow" }
 form: {}
-workflow: { steps: [ { id: s1, type: noop } ] }
+workflow: { planner_mode: deterministic, steps: [ { id: s1, type: noop } ] }
 """
     with pytest.raises(ValueError, match="form.fields is required"):
         parse_yaml(yaml_bad)
@@ -204,13 +214,15 @@ def test_form_unknown_type_is_error():
 
 def test_compile_workflow_spec_passthrough():
     workflow_def = {
+        "planner_mode": "deterministic",
         "steps": [
             {"id": "s1", "type": "tool.call"},
             {"id": "s2", "type": "ai.extract", "instruction": "Do it"},
-        ]
+        ],
     }
     spec = compile_workflow_spec(workflow_def, "FlowName")
     assert spec["name"] == "FlowName"
+    assert spec["planner_mode"] == "deterministic"
     assert [s["id"] for s in spec["steps"]] == ["s1", "s2"]
 
 
@@ -275,9 +287,11 @@ def _base(prefix_steps: str) -> str:
 schema_version: 1
 flow:
   name: FlowX
+  description: Test workflow
 form:
   fields: []
 workflow:
+  planner_mode: deterministic
   steps:
 {prefix_steps}
 """
@@ -286,13 +300,15 @@ workflow:
 def test_dsl_tool_call_and_ai_steps_and_credentials_ok():
     yaml_content = """
 schema_version: 1
-flow: { name: FlowX }
+flow: { name: FlowX, description: "Test workflow" }
 credentials:
   uses: [github, slack]
 workflow:
+  planner_mode: deterministic
   steps:
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: { url: "https://example.com", method: "GET" }
       uses_credentials: ["github"]
@@ -311,18 +327,23 @@ def test_dsl_condition_and_human_and_webhook_and_artifacts():
     steps = """
     - id: c1
       type: condition
+      description: "Test step"
       if: "${{ input.value > 0 }}"
     - id: h1
       type: human.approval
+      description: "Test step"
       params: { approvers: ["alice"] }
     - id: w1
       type: webhook.wait
+      description: "Test step"
       params: { event_name: "payment.succeeded" }
     - id: s1
       type: artifact.store
+      description: "Test step"
       params: { name: "doc", content: "hello" }
     - id: r1
       type: artifact.retrieve
+      description: "Test step"
       params: { name: "doc" }
 """
     compiled = compile_dsl(_base(steps))
@@ -343,6 +364,7 @@ def test_dsl_group_parallel_and_group_map_minimal():
       steps:
         - id: t1
           type: tool.call
+          description: "Test step"
           tool: http_request
           params: { url: "https://a" }
         - id: t2
@@ -387,12 +409,13 @@ def test_dsl_missing_required_keys_per_type():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       params: {}
 """
             )
         )
 
-    with pytest.raises(ValueError, match="requires 'instruction'"):
+    with pytest.raises(ValueError, match="requires.*instruction"):
         compile_dsl(
             _base(
                 """
@@ -435,6 +458,7 @@ def test_dsl_params_must_be_object_when_present():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: 42
 """
@@ -447,6 +471,7 @@ def test_dsl_params_must_be_object_when_present():
                 """
     - id: w1
       type: webhook.wait
+      description: "Test step"
       params: {}
 """
             )
@@ -470,13 +495,15 @@ def test_dsl_duplicate_step_ids_disallowed():
 def test_dsl_uses_credentials_must_exist_and_be_list():
     doc = """
 schema_version: 1
-flow: { name: FlowX }
+flow: { name: FlowX, description: "Test workflow" }
 credentials:
   uses: [known]
 workflow:
+  planner_mode: deterministic
   steps:
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       uses_credentials: ["known", "missing"]
@@ -486,13 +513,15 @@ workflow:
 
     doc2 = """
 schema_version: 1
-flow: { name: FlowX }
+flow: { name: FlowX, description: "Test workflow" }
 credentials:
   uses: [known]
 workflow:
+  planner_mode: deterministic
   steps:
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       uses_credentials: "known"
@@ -509,6 +538,7 @@ def test_dsl_retry_and_backoff_validation():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       retry: { attempts: -1 }
@@ -522,6 +552,7 @@ def test_dsl_retry_and_backoff_validation():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       retry: { attempts: 1, backoff: { mode: "bad" } }
@@ -535,6 +566,7 @@ def test_dsl_retry_and_backoff_validation():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       retry: { attempts: 1, backoff: { mode: "linear", base_ms: -1 } }
@@ -548,6 +580,7 @@ def test_dsl_retry_and_backoff_validation():
                 """
     - id: t1
       type: tool.call
+      description: "Test step"
       tool: http_request
       params: {}
       retry: { attempts: 1, backoff: { mode: "linear", jitter: "yes" } }
@@ -564,12 +597,13 @@ def test_dsl_retry_and_backoff_validation():
 def test_triggers_defaults_and_overrides():
     doc = """
 schema_version: 1
-flow: { name: FlowX }
+flow: { name: FlowX, description: "Test workflow" }
 triggers:
   manual: false
   webhook: { event: "issue.opened", path: "/hook", signature_header: "X-Sig" }
   schedule: { cron: "0 * * * *", timezone: "Europe/Amsterdam" }
 workflow:
+  planner_mode: deterministic
   steps: [ { id: s1, type: noop } ]
 """
     compiled = compile_dsl(doc)
@@ -583,8 +617,9 @@ def test_triggers_default_manual_true_when_absent():
     compiled = compile_dsl(
         """
 schema_version: 1
-flow: { name: FlowX }
+flow: { name: FlowX, description: "Test workflow" }
 workflow:
+  planner_mode: deterministic
   steps: [ { id: s1, type: noop } ]
 """
     )
@@ -631,6 +666,7 @@ policies:
     http_request: { rpm: 120 }
 
 workflow:
+  planner_mode: deterministic
   steps:
     - id: validate_email
       type: tool.call

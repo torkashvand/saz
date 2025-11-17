@@ -23,6 +23,7 @@ triggers:
     cron: "*/5 * * * *"  # Every 5 minutes
 
 workflow:
+  planner_mode: deterministic
   steps:
     - id: health_check
       type: tool.call

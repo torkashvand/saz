@@ -1,0 +1,46 @@
+# Agentic incident triage - LLM planner generates steps dynamically
+# Mode: agentic (LLM-planned workflow)
+#
+# The LLM planner reads the incident description and available tools,
+# then generates an appropriate investigation and resolution plan.
+# Steps are generated at runtime based on incident context.
+
+schema_version: 1
+
+flow:
+  name: incident_triage_agentic
+  version: "1.0"
+  description: LLM-planned incident investigation and triage workflow
+
+form:
+  fields:
+    - name: incident_summary
+      type: string
+      required: true
+      description: Freeform description of the incident
+    - name: severity
+      type: string
+      required: true
+      enum: ["low", "medium", "high", "critical"]
+      description: Incident severity level
+    - name: affected_service
+      type: string
+      required: false
+      description: Name of the affected service (if known)
+
+triggers:
+  manual: true
+  webhook:
+    path: "/incidents"
+
+workflow:
+  planner_mode: agentic
+  steps: []  # LLM planner generates steps dynamically based on incident context
+
+policies:
+  budget_usd: 0.50
+  pii:
+    allow: false
+
+credentials:
+  uses: []

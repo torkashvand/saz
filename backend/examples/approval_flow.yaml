@@ -29,6 +29,7 @@ triggers:
     method: POST
 
 workflow:
+  planner_mode: deterministic
   steps:
     - id: validate_user
       type: tool.call

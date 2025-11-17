@@ -76,6 +76,7 @@ form:
 
 # Workflow demonstrating PII handling
 workflow:
+  planner_mode: deterministic
   steps:
     # Step 1: Extract structured data from inquiry using AI
     # PII in input will be TOKENIZED automatically

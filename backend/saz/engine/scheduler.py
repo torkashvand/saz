@@ -82,11 +82,23 @@ class RunScheduler:
                 asyncio.set_event_loop(loop)
 
                 with UnitOfWork(session) as uow:
-                    # Create WorkflowExecutor with global singletons
+                    # Get flow to determine planner_mode
+                    assert uow.run_reads is not None
+                    run = uow.run_reads.detail(run_id)
+                    planner_mode = "deterministic"  # Default fallback
+                    if run:
+                        assert uow.flows is not None
+                        flow = uow.flows.get(run.flow_id)
+                        if flow:
+                            planner_mode = flow.definition.get("workflow", {}).get(
+                                "planner_mode", "deterministic"
+                            )
+
+                    # Create WorkflowExecutor with appropriate planner
                     executor = WorkflowExecutor(
                         uow=uow,
                         tool_registry=get_tool_registry(),
-                        planner=get_planner(),
+                        planner=get_planner(planner_mode),
                         executor_agent=get_executor(),
                         critic=get_critic(),
                         policy_engine=get_policy_engine(),

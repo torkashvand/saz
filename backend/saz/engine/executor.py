@@ -1,13 +1,23 @@
-"""Agentic Workflow Execution Engine.
+"""Workflow Execution Engine with Dual Planning Modes.
 
-Executes workflow runs with:
-- Planning (rule-based or LLM-based)
-- Tool execution via registry
-- Retry logic with exponential backoff
-- Budget tracking
-- Conditional branching
-- Artifact persistence
-- Real-time event broadcasting
+Supports two planning modes (chosen per-flow via workflow.planner_mode):
+
+1. Deterministic mode (planner_mode: deterministic):
+   - Converts workflow.steps 1:1 to execution plan
+   - No LLM for graph planning ($0 planning cost)
+   - LLMs used only inside ai.* steps
+
+2. Agentic mode (planner_mode: agentic):
+   - LLM planner generates execution plan dynamically
+   - Reads DSL + tools + budget → produces ExecutionPlan
+   - Planning cost ~$0.01-0.10 per run
+
+Common features:
+- Tool execution via MCP registry
+- Retry logic with configurable backoff
+- Budget tracking and policy enforcement
+- Conditional branching and human approval gates
+- Artifact persistence and real-time event broadcasting
 """
 
 import asyncio
@@ -391,15 +401,18 @@ class WorkflowExecutor:
         self, workflow_spec: dict, run_id: str, context: dict
     ) -> ExecutionPlan:
         """
-        Generate execution plan from workflow specification.
+        Generate ExecutionPlan using self.planner (chosen at construction time).
+
+        The planner type (StepPlanner or PlannerAgent) is selected when the executor
+        is instantiated based on the flow's planner_mode.
 
         Args:
-            workflow_spec: Workflow YAML specification
+            workflow_spec: Workflow YAML specification (includes planner_mode)
             run_id: Run identifier
             context: Execution context
 
         Returns:
-            ExecutionPlan with steps
+            ExecutionPlan from the injected planner
         """
         # Get tool registry specs
         tool_specs = self.tool_registry.get_tool_specs()
@@ -416,7 +429,13 @@ class WorkflowExecutor:
             "max_steps": self.policy_engine.budget_tracker.max_steps,
         }
 
-        # Generate plan using planner
+        # Generate plan using injected planner (type chosen at construction)
+        planner_mode = workflow_spec["planner_mode"]
+        logger.info(
+            f"Planning workflow for run {run_id} (mode: {planner_mode}, "
+            f"steps: {len(workflow_spec.get('steps', []))})"
+        )
+
         plan = await self.planner.plan(
             workflow_spec=workflow_spec,
             tool_registry=tool_specs,
@@ -591,7 +610,7 @@ class WorkflowExecutor:
             return await self._execute_webhook_wait(plan_step, context, run_id)
 
         elif plan_step.action == StepAction.AI_ASSESS:
-            # AI_ASSESS is already handled as a tool call by RulePlanner
+            # AI_ASSESS is handled as a tool call
             return await self._execute_tool_call(plan_step, context, run_id)
 
         else:

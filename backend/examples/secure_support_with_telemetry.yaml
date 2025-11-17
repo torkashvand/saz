@@ -92,6 +92,7 @@ form:
 
 # Workflow with privacy and observability
 workflow:
+  planner_mode: deterministic
   steps:
     # ========================================================================
     # STEP 1: AI Extraction (PII Tokenized)

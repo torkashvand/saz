@@ -30,9 +30,11 @@ form:
       maximum: 100
 
 workflow:
+  planner_mode: deterministic
   steps:
     - id: step1
       type: tool.call
+      description: "Call test API endpoint"
       tool: http_request
       params:
         url: "https://api.example.com/test"

@@ -24,6 +24,7 @@ triggers:
     method: POST
 
 workflow:
+  planner_mode: deterministic
   steps:
     # Step 1: Extract structured data from unstructured ticket
     - id: extract_ticket_data

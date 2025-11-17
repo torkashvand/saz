@@ -2,8 +2,21 @@
 
 Strict DSL (schema_version: 1) with compile-time validation.
 
+## Execution Model
+Saz supports two planning modes:
+
+1. **Deterministic** (default): workflow.steps defines the exact execution graph
+   - Steps execute in order as written
+   - LLMs used INSIDE ai.* steps, not for graph planning
+   - Fast, predictable, $0 planning cost
+
+2. **Agentic**: LLM planner generates execution plan dynamically
+   - PlannerAgent reads DSL + tools → generates ExecutionPlan
+   - Good for open-ended flows (incident triage, exploratory analysis)
+   - Planning cost ~$0.01-0.10 per run
+
 Top-level sections:
-- flow: { name (req), version?, description?, labels?, owners? }
+- flow: { name (req), description (req), version?, labels?, owners? }
 - credentials: { uses: [ "credA", "credB" ] }
 - triggers?: { manual?, webhook{event?,path?,signature_header?}?, schedule{cron?,timezone?}? }
 - policies?: {
@@ -13,7 +26,9 @@ Top-level sections:
   }
 - telemetry?: { trace_level?: "off"|"meta"|"brief"|"verbose", sample_rate?: 0.0-1.0 }
 - form?: { fields: [ { name, type, required?, enum?, pattern?, min?, max?, description?, ... } ] }
-- workflow: { steps: [ step, ... ] }
+- workflow: { planner_mode?: "deterministic"|"agentic", steps: [...] }
+  - planner_mode: "deterministic" (default) or "agentic"
+  - steps: REQUIRED array (non-empty for deterministic, can be empty for agentic)
 
 Allowed step types:
 - tool.call         : { id, type, tool, params, expect? }
@@ -246,14 +261,21 @@ _DSL_SCHEMA: dict[str, Any] | None = {
         "workflow": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["steps"],
+            "required": ["planner_mode", "steps"],
             "properties": {
+                "planner_mode": {
+                    "type": "string",
+                    "enum": ["deterministic", "agentic"],
+                    "description": (
+                        "Planning mode: deterministic (fixed steps) or agentic (LLM planning)"
+                    ),
+                },
                 "steps": {
                     "type": "array",
-                    "minItems": 1,
-                    # Make step validation very light at parse time:
+                    # For agentic mode, steps can be empty (planner generates them)
+                    # For deterministic mode, steps must be non-empty (validated separately)
                     "items": {"$ref": "#/$defs/stepBase"},
-                }
+                },
             },
         },
     },
@@ -451,12 +473,30 @@ def parse_yaml(yaml_content: str) -> dict[str, Any]:
         )
     if "flow" not in dsl or not isinstance(dsl["flow"], dict) or "name" not in dsl["flow"]:
         raise ValueError("flow.name is required")
+    if "description" not in dsl["flow"] or not dsl["flow"]["description"]:
+        raise ValueError("flow.description is required and must be non-empty")
     if "workflow" not in dsl or not isinstance(dsl["workflow"], dict):
         raise ValueError("workflow is required")
+    if "planner_mode" not in dsl["workflow"]:
+        raise ValueError("workflow.planner_mode is required (must be 'deterministic' or 'agentic')")
     if "steps" not in dsl["workflow"]:
         raise ValueError("workflow.steps is required")
-    if isinstance(dsl["workflow"]["steps"], list) and len(dsl["workflow"]["steps"]) == 0:
-        raise ValueError("workflow.steps must be non-empty")
+
+    # Validate planner_mode
+    planner_mode = dsl["workflow"]["planner_mode"]
+    if planner_mode not in {"deterministic", "agentic"}:
+        raise ValueError(
+            f"workflow.planner_mode must be 'deterministic' or 'agentic', got: {planner_mode}"
+        )
+
+    # For deterministic mode, steps must be non-empty
+    # For agentic mode, steps can be empty (planner generates them)
+    if planner_mode == "deterministic":
+        if isinstance(dsl["workflow"]["steps"], list) and len(dsl["workflow"]["steps"]) == 0:
+            raise ValueError(
+                "workflow.steps must be non-empty when planner_mode is 'deterministic'"
+            )
+
     if "form" in dsl:
         if not isinstance(dsl["form"], dict) or "fields" not in dsl["form"]:
             raise ValueError("form.fields is required")
@@ -644,22 +684,45 @@ def _validate_and_normalize_steps(
             _require_keys(step, ["tool", "params"])
             if not isinstance(step["params"], dict):
                 raise ValueError(f"step '{sid}' params must be an object")
+            # Require description for human intent
+            if "description" not in step or not step["description"]:
+                raise ValueError(
+                    f"step '{sid}' (type: tool.call) requires non-empty 'description' field "
+                    "to document human intent"
+                )
         elif stype.startswith("ai."):
             # All AI operations require instruction
-            if "instruction" not in step:
-                raise ValueError(f"step '{sid}' requires 'instruction'")
+            if "instruction" not in step or not step["instruction"]:
+                raise ValueError(
+                    f"step '{sid}' (type: {stype}) requires non-empty 'instruction' field"
+                )
         elif stype == "condition":
             _require_keys(step, ["if"])
+            if "description" not in step or not step["description"]:
+                raise ValueError(
+                    f"step '{sid}' (type: condition) requires non-empty 'description' field"
+                )
         elif stype == "human.approval":
-            pass
+            if "description" not in step or not step["description"]:
+                raise ValueError(
+                    f"step '{sid}' (type: human.approval) requires non-empty 'description' field"
+                )
         elif stype == "webhook.wait":
             params = step.get("params")
             if not isinstance(params, dict) or "event_name" not in params:
                 raise ValueError(f"step '{sid}' webhook.wait requires params.event_name")
+            if "description" not in step or not step["description"]:
+                raise ValueError(
+                    f"step '{sid}' (type: webhook.wait) requires non-empty 'description' field"
+                )
         elif stype in {"artifact.store", "artifact.retrieve"}:
             _require_keys(step, ["params"])
             if not isinstance(step["params"], dict):
                 raise ValueError(f"step '{sid}' params must be an object")
+            if "description" not in step or not step["description"]:
+                raise ValueError(
+                    f"step '{sid}' (type: {stype}) requires non-empty 'description' field"
+                )
         elif stype == "group.parallel":
             _require_keys(step, ["steps", "join"])
             if step["join"] not in {"all", "any"}:
@@ -704,9 +767,10 @@ def _validate_and_normalize_steps(
 
 
 def compile_workflow_spec(workflow_def: dict[str, Any], flow_name: str) -> dict[str, Any]:
-    """Build workflow spec skeleton; deep validation happens elsewhere."""
+    """Build workflow spec skeleton; planner_mode is required."""
     steps = cast(list[dict[str, Any]], workflow_def.get("steps", []))
-    return {"name": flow_name, "steps": steps}
+    planner_mode = workflow_def["planner_mode"]  # Required, validated in parse_yaml
+    return {"name": flow_name, "planner_mode": planner_mode, "steps": steps}
 
 
 # -------------------------------------------------------------------------------------- #

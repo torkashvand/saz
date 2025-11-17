@@ -32,6 +32,7 @@ triggers:
     method: POST
 
 workflow:
+  planner_mode: deterministic
   steps:
     # Step 1: AI plans response actions
     - id: plan_response

@@ -1,35 +1,39 @@
-# Example 3: Ansible deployment with dry-run approval
-# Use case: Safe infrastructure deployment with human gate
+# Ansible deployment with AI-powered planning and human approval
+# Pattern: AI plans → human approves → tool executes
 #
-# Technical: This example uses the ansible_run tool which is powered by
-# ansible_runner library for enhanced execution with structured event capture,
-# better error handling, and comprehensive artifact storage.
+# This demonstrates the canonical Saz pattern for Ansible:
+# 1. ai.generate - LLM plans the Ansible execution (check mode params)
+# 2. tool.call - Execute the planned check
+# 3. human.approval - Review dry-run results
+# 4. ai.generate - LLM plans the apply execution
+# 5. tool.call - Execute the planned deployment
 
 schema_version: 1
 
 flow:
   name: ansible_deployment
   version: "1.0"
-  description: Deploy infrastructure with Ansible (check mode → approval → apply)
+  description: Safe Ansible deployment with AI planning and human approval gates
 
 form:
   fields:
-    - name: playbook_path
-      type: text
+    - name: change_request
+      type: string
       required: true
-      description: Path to Ansible playbook
-    - name: inventory_path
-      type: text
+      description: Description of the infrastructure change to deploy
+    - name: target_environment
+      type: string
       required: true
-      description: Path to inventory file
-    - name: target_hosts
-      type: text
-      required: false
-      description: Limit to specific hosts (optional)
-    - name: extra_vars
-      type: text
-      required: false
-      description: JSON string of extra variables
+      enum: ["dev", "staging", "prod"]
+      description: Target deployment environment
+    - name: allowed_playbooks
+      type: string
+      required: true
+      description: Comma-separated list of allowed playbook paths
+    - name: allowed_inventories
+      type: string
+      required: true
+      description: Comma-separated list of allowed inventory paths
 
 triggers:
   manual: true
@@ -37,122 +41,195 @@ triggers:
     path: "/deploy"
 
 workflow:
+  planner_mode: deterministic
   steps:
-    - id: dry_run
-      type: tool.call
-      tool: ansible_run
-      description: Run Ansible in check mode (dry-run)
+    # Step 1: AI plans the dry-run (check mode) execution
+    - id: plan_dry_run
+      type: ai.generate
+      instruction: |
+        Based on the change request and allowed resources, generate a safe Ansible dry-run plan.
+        Output JSON with: playbook (path), inventory (path), mode (must be "check"),
+        tags (array of strings or empty), limit (string or null), extra_vars (object).
+        Choose the most appropriate playbook and inventory from the allowed lists.
+        Prefer specific tags and host limits to minimize blast radius.
       params:
-        mode: check
-        playbook: "{{ $form.playbook_path }}"
-        inventory: "{{ $form.inventory_path }}"
-        limit: "{{ coalesce($form.target_hosts, null) }}"
-        extra_vars: "{{ $form.extra_vars }}"
+        data:
+          change_request: "{{ $form.change_request }}"
+          environment: "{{ $form.target_environment }}"
+          allowed_playbooks: "{{ $form.allowed_playbooks }}"
+          allowed_inventories: "{{ $form.allowed_inventories }}"
+      schema:
+        type: object
+        properties:
+          playbook:
+            type: string
+          inventory:
+            type: string
+          mode:
+            type: string
+            enum: ["check"]
+          tags:
+            type: array
+            items: { type: string }
+          limit:
+            anyOf:
+              - { type: string }
+              - { type: "null" }
+          extra_vars:
+            type: object
+        required: [playbook, inventory, mode]
+      temperature: 0.1
+      max_tokens: 512
+
+    # Step 2: Execute dry-run with planned parameters
+    - id: execute_dry_run
+      type: tool.call
+      description: Execute Ansible in check mode (dry-run) with AI-planned parameters
+      tool: ansible_run
+      params:
+        mode: "{{ $step('plan_dry_run').mode }}"
+        playbook: "{{ $step('plan_dry_run').playbook }}"
+        inventory: "{{ $step('plan_dry_run').inventory }}"
+        tags: "{{ $step('plan_dry_run').tags }}"
+        limit: "{{ $step('plan_dry_run').limit }}"
+        extra_vars: "{{ $step('plan_dry_run').extra_vars }}"
         credentials:
           ssh_key: "{{ $secret('ansible_ssh_key') }}"
           vault_password: "{{ $secret('ansible_vault_password') }}"
         verbosity: 2
-      expect:
-        type: object
-        properties:
-          status:
-            type: string
-          recap:
-            type: object
-          artifact_id:
-            type: string
       retry:
         attempts: 2
         backoff:
           mode: linear
           max_ms: 10000
 
+    # Step 3: Store dry-run results
     - id: store_dry_run_results
       type: artifact.store
-      description: Store dry-run results for review
+      description: Store dry-run execution results for approval review
       params:
-        name: "dry_run_{{ $form.playbook_path }}_{{ $env('TIMESTAMP') }}"
+        name: "dry_run_{{ $form.change_request }}_{{ $env('TIMESTAMP') }}"
         content:
-          playbook: "{{ $form.playbook_path }}"
-          recap: "{{ $step('dry_run').recap }}"
-          artifact_id: "{{ $step('dry_run').artifact_id }}"
-          changes_detected: "{{ $step('dry_run').changed }}"
+          planned_params: "{{ $step('plan_dry_run') }}"
+          execution_recap: "{{ $step('execute_dry_run').recap }}"
+          artifact_id: "{{ $step('execute_dry_run').artifact_id }}"
+          changes_detected: "{{ $step('execute_dry_run').changed }}"
 
+    # Step 4: Human approval gate
     - id: approval_gate
       type: human.approval
-      description: Approve deployment based on dry-run results
+      description: Review dry-run results and approve deployment to proceed
       params:
         approval_required_from: "ops_team"
-        message: "Review dry-run results. Approve deployment?\nPlaybook: {{ $form.playbook_path }}\nRecap: {{ $step('dry_run').recap }}\nArtifact: {{ $step('dry_run').artifact_id }}"
-        timeout_seconds: 3600  # 1 hour
+        message: |
+          Review dry-run results before applying changes:
 
-    - id: apply_deployment
-      type: tool.call
-      tool: ansible_run
-      description: Apply Ansible playbook (actual deployment)
+          Change: {{ $form.change_request }}
+          Environment: {{ $form.target_environment }}
+          Playbook: {{ $step('plan_dry_run').playbook }}
+          Inventory: {{ $step('plan_dry_run').inventory }}
+          Recap: {{ $step('execute_dry_run').recap }}
+          Artifact: {{ $step('execute_dry_run').artifact_id }}
+        timeout_seconds: 3600
+
+    # Step 5: AI plans the actual deployment (apply mode)
+    - id: plan_deployment
+      type: ai.generate
+      instruction: |
+        Based on the approved dry-run, generate the final deployment plan for apply mode.
+        Use the same playbook, inventory, tags, and limit from the dry-run plan.
+        Change mode to "apply" and add any necessary extra_vars for production execution.
       params:
-        mode: apply
-        playbook: "{{ $form.playbook_path }}"
-        inventory: "{{ $form.inventory_path }}"
-        limit: "{{ coalesce($form.target_hosts, null) }}"
-        extra_vars: "{{ $form.extra_vars }}"
+        data:
+          dry_run_plan: "{{ $step('plan_dry_run') }}"
+          dry_run_recap: "{{ $step('execute_dry_run').recap }}"
+          environment: "{{ $form.target_environment }}"
+      schema:
+        type: object
+        properties:
+          playbook:
+            type: string
+          inventory:
+            type: string
+          mode:
+            type: string
+            enum: ["apply"]
+          tags:
+            type: array
+            items: { type: string }
+          limit:
+            anyOf:
+              - { type: string }
+              - { type: "null" }
+          extra_vars:
+            type: object
+        required: [playbook, inventory, mode]
+      temperature: 0.1
+      max_tokens: 512
+
+    # Step 6: Execute deployment with planned parameters
+    - id: execute_deployment
+      type: tool.call
+      description: Execute Ansible in apply mode with approved parameters
+      tool: ansible_run
+      params:
+        mode: "{{ $step('plan_deployment').mode }}"
+        playbook: "{{ $step('plan_deployment').playbook }}"
+        inventory: "{{ $step('plan_deployment').inventory }}"
+        tags: "{{ $step('plan_deployment').tags }}"
+        limit: "{{ $step('plan_deployment').limit }}"
+        extra_vars: "{{ $step('plan_deployment').extra_vars }}"
         credentials:
           ssh_key: "{{ $secret('ansible_ssh_key') }}"
           vault_password: "{{ $secret('ansible_vault_password') }}"
         verbosity: 2
-      expect:
-        type: object
-        properties:
-          status:
-            type: string
-          recap:
-            type: object
-          artifact_id:
-            type: string
       retry:
         attempts: 1
         backoff:
           mode: linear
           max_ms: 30000
 
+    # Step 7: Verify deployment succeeded
     - id: verify_deployment
       type: condition
-      description: Check if deployment succeeded
-      if: "{{ $step('apply_deployment').recap.failed }} == 0"
+      description: Check if deployment completed without failures
+      if: "{{ $step('execute_deployment').recap.failed }} == 0"
 
+    # Step 8: Store deployment audit log
     - id: store_deployment_log
       type: artifact.store
-      description: Store deployment audit log
+      description: Store complete deployment audit trail
       params:
-        name: "deployment_{{ $form.playbook_path }}_{{ $env('TIMESTAMP') }}"
+        name: "deployment_{{ $form.change_request }}_{{ $env('TIMESTAMP') }}"
         content:
-          playbook: "{{ $form.playbook_path }}"
-          inventory: "{{ $form.inventory_path }}"
-          dry_run_recap: "{{ $step('dry_run').recap }}"
-          apply_recap: "{{ $step('apply_deployment').recap }}"
-          dry_run_artifact: "{{ $step('dry_run').artifact_id }}"
-          apply_artifact: "{{ $step('apply_deployment').artifact_id }}"
+          change_request: "{{ $form.change_request }}"
+          environment: "{{ $form.target_environment }}"
+          dry_run_plan: "{{ $step('plan_dry_run') }}"
+          dry_run_recap: "{{ $step('execute_dry_run').recap }}"
+          deployment_plan: "{{ $step('plan_deployment') }}"
+          deployment_recap: "{{ $step('execute_deployment').recap }}"
+          success: "{{ $step('execute_deployment').recap.failed }} == 0"
           deployed_at: "{{ $env('TIMESTAMP') }}"
-          success: "{{ $step('apply_deployment').recap.failed }} == 0"
 
+    # Step 9: Notify completion
     - id: notify_completion
       type: tool.call
+      description: Send deployment completion notification
       tool: webhook_emit
-      description: Notify completion via webhook
       params:
         url: "https://hooks.example.com/deployments"
         method: POST
         body:
           status: "completed"
-          playbook: "{{ $form.playbook_path }}"
-          recap: "{{ $step('apply_deployment').recap }}"
-          artifact: "{{ $step('apply_deployment').artifact_id }}"
+          change: "{{ $form.change_request }}"
+          environment: "{{ $form.target_environment }}"
+          recap: "{{ $step('execute_deployment').recap }}"
 
 policies:
-  budget_usd: 1.00
+  budget_usd: 2.00
   rate_limits:
     ansible_run:
-      rpm: 5
+      rpm: 3
   pii:
     allow: false
 

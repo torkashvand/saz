@@ -17,7 +17,7 @@ from .schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
 logger = structlog.get_logger(__name__)
 
 
-class StepPlanner:
+class DeterministicPlanner:
     """Deterministic planner - converts YAML steps to ExecutionPlan without LLM."""
 
     def __init__(self) -> None:

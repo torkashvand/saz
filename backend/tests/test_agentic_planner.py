@@ -1,18 +1,18 @@
-"""Tests for PlannerAgent (agentic mode LLM planner)."""
+"""Tests for AgenticPlanner (agentic mode LLM planner)."""
 
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from saz.agents.planner import PlannerAgent
+from saz.agents.agentic_planner import AgenticPlanner
 from saz.agents.schemas import ExecutionPlan
 
 
 @pytest.fixture
 def planner():
-    """Create a PlannerAgent instance with mocked LLM port."""
+    """Create a AgenticPlanner instance with mocked LLM port."""
     mock_llm_port = Mock()
-    return PlannerAgent(model="gpt-4o", llm_port=mock_llm_port)
+    return AgenticPlanner(model="gpt-4o", llm_port=mock_llm_port)
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def sample_tool_registry():
 
 
 class TestPlannerAgent:
-    """Test suite for PlannerAgent (agentic LLM planner)."""
+    """Test suite for AgenticPlanner (agentic LLM planner)."""
 
     @pytest.mark.asyncio
     async def test_plan_with_empty_steps(

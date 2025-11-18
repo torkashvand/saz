@@ -1,15 +1,15 @@
-"""Tests for StepPlanner (deterministic YAML→Plan converter)."""
+"""Tests for DeterministicPlanner (deterministic YAML→Plan converter)."""
 
 import pytest
 
+from saz.agents.deterministic_planner import DeterministicPlanner
 from saz.agents.schemas import ErrorHandling, StepAction
-from saz.agents.step_planner import StepPlanner
 
 
 @pytest.fixture
 def planner():
-    """Create a StepPlanner instance."""
-    return StepPlanner()
+    """Create a DeterministicPlanner instance."""
+    return DeterministicPlanner()
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def sample_workflow_spec():
 
 
 class TestStepPlanner:
-    """Test suite for StepPlanner."""
+    """Test suite for DeterministicPlanner."""
 
     @pytest.mark.asyncio
     async def test_plan_converts_steps_deterministically(self, planner, sample_workflow_spec):

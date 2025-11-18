@@ -1,12 +1,12 @@
-"""Unit tests for agents - PlannerAgent, ExecutorAgent, CriticAgent."""
+"""Unit tests for agents - AgenticPlanner, ExecutorAgent, CriticAgent."""
 
 import json
 
 import pytest
 
+from saz.agents.agentic_planner import AgenticPlanner
 from saz.agents.critic import CriticAgent
 from saz.agents.executor import ExecutorAgent
-from saz.agents.planner import PlannerAgent
 from saz.agents.schemas import (
     Critique,
     ErrorHandling,
@@ -20,8 +20,8 @@ from saz.agents.schemas import (
 
 @pytest.mark.asyncio
 async def test_planner_agent_generates_plan(mock_llm_with_plan):
-    """Test PlannerAgent generates valid execution plan."""
-    planner = PlannerAgent(model="gpt-4o", llm_port=mock_llm_with_plan)
+    """Test AgenticPlanner generates valid execution plan."""
+    planner = AgenticPlanner(model="gpt-4o", llm_port=mock_llm_with_plan)
 
     workflow_spec = {
         "name": "test_workflow",
@@ -75,8 +75,8 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
 
 @pytest.mark.asyncio
 async def test_planner_agent_prompt_formatting(mock_llm_with_plan):
-    """Test PlannerAgent formats prompt with all required fields."""
-    planner = PlannerAgent(llm_port=mock_llm_with_plan)
+    """Test AgenticPlanner formats prompt with all required fields."""
+    planner = AgenticPlanner(llm_port=mock_llm_with_plan)
 
     workflow_spec = {"name": "test", "steps": []}
     tool_registry = [{"name": "tool1"}]
@@ -111,11 +111,11 @@ async def test_planner_agent_prompt_formatting(mock_llm_with_plan):
 
 @pytest.mark.asyncio
 async def test_planner_agent_error_handling(mock_llm_port):
-    """Test PlannerAgent handles LLM errors gracefully."""
+    """Test AgenticPlanner handles LLM errors gracefully."""
     # Mock port that returns invalid JSON
     mock_llm_port.responses = ["invalid json {"]
 
-    planner = PlannerAgent(llm_port=mock_llm_port)
+    planner = AgenticPlanner(llm_port=mock_llm_port)
 
     with pytest.raises((json.JSONDecodeError, ValueError)):  # Should raise JSON decode error
         await planner.plan(

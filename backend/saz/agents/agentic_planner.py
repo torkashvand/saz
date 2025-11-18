@@ -323,7 +323,7 @@ Choose based on step criticality:
 Generate the execution plan JSON now."""  # noqa: E501
 
 
-class PlannerAgent:
+class AgenticPlanner:
     """LLM-powered workflow planner"""
 
     def __init__(self, model: str = "gpt-4o", llm_port: LLMPort | None = None):

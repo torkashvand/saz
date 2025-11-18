@@ -403,7 +403,7 @@ class WorkflowExecutor:
         """
         Generate ExecutionPlan using self.planner (chosen at construction time).
 
-        The planner type (StepPlanner or PlannerAgent) is selected when the executor
+        The planner type (DeterministicPlanner or AgenticPlanner) is selected when the executor
         is instantiated based on the flow's planner_mode.
 
         Args:

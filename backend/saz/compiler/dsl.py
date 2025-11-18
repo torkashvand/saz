@@ -11,7 +11,7 @@ Saz supports two planning modes:
    - Fast, predictable, $0 planning cost
 
 2. **Agentic**: LLM planner generates execution plan dynamically
-   - PlannerAgent reads DSL + tools → generates ExecutionPlan
+   - AgenticPlanner reads DSL + tools → generates ExecutionPlan
    - Good for open-ended flows (incident triage, exploratory analysis)
    - Planning cost ~$0.01-0.10 per run
 

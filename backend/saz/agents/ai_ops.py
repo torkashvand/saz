@@ -29,7 +29,7 @@ class AIOpSpec:
     description: str
     temperature: float
     output_format: Literal["json", "text"]
-    default_expect_schema: dict[str, Any] | None = None
+    default_expect_schema: dict[str, Any]
     input_extras: dict[str, Any] = field(
         default_factory=dict
     )  # tools_allowlist, branches_enum, word_cap, etc.
@@ -307,7 +307,7 @@ class AIOperationsRunner:
 
         # Build prompt
         system_prompt = self._build_system_prompt(spec, instruction, expect_schema, kwargs)
-        user_message = self._build_user_message(spec, data, kwargs)
+        user_message = self._build_user_message(data, kwargs)
 
         self.logger.info(
             "ai_op_start", op=op_name, temperature=temperature, model=model, max_tokens=max_tokens
@@ -413,15 +413,12 @@ class AIOperationsRunner:
 
         return "\n".join(lines)
 
-    def _build_user_message(
-        self, spec: AIOpSpec, data: dict[str, Any] | None, extras: dict[str, Any]
-    ) -> str:
+    def _build_user_message(self, data: dict[str, Any] | None, extras: dict[str, Any]) -> str:
         """Build user message with data context."""
         if not data:
             return "Process the instruction above."
 
-        lines = ["Input data:"]
-        lines.append(json.dumps(data, indent=2, default=str))
+        lines = ["Input data:", json.dumps(data, indent=2, default=str)]
 
         # Add context from extras
         if "candidates" in extras:

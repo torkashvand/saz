@@ -40,7 +40,28 @@ You must produce:
 {tool_registry_json}
 ```
 
-**CRITICAL:** Only use tools from this registry. Do NOT invent tool names.
+**CRITICAL RULES:**
+1. Only use tools from this registry - do NOT invent tool names
+2. Each tool has `output_schema` - USE IT for `expected_output_schema` in your plan
+3. Do NOT guess or invent output schemas - copy from tool's `output_schema` field
+
+**Example:** If tool registry shows:
+```
+{{
+  "name": "ai.assess",
+  "output_schema": {{
+    "type": "object",
+    "properties": {{"result": {{"type": "string"}}, "confidence": {{"type": "number"}}}}
+  }}
+}}
+```
+Then your plan step MUST use:
+```
+"expected_output_schema": {{
+  "type": "object",
+  "properties": {{"result": {{"type": "string"}}, "confidence": {{"type": "number"}}}}
+}}
+```
 
 ---
 
@@ -190,7 +211,7 @@ workflow:
   steps: []
 ```
 
-**Valid Plan:**
+**Valid Plan (using ACTUAL output_schema from tool registry):**
 ```json
 {{
   "plan_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -200,49 +221,60 @@ workflow:
       "action": "tool_call",
       "tool_name": "ai.assess",
       "input_template": {{
-        "instruction": "Assess incident severity and impact",
+        "instruction": "Assess incident severity: low/medium/high/critical",
         "data": {{
           "text": "{{{{ $form.incident_summary }}}}",
-          "severity": "{{{{ $form.severity }}}}"
+          "reported_severity": "{{{{ $form.severity }}}}"
         }}
       }},
       "expected_output_schema": {{
         "type": "object",
         "properties": {{
-          "severity_level": {{"type": "string"}},
-          "requires_escalation": {{"type": "boolean"}}
-        }}
+          "result": {{"type": "string"}},
+          "confidence": {{"type": "number", "minimum": 0, "maximum": 1}}
+        }},
+        "required": ["result"]
       }},
       "error_handling": "retry",
       "max_retries": 2,
-      "reasoning": "Assess incident using form data to determine severity"
+      "reasoning": "Use ai.assess to evaluate severity (returns result + confidence per tool schema)"
     }},
     {{
       "step_id": "route_to_team",
       "action": "tool_call",
       "tool_name": "ai.route",
       "input_template": {{
-        "instruction": "Route to appropriate team based on assessment",
+        "instruction": "Route to appropriate team: ops, security, or development",
         "data": {{
-          "assessment": "{{{{ $step('assess_incident') }}}}"
-        }}
+          "assessment": "{{{{ $step('assess_incident').result }}}}",
+          "severity": "{{{{ $form.severity }}}}"
+        }},
+        "branches_enum": ["ops", "security", "development"]
       }},
       "expected_output_schema": {{
         "type": "object",
         "properties": {{
-          "team": {{"type": "string"}}
-        }}
+          "route": {{"type": "string"}},
+          "reason": {{"type": "string"}}
+        }},
+        "required": ["route"]
       }},
       "error_handling": "retry",
       "max_retries": 2,
-      "reasoning": "Route based on previous assessment output"
+      "reasoning": "Use ai.route to pick team (returns route + reason per tool schema)"
     }}
   ],
   "estimated_cost_usd": 0.02,
   "estimated_time_seconds": 5,
-  "reasoning": "Two-step plan: assess then route based on form data"
+  "reasoning": "Two-step plan: assess severity then route to team using actual tool schemas"
 }}
 ```
+
+**KEY POINTS:**
+- `ai.assess` returns `{{result, confidence}}` - NOT custom fields
+- `ai.route` returns `{{route, reason}}` - match the tool registry
+- Use `$step('assess_incident').result` to access the assessment (not `.severity_level`)
+- Copy `output_schema` from tool registry - don't invent schemas
 
 ---
 

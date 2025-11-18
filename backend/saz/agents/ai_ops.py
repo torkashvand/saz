@@ -62,6 +62,13 @@ AI_OPS: dict[str, AIOpSpec] = {
         ),
         temperature=0.4,
         output_format="text",
+        default_expect_schema={
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Generated text content"},
+            },
+            "required": ["output"],
+        },
         input_extras={"word_cap": 500},
         max_tokens=2048,
     ),
@@ -200,6 +207,13 @@ AI_OPS: dict[str, AIOpSpec] = {
         description="Machine translate with optional glossary. Returns translated text.",
         temperature=0.2,
         output_format="text",
+        default_expect_schema={
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Translated text"},
+            },
+            "required": ["output"],
+        },
         input_extras={"target_locale": "en"},
         max_tokens=2048,
     ),
@@ -208,6 +222,13 @@ AI_OPS: dict[str, AIOpSpec] = {
         description="Compress text with constraints. Returns summary text.",
         temperature=0.2,
         output_format="text",
+        default_expect_schema={
+            "type": "object",
+            "properties": {
+                "output": {"type": "string", "description": "Summarized text"},
+            },
+            "required": ["output"],
+        },
         input_extras={"word_cap": 100},
         max_tokens=1024,
     ),

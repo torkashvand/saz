@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _create_ai_tool_spec(op_name: str, op_spec: Any) -> dict[str, Any]:
-    """Create MCP-style tool spec for an AI operation."""
+    """Create MCP-style tool spec for an AI operation with output schema."""
     return {
         "name": op_name,
         "description": op_spec.description,
@@ -47,6 +47,7 @@ def _create_ai_tool_spec(op_name: str, op_spec: Any) -> dict[str, Any]:
             },
             "required": ["instruction"],
         },
+        "output_schema": op_spec.default_expect_schema,
     }
 
 

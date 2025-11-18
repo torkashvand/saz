@@ -254,7 +254,10 @@ workflow:
       "expected_output_schema": {{
         "type": "object",
         "properties": {{
-          "route": {{"type": "string"}},
+          "route": {{
+            "type": "string",
+            "enum": ["ops", "security", "development"]
+          }},
           "reason": {{"type": "string"}}
         }},
         "required": ["route"]
@@ -275,6 +278,8 @@ workflow:
 - `ai.route` returns `{{route, reason}}` - match the tool registry
 - Use `$step('assess_incident').result` to access the assessment (not `.severity_level`)
 - Copy `output_schema` from tool registry - don't invent schemas
+- **For ai.route:** ADD `"enum"` to route field with branches_enum values for validation
+- **For any constrained field:** Use JSON Schema `"enum"` property to enforce valid values
 
 ---
 

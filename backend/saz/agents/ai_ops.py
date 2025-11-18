@@ -439,7 +439,7 @@ class AIOperationsRunner:
         return "\n".join(lines)
 
     def _validate_json(self, data: Any, schema: dict[str, Any]) -> None:
-        """Validate JSON against schema (basic check)."""
+        """Validate JSON against schema (basic check with enum support)."""
         # Basic validation - check required fields and types
         if schema.get("type") == "object":
             if not isinstance(data, dict):
@@ -465,6 +465,15 @@ class AIOperationsRunner:
                         raise ValueError(f"Field '{field}' must be boolean")
                     elif field_type == "array" and not isinstance(value, list):
                         raise ValueError(f"Field '{field}' must be array")
+
+                    # Enum check (for any field type)
+                    if "enum" in field_schema:
+                        allowed_values = field_schema["enum"]
+                        if value not in allowed_values:
+                            raise ValueError(
+                                f"Field '{field}' has invalid value '{value}'. "
+                                f"Must be one of: {allowed_values}"
+                            )
 
                     # Bounds check for numbers
                     if field_type == "number":

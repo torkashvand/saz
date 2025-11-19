@@ -236,14 +236,14 @@ async def test_ai_ops_with_tools_allowlist(mock_llm_port):
         op_name="ai.plan",
         instruction="Plan the next steps",
         data={},
-        tools_allowlist=["http_request", "artifact_store"],
+        tools_allowlist=["http_request", "artifact.store"],
     )
 
     # Verify allowlist in prompt
     call = mock_llm_port.calls[0]
     system_msg = call["messages"][0]["content"]
     assert "http_request" in system_msg
-    assert "artifact_store" in system_msg
+    assert "artifact.store" in system_msg
 
 
 @pytest.mark.asyncio

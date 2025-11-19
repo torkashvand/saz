@@ -141,7 +141,7 @@ workflow:
     # Step 4: Store results in artifact (PII will be redacted)
     - id: store_results
       action: tool.call
-      tool: artifact_store
+      tool: artifact.store
       input:
         key: "inquiry_{{ $form.customer_email }}_results"
         data:

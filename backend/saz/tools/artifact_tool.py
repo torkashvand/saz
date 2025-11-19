@@ -28,7 +28,7 @@ class ArtifactTool:
     def store_spec(self) -> dict[str, Any]:
         """MCP spec for storing artifacts"""
         return {
-            "name": "artifact_store",
+            "name": "artifact.store",
             "description": "Store workflow output as artifact",
             "inputSchema": {
                 "type": "object",
@@ -58,7 +58,7 @@ class ArtifactTool:
     def retrieve_spec(self) -> dict[str, Any]:
         """MCP spec for retrieving artifacts"""
         return {
-            "name": "artifact_retrieve",
+            "name": "artifact.retrieve",
             "description": "Retrieve stored artifact",
             "inputSchema": {
                 "type": "object",
@@ -115,7 +115,7 @@ class ArtifactTool:
             json.dump(artifact_record, f, indent=2, default=str)
 
         self.logger.info(
-            "artifact_stored",
+            "artifact.stored",
             artifact_id=artifact_id,
             name=name,
             content_type=content_type,
@@ -155,7 +155,7 @@ class ArtifactTool:
             artifact_record = json.load(f)
 
         self.logger.info(
-            "artifact_retrieved",
+            "artifact.retrieved",
             artifact_id=artifact_id,
             name=artifact_record.get("name"),
             run_id=artifact_record.get("run_id"),

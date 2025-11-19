@@ -104,15 +104,15 @@ class ToolRegistry:
     def register_artifact_tool(self, artifact_tool: ArtifactTool) -> None:
         """Register artifact tools"""
         # Artifact store
-        self._tools["artifact_store"] = artifact_tool.store_spec
-        self._executors["artifact_store"] = artifact_tool.store
+        self._tools["artifact.store"] = artifact_tool.store_spec
+        self._executors["artifact.store"] = artifact_tool.store
 
         # Artifact retrieve
-        self._tools["artifact_retrieve"] = artifact_tool.retrieve_spec
-        self._executors["artifact_retrieve"] = artifact_tool.retrieve
+        self._tools["artifact.retrieve"] = artifact_tool.retrieve_spec
+        self._executors["artifact.retrieve"] = artifact_tool.retrieve
 
-        self.logger.info("tool_registered", tool="artifact_store")
-        self.logger.info("tool_registered", tool="artifact_retrieve")
+        self.logger.info("tool_registered", tool="artifact.store")
+        self.logger.info("tool_registered", tool="artifact.retrieve")
 
     def register_ansible_tool(self, ansible_tool: AnsibleTool) -> None:
         """Register Ansible tool"""

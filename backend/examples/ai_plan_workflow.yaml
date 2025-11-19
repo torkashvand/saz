@@ -37,7 +37,7 @@ workflow:
     # Step 1: AI plans response actions
     - id: plan_response
       type: ai.plan
-      instruction: "Based on this incident alert, propose a sequence of tool calls to investigate and remediate. You may use: http_request (to check health endpoints), ansible_run (to restart services or scale resources), webhook_emit (to notify on-call team), artifact_store (to save diagnostic data)."
+      instruction: "Based on this incident alert, propose a sequence of tool calls to investigate and remediate. You may use: http_request (to check health endpoints), ansible_run (to restart services or scale resources), webhook_emit (to notify on-call team), artifact.store (to save diagnostic data)."
       params:
         data:
           alert_type: "{{ $form.alert_type }}"
@@ -48,7 +48,7 @@ workflow:
         - http_request
         - ansible_run
         - webhook_emit
-        - artifact_store
+        - artifact.store
       temperature: 0.2
       max_tokens: 2048
 

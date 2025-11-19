@@ -1,12 +1,11 @@
 """Credential service - business logic for credential operations."""
 
-import os
-
 import yaml
 from cryptography.fernet import Fernet
 
 from saz.db.unit_of_work import UnitOfWork
 from saz.repositories.read.dtos import CredentialListItemDTO
+from saz.settings import settings
 
 
 class CredentialService:
@@ -15,11 +14,8 @@ class CredentialService:
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
         # Get encryption key from environment
-        key = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
-        if not key:
-            # Generate key if not set (dev only)
-            key = Fernet.generate_key().decode()
-        self.cipher = Fernet(key.encode() if isinstance(key, str) else key)
+        key = settings.CREDENTIALS_ENCRYPTION_KEY
+        self.cipher = Fernet(key.encode())
 
     def create(
         self, name: str, credential_type: str, data: dict, description: str | None = None

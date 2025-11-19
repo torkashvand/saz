@@ -10,12 +10,12 @@ Designed for minimal LLM usage with deterministic fallbacks.
 """
 
 import json
-import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import structlog
 
+from ..settings import settings
 from .llm_port import LLMPort, get_llm_port
 
 logger = structlog.get_logger(__name__)
@@ -260,7 +260,7 @@ class AIOperationsRunner:
             cost_per_1m_tokens: Cost estimate per 1M tokens
             llm_port: LLM client port (defaults to LiteLLM)
         """
-        self.default_model = default_model or os.getenv("LLM_MODEL", "gpt-4o-mini")
+        self.default_model = default_model or settings.LLM_MODEL
         self.cost_per_1m_tokens = cost_per_1m_tokens
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(component="ai_ops")

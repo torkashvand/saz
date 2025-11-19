@@ -50,6 +50,7 @@ from saz.domain.events import (
 )
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
+from saz.settings import settings
 from saz.telemetry import (
     CritiqueEvent,
     PIIStats,
@@ -1067,8 +1068,6 @@ class WorkflowExecutor:
             Secret value or None
         """
         try:
-            import os
-
             import yaml
             from cryptography.fernet import Fernet
 
@@ -1078,11 +1077,8 @@ class WorkflowExecutor:
                 return None
 
             # Decrypt credential data
-            key = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
-            if not key:
-                # Generate key if not set (dev only)
-                key = Fernet.generate_key().decode()
-            cipher = Fernet(key.encode() if isinstance(key, str) else key)
+            key = settings.CREDENTIALS_ENCRYPTION_KEY
+            cipher = Fernet(key.encode())
 
             decrypted = cipher.decrypt(credential.data_encrypted)
             data = yaml.safe_load(decrypted.decode())

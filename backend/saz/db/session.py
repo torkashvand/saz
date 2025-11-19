@@ -1,16 +1,16 @@
 """Database session management."""
 
-import os
 from collections.abc import Generator
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from saz.settings import settings
+
 load_dotenv()
 
-# Database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./saz.db")
+DATABASE_URL = settings.DATABASE_URL
 
 # Create engine
 engine = create_engine(

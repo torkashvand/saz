@@ -4,12 +4,13 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from fastapi import Depends, FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from saz.api.errors import (
     NotFoundError,
@@ -77,6 +78,16 @@ app.add_middleware(
 # ========== Request/Response Models ==========
 
 
+class CredentialType(str, Enum):
+    """Valid credential types."""
+
+    API_TOKEN = "api_token"
+    PASSWORD = "password"
+    SSH_KEY = "ssh_key"
+    OAUTH = "oauth"
+    CERTIFICATE = "certificate"
+
+
 class RegisterFlowRequest(BaseModel):
     yaml: str
 
@@ -131,9 +142,20 @@ class ReplayRunResponse(BaseModel):
 
 class CreateCredentialRequest(BaseModel):
     name: str
-    credential_type: str
+    credential_type: CredentialType
     data: dict
     description: str | None = None
+
+    @field_validator("credential_type", mode="before")
+    @classmethod
+    def validate_credential_type(cls, v: str) -> str:
+        """Validate credential type against enum values."""
+        valid_types = [t.value for t in CredentialType]
+        if v not in valid_types:
+            raise ValueError(
+                f"Invalid credential type: '{v}'. Must be one of: {', '.join(valid_types)}"
+            )
+        return v
 
 
 class UpdateCredentialRequest(BaseModel):

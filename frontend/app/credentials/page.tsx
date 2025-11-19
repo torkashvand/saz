@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,15 @@ import type {
   CreateCredentialRequest,
   UpdateCredentialRequest,
 } from '@/lib/types';
+
+// Valid credential types (synced with backend)
+const CREDENTIAL_TYPES = [
+  { value: 'api_token', label: 'API Token', description: 'API keys and bearer tokens' },
+  { value: 'password', label: 'Password', description: 'Username/password credentials' },
+  { value: 'ssh_key', label: 'SSH Key', description: 'SSH private keys' },
+  { value: 'oauth', label: 'OAuth', description: 'OAuth tokens and secrets' },
+  { value: 'certificate', label: 'Certificate', description: 'TLS/SSL certificates' },
+] as const;
 
 export default function CredentialsPage() {
   const { toast } = useToast();
@@ -33,7 +42,7 @@ export default function CredentialsPage() {
     queryFn: () => api.listCredentials(),
   });
 
-  // Create credential mutation
+  // Create credential mutation with timeout handling
   const createMutation = useMutation({
     mutationFn: (data: CreateCredentialRequest) => api.createCredential(data),
     onSuccess: () => {
@@ -51,9 +60,11 @@ export default function CredentialsPage() {
         variant: 'destructive',
       });
     },
+    // Add retry configuration to prevent stuck state
+    retry: false,
   });
 
-  // Update credential mutation
+  // Update credential mutation with timeout handling
   const updateMutation = useMutation({
     mutationFn: ({ name, data }: { name: string; data: UpdateCredentialRequest }) =>
       api.updateCredential(name, data),
@@ -72,7 +83,42 @@ export default function CredentialsPage() {
         variant: 'destructive',
       });
     },
+    // Add retry configuration to prevent stuck state
+    retry: false,
   });
+
+  // Auto-reset stuck mutations after timeout
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+
+    if (createMutation.isPending || updateMutation.isPending) {
+      // If mutation is pending for more than 30 seconds, show warning
+      timeout = setTimeout(() => {
+        if (createMutation.isPending || updateMutation.isPending) {
+          toast({
+            title: 'Warning',
+            description: 'Request is taking longer than expected. Please check your connection.',
+            variant: 'destructive',
+          });
+
+          // Auto-reset after 60 seconds total
+          setTimeout(() => {
+            if (createMutation.isPending || updateMutation.isPending) {
+              toast({
+                title: 'Timeout',
+                description: 'Request timed out. Please try again.',
+                variant: 'destructive',
+              });
+              createMutation.reset();
+              updateMutation.reset();
+            }
+          }, 30000);
+        }
+      }, 30000);
+    }
+
+    return () => clearTimeout(timeout);
+  }, [createMutation.isPending, updateMutation.isPending, createMutation, updateMutation, toast]);
 
   // Delete credential mutation
   const deleteMutation = useMutation({
@@ -180,18 +226,26 @@ export default function CredentialsPage() {
               <Label htmlFor="type">Type</Label>
               <select
                 id="type"
-                className="w-full border rounded-md p-2"
+                className="w-full border rounded-md p-2 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                 value={credentialType}
                 onChange={(e) => setCredentialType(e.target.value)}
                 disabled={!!editingCredential}
                 required
               >
-                <option value="api_token">API Token</option>
-                <option value="password">Password</option>
-                <option value="ssh_key">SSH Key</option>
-                <option value="oauth">OAuth</option>
-                <option value="certificate">Certificate</option>
+                {CREDENTIAL_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
               </select>
+              {!editingCredential && (
+                <p className="text-sm text-gray-500 mt-1">
+                  {CREDENTIAL_TYPES.find((t) => t.value === credentialType)?.description}
+                </p>
+              )}
+              {editingCredential && (
+                <p className="text-sm text-gray-500 mt-1">Type cannot be changed when editing</p>
+              )}
             </div>
 
             <div>
@@ -222,12 +276,29 @@ export default function CredentialsPage() {
 
             <div className="flex gap-2">
               <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingCredential ? 'Update' : 'Create'}
+                {createMutation.isPending || updateMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin">⏳</span>
+                    {editingCredential ? 'Updating...' : 'Creating...'}
+                  </span>
+                ) : (
+                  editingCredential ? 'Update' : 'Create'
+                )}
               </Button>
-              <Button type="button" variant="outline" onClick={resetForm}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetForm}
+                disabled={createMutation.isPending || updateMutation.isPending}
+              >
                 Cancel
               </Button>
             </div>
+            {(createMutation.isPending || updateMutation.isPending) && (
+              <p className="text-sm text-blue-600">
+                Submitting credential... This may take a few seconds.
+              </p>
+            )}
           </form>
         </Card>
       )}

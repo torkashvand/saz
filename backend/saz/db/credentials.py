@@ -5,13 +5,13 @@ Secrets are encrypted at rest in the database.
 """
 
 import json
-import os
 from typing import Any
 
 import structlog
 from cryptography.fernet import Fernet
 from sqlalchemy.orm import Session
 
+from ..settings import settings
 from .models import Credential
 
 logger = structlog.get_logger(__name__)
@@ -27,12 +27,7 @@ class CredentialsVault:
         Args:
             encryption_key: Base64-encoded Fernet key (from env if not provided)
         """
-        # Get key from env or generate one (not recommended for prod)
-        key_str = encryption_key or os.getenv("CREDENTIALS_ENCRYPTION_KEY")
-        if not key_str:
-            logger.warning("No CREDENTIALS_ENCRYPTION_KEY set, generating temporary key")
-            key_str = Fernet.generate_key().decode()
-
+        key_str = encryption_key or settings.CREDENTIALS_ENCRYPTION_KEY
         self.cipher = Fernet(key_str.encode() if isinstance(key_str, str) else key_str)
         self.logger = logger.bind(component="credentials_vault")
 

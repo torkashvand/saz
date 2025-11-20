@@ -90,33 +90,28 @@ export interface CreateRunResponse {
 
 export interface RunDetailResponse {
   id: string;
-  run_id: string;
   flow_id: string;
-  flow_name?: string;
+  flow_name: string;
   status: string;
   planner_mode: string;
-  payload?: any;
+  payload: Record<string, any>;
   error?: any;
-  cost_cents?: number;
   created_at: string;
-  started_at?: string;
+  started_at?: string;  // Optional: May be added by backend or equal to created_at
   completed_at?: string;
   duration_ms?: number;
   total_tokens: number;
   total_cost_usd: number;
-  total_events?: number;
-  error_count?: number;
-  event_counts?: Record<string, number>;
+  total_events?: number;  // Optional: For event-based UI
+  error_count?: number;  // Optional: For error tracking UI
   policy_violations?: any;
   steps: RunStep[];
-  artifacts?: any[];
-  artifact_count?: number;
+  artifacts?: string[];  // Optional: List of artifact IDs
 }
 
 export interface RunStep {
-  number: number;
   id: string;
-  run_id: string;
+  number: number;
   name: string;
   step_type?: string;
   status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
@@ -124,13 +119,11 @@ export interface RunStep {
   end_ts?: string;
   duration_ms?: number;
   retry_count: number;
-  error?: any;
   tokens?: number;
   cost_usd?: number;
   input?: any;
   output?: any;
-  critique?: any;
-  policy_flags?: any;
+  error?: any;
 }
 
 export interface RunStepsResponse {

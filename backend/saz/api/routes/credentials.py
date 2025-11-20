@@ -22,7 +22,7 @@ async def list_credentials(
     credentials = service.list()
 
     return CredentialListResponse(
-        credentials=[
+        items=[
             CredentialResponse(
                 name=c.name,
                 type=c.type,

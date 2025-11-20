@@ -35,5 +35,5 @@ class CredentialResponse(BaseModel):
 class CredentialListResponse(BaseModel):
     """Response for listing credentials."""
 
-    credentials: list[CredentialResponse]
+    items: list[CredentialResponse]
     total: int

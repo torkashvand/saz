@@ -171,7 +171,7 @@ export default function CredentialsPage() {
     } else {
       createMutation.mutate({
         name,
-        credential_type: credentialType,
+        type: credentialType,
         data,
         description,
       });

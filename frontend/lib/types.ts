@@ -188,13 +188,14 @@ export interface CredentialListResponse {
 
 export interface CreateCredentialRequest {
   name: string;
-  credential_type: string;
+  type: string;
   data: Record<string, any>;
   description?: string;
 }
 
 export interface UpdateCredentialRequest {
-  data: Record<string, any>;
+  type?: string;
+  data?: Record<string, any>;
   description?: string;
 }
 

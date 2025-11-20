@@ -71,8 +71,12 @@ export default function CredentialsPage() {
   const updateMutation = useMutation({
     mutationFn: ({ name, data }: { name: string; data: UpdateCredentialRequest }) =>
       api.updateCredential(name, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+    onSuccess: async () => {
+      // Force refetch of credentials list
+      await queryClient.invalidateQueries({
+        queryKey: ['credentials'],
+        refetchType: 'active'
+      });
       showSuccess('Credential updated successfully');
       resetForm();
     },
@@ -257,6 +261,11 @@ export default function CredentialsPage() {
 
             <div>
               <Label htmlFor="data">Data (JSON)</Label>
+              {editingCredential && (
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                  ⓘ For security, existing credential data cannot be displayed. Enter new credential data to update.
+                </div>
+              )}
               <textarea
                 id="data"
                 className={`w-full border rounded-md p-2 font-mono text-sm ${

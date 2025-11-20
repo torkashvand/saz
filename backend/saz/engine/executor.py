@@ -254,7 +254,7 @@ class WorkflowExecutor:
                     step_entity = self._get_current_step(run_id, plan_step.step_id)
                     if step_entity.tokens and step_entity.tokens > 0:
                         emitter.usage_recorded(
-                            step_id=plan_step.step_id,
+                            step_id=step_entity.id,
                             tokens=step_entity.tokens or 0,
                             cost_usd=step_entity.cost_usd or 0.0,
                             duration_ms=step_entity.duration_ms or 0,
@@ -474,8 +474,11 @@ class WorkflowExecutor:
         step.start_ts = datetime.now(UTC)
         self.uow.commit()
 
-        # Emit step started event
-        emitter.step_started(step_id=step_id, step_name=step_id, step_number=step_number)
+        # Store step record in context for use in tool calls
+        context["current_step"] = step
+
+        # Emit step started event (use step.id, not step_id which is the name)
+        emitter.step_started(step_id=step.id, step_name=step_id, step_number=step_number)
         await emitter.commit_and_broadcast()
 
         # Execute with retries
@@ -515,7 +518,7 @@ class WorkflowExecutor:
 
                 # Emit step completed event
                 emitter.step_completed(
-                    step_id=step_id,
+                    step_id=step.id,
                     step_name=step_id,
                     duration_ms=step.duration_ms or 0,
                 )
@@ -557,7 +560,7 @@ class WorkflowExecutor:
 
                     # Emit step failed event
                     emitter.step_failed(
-                        step_id=step_id,
+                        step_id=step.id,
                         step_name=step_id,
                         error=str(error_dict["message"]),
                         error_type=str(error_dict["type"]),
@@ -696,8 +699,11 @@ class WorkflowExecutor:
             f"Executing tool {tool_call.tool} with idempotency key {tool_call.idempotency_key}"
         )
 
+        # Get step UUID from context
+        current_step: Step = context["current_step"]
+
         # Emit tool started event
-        emitter.tool_started(step_id=plan_step.step_id, tool_name=tool_call.tool, attempt=1)
+        emitter.tool_started(step_id=current_step.id, tool_name=tool_call.tool, attempt=1)
         await emitter.commit_and_broadcast()
 
         tool_start_time = datetime.now()
@@ -713,7 +719,7 @@ class WorkflowExecutor:
             # Tool succeeded
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
             emitter.tool_succeeded(
-                step_id=plan_step.step_id,
+                step_id=current_step.id,
                 tool_name=tool_call.tool,
                 duration_ms=tool_duration_ms,
             )
@@ -723,7 +729,7 @@ class WorkflowExecutor:
             # Tool failed
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
             emitter.tool_failed(
-                step_id=plan_step.step_id,
+                step_id=current_step.id,
                 tool_name=tool_call.tool,
                 error=str(tool_error),
                 error_type=type(tool_error).__name__,

@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { fromNetworkError, type AppError } from './errors';
 import { captureException } from './monitoring';
 import type { Event } from './types';
 
 export function useRunEvents(runId: string) {
+  const queryClient = useQueryClient();
   const [events, setEvents] = useState<Event[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<AppError | null>(null);
@@ -20,6 +21,20 @@ export function useRunEvents(runId: string) {
     queryFn: () => api.getRunDetails(runId),
   });
 
+  // Fetch historical events from database
+  const { data: historicalEventsData, isLoading: isLoadingEvents } = useQuery({
+    queryKey: ['run-events', runId],
+    queryFn: () => api.getRunEvents(runId, { limit: 500 }),
+  });
+
+  // Load historical events into state when fetched
+  useEffect(() => {
+    if (historicalEventsData?.events) {
+      console.log('[RunEvents] Loaded', historicalEventsData.events.length, 'historical events from DB');
+      setEvents(historicalEventsData.events);
+    }
+  }, [historicalEventsData]);
+
   const handleEvent = useCallback(
     (event: Event) => {
       if (event.run_id === runId) {
@@ -30,9 +45,20 @@ export function useRunEvents(runId: string) {
           }
           return [...prev, event];
         });
+
+        // Invalidate run details cache when steps complete or run status changes
+        // This updates the Timeline tab in real-time via WebSocket
+        if (
+          event.event_type === 'step.completed' ||
+          event.event_type === 'step.failed' ||
+          event.event_type === 'run.completed' ||
+          event.event_type === 'run.failed'
+        ) {
+          queryClient.invalidateQueries({ queryKey: ['run', runId] });
+        }
       }
     },
-    [runId],
+    [runId, queryClient],
   );
 
   const connect = useCallback(() => {
@@ -96,7 +122,7 @@ export function useRunEvents(runId: string) {
     run,
     events,
     isConnected,
-    isLoading,
+    isLoading: isLoading || isLoadingEvents,
     error,
     connectionError,
     retry,

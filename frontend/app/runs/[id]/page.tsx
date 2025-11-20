@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -128,7 +128,7 @@ export default function RunDetailPage() {
   const router = useRouter();
   const runId = params.id as string;
   const { showError, showSuccess } = useErrorToast();
-  const { data: run, isLoading: isLoadingRun, error } = useRunDetails(runId);
+  const { data: run, isLoading: isLoadingRun, error, refetch } = useRunDetails(runId);
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
   const [activeTab, setActiveTab] = useState('console');
 
@@ -382,17 +382,18 @@ export default function RunDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="console" className="mt-6">
-          {/* Keep RunConsole mounted even when tab switches */}
-          <div style={{ display: activeTab === 'console' ? 'block' : 'none' }}>
-            <RunConsole
-              runId={runId}
-              runStatus={run.status}
-              startedAt={run.started_at}
-              completedAt={run.completed_at}
-            />
-          </div>
-        </TabsContent>
+        {/* Keep RunConsole mounted at all times to preserve event history */}
+        <div className="mt-6" style={{ display: activeTab === 'console' ? 'block' : 'none' }}>
+          <RunConsole
+            runId={runId}
+            runStatus={run.status}
+            startedAt={run.started_at}
+            completedAt={run.completed_at}
+          />
+        </div>
+
+        {/* Empty TabsContent for console to maintain tab structure */}
+        <TabsContent value="console" className="mt-6" style={{ display: 'none' }} />
 
         <TabsContent value="timeline" className="mt-6">
           <Card>

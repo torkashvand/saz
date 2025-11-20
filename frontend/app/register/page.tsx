@@ -467,14 +467,16 @@ export default function RegisterPage() {
                       </div>
                     </div>
                   </div>
-                  {(registeredFlow || compiledFlow)?.workflow_summary?.credentials &&
-                    (registeredFlow || compiledFlow)?.workflow_summary.credentials.length > 0 && (
+                  {(() => {
+                    const flow = registeredFlow || compiledFlow;
+                    const credentials = flow?.workflow_summary?.credentials;
+                    return credentials && credentials.length > 0 && (
                       <div className="border rounded p-3">
                         <div className="text-xs text-muted-foreground mb-2">
                           Required Credentials
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {(registeredFlow || compiledFlow)?.workflow_summary.credentials.map(
+                          {credentials.map(
                             (cred) => (
                               <span
                                 key={cred}
@@ -486,7 +488,8 @@ export default function RegisterPage() {
                           )}
                         </div>
                       </div>
-                    )}
+                    );
+                  })()}
                 </TabsContent>
 
                 <TabsContent value="form">

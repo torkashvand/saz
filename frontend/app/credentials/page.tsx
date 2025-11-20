@@ -312,7 +312,7 @@ export default function CredentialsPage() {
         />
       ) : isLoading ? (
         <div className="text-center py-8">Loading credentials...</div>
-      ) : credentials && credentials.items.length > 0 ? (
+      ) : credentials && credentials.items && credentials.items.length > 0 ? (
         <div className="grid gap-4">
           {credentials.items.map((credential) => (
             <Card key={credential.name} className="p-6">

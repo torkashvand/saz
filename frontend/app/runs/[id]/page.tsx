@@ -275,7 +275,7 @@ export default function RunDetailPage() {
               <div className="flex-1">
                 <p className="text-sm font-medium text-red-900">Run Failed</p>
                 <p className="text-sm text-red-700 mt-1">
-                  {typeof run.error === 'object' ? run.error.message : run.error}
+                  {typeof run.error === 'object' && run.error !== null ? run.error.message : run.error}
                 </p>
                 {run.error?.type && (
                   <p className="text-xs text-red-600 mt-1">Type: {run.error.type}</p>
@@ -307,7 +307,7 @@ export default function RunDetailPage() {
               Retry from Failing Step
             </Button>
           )}
-          {!isRunning && run.steps.length > 0 && (
+          {!isRunning && run.steps && run.steps.length > 0 && (
             <Button
               variant="outline"
               onClick={() => {
@@ -345,7 +345,7 @@ export default function RunDetailPage() {
             <CardTitle className="text-xs text-muted-foreground">Steps</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{run.steps.length}</p>
+            <p className="text-2xl font-bold">{run.steps?.length || 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -353,7 +353,7 @@ export default function RunDetailPage() {
             <CardTitle className="text-xs text-muted-foreground">Total Tokens</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{run.totals.tokens.toLocaleString()}</p>
+            <p className="text-2xl font-bold">{run.total_tokens?.toLocaleString() || '0'}</p>
           </CardContent>
         </Card>
         <Card>
@@ -361,7 +361,7 @@ export default function RunDetailPage() {
             <CardTitle className="text-xs text-muted-foreground">Total Cost</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{formatCost(run.totals.cost_usd)}</p>
+            <p className="text-2xl font-bold">{formatCost(run.total_cost_usd)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -478,16 +478,16 @@ export default function RunDetailPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-4 border-b">
                   <span className="text-lg font-medium">Total</span>
-                  <span className="text-2xl font-bold">{formatCost(run.totals.cost_usd)}</span>
+                  <span className="text-2xl font-bold">{formatCost(run.total_cost_usd)}</span>
                 </div>
 
                 <div className="space-y-2">
-                  {run.steps
+                  {run.steps && run.steps
                     .filter((s) => s.cost_usd && s.cost_usd > 0)
                     .map((step) => (
                       <div key={step.id} className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">
-                          {step.id} <span className="text-xs">({step.type})</span>
+                          {step.id} <span className="text-xs">({step.step_type})</span>
                         </span>
                         <div className="flex items-center gap-4">
                           <span className="text-xs text-muted-foreground">
@@ -499,7 +499,7 @@ export default function RunDetailPage() {
                     ))}
                 </div>
 
-                {run.steps.filter((s) => s.cost_usd && s.cost_usd > 0).length === 0 && (
+                {run.steps && run.steps.filter((s) => s.cost_usd && s.cost_usd > 0).length === 0 && (
                   <p className="text-center py-6 text-muted-foreground text-sm">
                     No AI operations with cost tracking
                   </p>

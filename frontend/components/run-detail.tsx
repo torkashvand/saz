@@ -32,7 +32,7 @@ export function RunDetail({ runId }: RunDetailProps) {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-500" />
-          <p className="text-red-600 font-medium">Error: {error}</p>
+          <p className="text-red-600 font-medium">Error: {error?.message || 'Failed to load run'}</p>
         </div>
       </div>
     );
@@ -134,9 +134,9 @@ export function RunDetail({ runId }: RunDetailProps) {
             </div>
             <div>
               <div className="text-xs text-gray-500 uppercase font-medium">Events</div>
-              <div className="text-lg font-semibold font-mono">{run.total_events}</div>
+              <div className="text-lg font-semibold font-mono">{run.total_events || events.length}</div>
             </div>
-            {run.error_count > 0 && (
+            {run.error_count && run.error_count > 0 && (
               <div>
                 <div className="text-xs text-red-500 uppercase font-medium">Errors</div>
                 <div className="text-lg font-semibold font-mono text-red-600">{run.error_count}</div>

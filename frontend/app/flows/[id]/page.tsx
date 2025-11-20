@@ -149,7 +149,7 @@ function OverviewTab({ flow }: { flow: any }) {
       )}
 
       {/* Credentials */}
-      {flow.definition?.credentials && flow.definition.credentials.length > 0 && (
+      {flow.definition?.credentials && flow.definition?.credentials.length > 0 && (
         <div className="bg-white border rounded-lg p-6">
           <h3 className="font-semibold mb-4">Required Credentials</h3>
           <ul className="space-y-2">

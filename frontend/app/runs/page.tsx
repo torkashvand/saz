@@ -84,7 +84,7 @@ export default function RunsPage() {
         <ErrorState error={error} title="Failed to Load Runs" onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="text-center py-8">Loading runs...</div>
-      ) : runs && runs.items.length > 0 ? (
+      ) : runs && runs.items && runs.items.length > 0 ? (
         <>
           <div className="bg-white border rounded-lg overflow-hidden">
             <table className="w-full">

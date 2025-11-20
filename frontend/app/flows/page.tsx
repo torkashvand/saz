@@ -129,7 +129,7 @@ export default function FlowsPage() {
         </>
       ) : (
         <div className="text-center py-12 text-slate-500">
-          {flows && flows.items.length > 0
+          {flows && flows.items && flows.items.length > 0
             ? 'No flows found matching your filters.'
             : 'No flows registered yet.'}
         </div>

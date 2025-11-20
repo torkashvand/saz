@@ -64,9 +64,12 @@ export interface FlowDetailResponse {
 export interface RunListItem {
   id: string;
   flow_id: string;
+  flow_name: string;
   status: string;
   created_at: string;
   completed_at?: string;
+  total_tokens: number;
+  total_cost_usd: number;
 }
 
 export interface RunListResponse {
@@ -91,16 +94,20 @@ export interface RunDetailResponse {
   flow_id: string;
   flow_name?: string;
   status: string;
+  planner_mode: string;
   payload?: any;
   error?: any;
   cost_cents?: number;
   created_at: string;
   started_at?: string;
   completed_at?: string;
-  totals: {
-    tokens: number;
-    cost_usd: number;
-  };
+  duration_ms?: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  total_events?: number;
+  error_count?: number;
+  event_counts?: Record<string, number>;
+  policy_violations?: any;
   steps: RunStep[];
   artifacts?: any[];
   artifact_count?: number;
@@ -109,20 +116,21 @@ export interface RunDetailResponse {
 export interface RunStep {
   number: number;
   id: string;
+  run_id: string;
   name: string;
-  type?: string;
+  step_type?: string;
   status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
-  start_ts: string;
+  start_ts?: string;
   end_ts?: string;
   duration_ms?: number;
   retry_count: number;
-  artifact_ids?: string[];
   error?: any;
   tokens?: number;
   cost_usd?: number;
   input?: any;
   output?: any;
-  failure?: any;
+  critique?: any;
+  policy_flags?: any;
 }
 
 export interface RunStepsResponse {

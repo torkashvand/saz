@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { Event } from './types';
 
@@ -9,6 +10,12 @@ export function useRunEvents(runId: string) {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Fetch run data
+  const { data: run, isLoading, error } = useQuery({
+    queryKey: ['run', runId],
+    queryFn: () => api.getRunDetails(runId),
+  });
 
   const handleEvent = useCallback(
     (event: Event) => {
@@ -66,7 +73,10 @@ export function useRunEvents(runId: string) {
   }, [connect]);
 
   return {
+    run,
     events,
     isConnected,
+    isLoading,
+    error,
   };
 }

@@ -42,6 +42,9 @@ export default function CredentialsPage() {
   // Track mutation error for field-level validation
   const [mutationError, setMutationError] = useState<AppError | null>(null);
 
+  // Track JSON validation error
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
   // Fetch credentials
   const { data: credentials, isLoading, error, isError } = useQuery({
     queryKey: ['credentials'],
@@ -99,10 +102,37 @@ export default function CredentialsPage() {
     setDescription('');
     setDataJson('{}');
     setMutationError(null);
+    setJsonError(null);
+  };
+
+  const validateJson = (value: string): boolean => {
+    if (!value.trim()) {
+      setJsonError('JSON data is required');
+      return false;
+    }
+    try {
+      JSON.parse(value);
+      setJsonError(null);
+      return true;
+    } catch (e) {
+      setJsonError('Invalid JSON format');
+      return false;
+    }
+  };
+
+  const handleJsonChange = (value: string) => {
+    setDataJson(value);
+    validateJson(value);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate JSON before submitting
+    if (!validateJson(dataJson)) {
+      showError('Please fix the JSON format error');
+      return;
+    }
 
     let data: Record<string, any>;
     try {
@@ -133,6 +163,8 @@ export default function CredentialsPage() {
     setCredentialType(credential.type);
     setDescription(credential.description || '');
     setDataJson('{}'); // Can't show actual data
+    setJsonError(null); // Clear any JSON validation errors
+    setMutationError(null); // Clear any mutation errors
     setIsCreating(true);
   };
 
@@ -149,7 +181,10 @@ export default function CredentialsPage() {
           <h1 className="text-3xl font-bold">Credentials</h1>
           <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
         </div>
-        <Button onClick={() => setIsCreating(true)}>+ New Credential</Button>
+        <Button onClick={() => {
+          resetForm();
+          setIsCreating(true);
+        }}>+ New Credential</Button>
       </div>
 
       {/* Create/Edit Form */}
@@ -224,9 +259,11 @@ export default function CredentialsPage() {
               <Label htmlFor="data">Data (JSON)</Label>
               <textarea
                 id="data"
-                className="w-full border rounded-md p-2 font-mono text-sm"
+                className={`w-full border rounded-md p-2 font-mono text-sm ${
+                  jsonError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                }`}
                 value={dataJson}
-                onChange={(e) => setDataJson(e.target.value)}
+                onChange={(e) => handleJsonChange(e.target.value)}
                 placeholder='{"token": "sk-..."}'
                 rows={6}
                 required
@@ -234,11 +271,15 @@ export default function CredentialsPage() {
               <p className="text-sm text-gray-500 mt-1">
                 Example: {`{"token": "sk-...", "endpoint": "https://..."}`}
               </p>
+              {jsonError && <FieldError message={jsonError} />}
               <FieldError message={getFieldError(mutationError, 'data')} />
             </div>
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={createMutation.isPending || updateMutation.isPending || !!jsonError}
+              >
                 {createMutation.isPending || updateMutation.isPending ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">⏳</span>

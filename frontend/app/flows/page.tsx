@@ -1,40 +1,73 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ErrorState } from '@/components/error-state';
+import { Search } from 'lucide-react';
 import Link from 'next/link';
 
 export default function FlowsPage() {
   const router = useRouter();
   const [page, setPage] = useState(0);
+  const [search, setSearch] = useState('');
+  const [plannerFilter, setPlannerFilter] = useState<string>('all');
   const limit = 20;
 
-  const { data: flows, isLoading, error, isError, failureCount } = useQuery({
+  const { data: flows, isLoading, error, isError } = useQuery({
     queryKey: ['flows', page],
     queryFn: () => api.listFlows({ limit, offset: page * limit }),
-    retry: false, // Disable retry to show error immediately
+    retry: false,
   });
 
-  // Debug logging
-  console.log('Query state:', { isLoading, isError, error, failureCount });
+  // Client-side filtering
+  const filtered = useMemo(() => {
+    if (!flows) return [];
+    return flows.items.filter((f) => {
+      const matchesSearch =
+        f.name.toLowerCase().includes(search.toLowerCase()) ||
+        (f.description?.toLowerCase().includes(search.toLowerCase()) ?? false);
+      const matchesPlanner =
+        plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
+      return matchesSearch && matchesPlanner;
+    });
+  }, [flows, search, plannerFilter]);
 
   const totalPages = flows ? Math.ceil(flows.total / limit) : 0;
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Flows</h1>
-          <p className="text-gray-600 mt-1">Registered workflow definitions</p>
-        </div>
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-slate-900">Workflow Catalog</h1>
         <Link href="/register">
           <Button>+ Register Flow</Button>
         </Link>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-4 mb-6">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search flows..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <select
+          value={plannerFilter}
+          onChange={(e) => setPlannerFilter(e.target.value)}
+          className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="all">All Modes</option>
+          <option value="deterministic">Deterministic</option>
+          <option value="agentic">Agentic</option>
+        </select>
       </div>
 
       {isError ? (
@@ -45,47 +78,27 @@ export default function FlowsPage() {
         />
       ) : isLoading ? (
         <div className="text-center py-8">Loading flows...</div>
-      ) : flows && flows.items.length > 0 ? (
+      ) : filtered.length > 0 ? (
         <>
-          <div className="grid gap-4">
-            {flows.items.map((flow) => (
-              <Card key={flow.id} className="p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-lg font-semibold">{flow.name}</h3>
-                      {flow.version && (
-                        <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">
-                          v{flow.version}
-                        </span>
-                      )}
-                    </div>
-                    {flow.description && <p className="text-gray-600 mt-1">{flow.description}</p>}
-                    <div className="flex gap-4 mt-2 text-sm text-gray-500">
-                      <span>Created: {new Date(flow.created_at).toLocaleDateString()}</span>
-                      <span>ID: {flow.id.slice(0, 8)}...</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => router.push(`/flows/${flow.id}`)}
-                    >
-                      View Details
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        localStorage.setItem('lastFlowId', flow.id);
-                        router.push('/runs/new');
-                      }}
-                    >
-                      Create Run
-                    </Button>
-                  </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((flow) => (
+              <Link
+                key={flow.id}
+                href={`/flows/${flow.id}`}
+                className="block bg-white border border-slate-200 rounded-lg p-5 hover:shadow-md hover:border-blue-300 transition-all"
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <h3 className="font-semibold text-slate-900">{flow.name}</h3>
+                  <PlannerBadge mode={(flow as any).planner_mode || 'deterministic'} />
                 </div>
-              </Card>
+                {flow.version && <div className="text-xs text-slate-500 mb-2">v{flow.version}</div>}
+                <p className="text-sm text-slate-600 mb-3 line-clamp-2">
+                  {flow.description || 'No description'}
+                </p>
+                <div className="text-xs text-slate-500">
+                  Created {new Date(flow.created_at).toLocaleDateString()}
+                </div>
+              </Link>
             ))}
           </div>
 
@@ -115,13 +128,25 @@ export default function FlowsPage() {
           )}
         </>
       ) : (
-        <Card className="p-12 text-center">
-          <p className="text-gray-500 mb-4">No flows registered yet</p>
-          <Link href="/register">
-            <Button>Register Your First Flow</Button>
-          </Link>
-        </Card>
+        <div className="text-center py-12 text-slate-500">
+          {flows && flows.items.length > 0
+            ? 'No flows found matching your filters.'
+            : 'No flows registered yet.'}
+        </div>
       )}
     </div>
+  );
+}
+
+function PlannerBadge({ mode }: { mode: string }) {
+  const colors =
+    mode === 'agentic'
+      ? 'bg-purple-100 text-purple-700 border-purple-300'
+      : 'bg-green-100 text-green-700 border-green-300';
+
+  return (
+    <span className={`text-xs px-2 py-1 rounded border ${colors}`}>
+      {mode}
+    </span>
   );
 }

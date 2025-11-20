@@ -1,197 +1,130 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { ErrorState } from '@/components/error-state';
+import { RefreshCw } from 'lucide-react';
 import Link from 'next/link';
-
-const STATUS_COLORS: Record<string, string> = {
-  running: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  suspended: 'bg-yellow-100 text-yellow-800',
-  waiting: 'bg-purple-100 text-purple-800',
-  created: 'bg-gray-100 text-gray-800',
-};
+import type { RunListItem, FlowListItem } from '@/lib/types';
 
 export default function RunsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [page, setPage] = useState(0);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [flowIdFilter, setFlowIdFilter] = useState('');
+  const [flowFilter, setFlowFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const limit = 20;
 
-  const { data: runs, isLoading, error, isError } = useQuery({
-    queryKey: ['runs', page, statusFilter, flowIdFilter],
-    queryFn: () =>
-      api.listRuns({
-        limit,
-        offset: page * limit,
-        status: statusFilter || undefined,
-        flow_id: flowIdFilter || undefined,
-      }),
-    // No polling - WebSocket events handle all updates
+  const { data: runs, isLoading, error, isError, refetch } = useQuery({
+    queryKey: ['runs', page, flowFilter, statusFilter],
+    queryFn: () => api.listRuns({
+      limit,
+      offset: page * limit,
+      flow_id: flowFilter !== 'all' ? flowFilter : undefined,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+    }),
+  });
+
+  const { data: flows } = useQuery({
+    queryKey: ['flows-for-filter'],
+    queryFn: () => api.listFlows({ limit: 100, offset: 0 }),
   });
 
   const totalPages = runs ? Math.ceil(runs.total / limit) : 0;
 
-  const handleStatusChange = (status: string) => {
-    setStatusFilter(status);
-    setPage(0);
-  };
-
-  const handleFlowIdChange = (flowId: string) => {
-    setFlowIdFilter(flowId);
-    setPage(0);
-  };
-
-  const getDuration = (created: string, completed?: string) => {
-    const start = new Date(created).getTime();
-    const end = completed ? new Date(completed).getTime() : Date.now();
-    const seconds = Math.floor((end - start) / 1000);
-
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  };
-
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Runs</h1>
-          <p className="text-gray-600 mt-1">Workflow execution history</p>
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-slate-900">Workflow Runs</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+          <Link href="/runs/new">
+            <Button>+ New Run</Button>
+          </Link>
         </div>
-        <Link href="/runs/new">
-          <Button>+ New Run</Button>
-        </Link>
       </div>
 
       {/* Filters */}
-      <Card className="p-4 mb-6">
-        <div className="flex gap-4 items-end">
-          <div className="flex-1">
-            <label className="text-sm font-medium mb-1 block">Filter by Status</label>
-            <select
-              className="w-full border rounded-md p-2"
-              value={statusFilter}
-              onChange={(e) => handleStatusChange(e.target.value)}
-            >
-              <option value="">All Statuses</option>
-              <option value="running">Running</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="suspended">Suspended</option>
-              <option value="waiting">Waiting</option>
-            </select>
-          </div>
-          <div className="flex-1">
-            <label className="text-sm font-medium mb-1 block">Filter by Flow ID</label>
-            <Input
-              placeholder="Enter flow ID..."
-              value={flowIdFilter}
-              onChange={(e) => handleFlowIdChange(e.target.value)}
-            />
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setStatusFilter('');
-              setFlowIdFilter('');
-              setPage(0);
-            }}
-          >
-            Clear Filters
-          </Button>
-        </div>
-      </Card>
+      <div className="flex gap-4 mb-6">
+        <select
+          value={flowFilter}
+          onChange={(e) => {
+            setFlowFilter(e.target.value);
+            setPage(0);
+          }}
+          className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="all">All Flows</option>
+          {flows?.items.map((f: FlowListItem) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(0);
+          }}
+          className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="all">All Statuses</option>
+          <option value="running">Running</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="waiting_approval">Waiting Approval</option>
+        </select>
+      </div>
 
-      {/* Total count */}
-      {runs && (
-        <div className="text-sm text-gray-600 mb-4">
-          Showing {runs.items.length} of {runs.total} runs
-        </div>
-      )}
-
-      {/* Runs List */}
+      {/* Table */}
       {isError ? (
-        <ErrorState
-          error={error}
-          title="Failed to Load Runs"
-          onRetry={() => window.location.reload()}
-        />
+        <ErrorState error={error} title="Failed to Load Runs" onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="text-center py-8">Loading runs...</div>
       ) : runs && runs.items.length > 0 ? (
         <>
-          <div className="grid gap-4">
-            {runs.items.map((run) => (
-              <Card
-                key={run.id}
-                className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => router.push(`/runs/${run.id}`)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="font-mono text-sm text-gray-600">
-                        {run.id.slice(0, 8)}...
-                      </span>
-                      <span
-                        className={`px-2 py-1 text-xs rounded-full ${
-                          STATUS_COLORS[run.status] || 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {run.status}
-                      </span>
-                      {['running', 'created'].includes(run.status) && (
-                        <span className="flex items-center gap-1 text-xs text-blue-600">
-                          <span className="animate-pulse">●</span>
-                          In Progress
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div>
-                        <span className="font-medium">Flow ID:</span> {run.flow_id.slice(0, 8)}...
-                      </div>
-                      <div>
-                        <span className="font-medium">Started:</span>{' '}
-                        {new Date(run.created_at).toLocaleString()}
-                      </div>
-                      {run.completed_at && (
-                        <div>
-                          <span className="font-medium">Completed:</span>{' '}
-                          {new Date(run.completed_at).toLocaleString()}
-                        </div>
-                      )}
-                      <div>
-                        <span className="font-medium">Duration:</span>{' '}
-                        {getDuration(run.created_at, run.completed_at)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/runs/${run.id}`);
-                      }}
-                    >
-                      View Details
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Flow</th>
+                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Run ID</th>
+                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Status</th>
+                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Created</th>
+                  <th className="text-right px-6 py-3 text-sm font-medium text-slate-700">Cost</th>
+                  <th className="text-right px-6 py-3 text-sm font-medium text-slate-700">Tokens</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {runs.items.map((run: RunListItem) => (
+                  <tr key={run.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => router.push(`/runs/${run.id}`)}>
+                    <td className="px-6 py-4">
+                      <Link href={`/runs/${run.id}`} className="font-medium text-blue-600 hover:underline" onClick={(e) => e.stopPropagation()}>
+                        {run.flow_name}
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 font-mono">
+                      {run.id.slice(0, 8)}...
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={run.status} />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {new Date(run.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 text-right">
+                      ${run.total_cost_usd.toFixed(4)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 text-right">
+                      {run.total_tokens.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           {/* Pagination */}
@@ -205,7 +138,7 @@ export default function RunsPage() {
               >
                 ← Previous
               </Button>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-slate-600">
                 Page {page + 1} of {totalPages}
               </span>
               <Button
@@ -220,17 +153,25 @@ export default function RunsPage() {
           )}
         </>
       ) : (
-        <Card className="p-12 text-center">
-          <p className="text-gray-500 mb-4">
-            {statusFilter || flowIdFilter ? 'No runs match your filters' : 'No runs yet'}
-          </p>
-          {!statusFilter && !flowIdFilter && (
-            <Link href="/runs/new">
-              <Button>Create Your First Run</Button>
-            </Link>
-          )}
-        </Card>
+        <div className="text-center py-12 text-slate-500">
+          {flowFilter !== 'all' || statusFilter !== 'all' ? 'No runs found matching your filters.' : 'No runs yet.'}
+        </div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    running: 'bg-blue-100 text-blue-700 border-blue-300',
+    completed: 'bg-green-100 text-green-700 border-green-300',
+    failed: 'bg-red-100 text-red-700 border-red-300',
+    waiting_approval: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+  };
+
+  return (
+    <span className={`inline-block px-2 py-1 text-xs rounded border ${colors[status] || 'bg-slate-100 text-slate-700 border-slate-300'}`}>
+      {status.replace('_', ' ')}
+    </span>
   );
 }

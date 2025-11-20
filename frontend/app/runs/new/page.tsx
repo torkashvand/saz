@@ -7,12 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCreateRun, useFlowDetail } from '@/lib/hooks';
-import { useToast } from '@/components/ui/use-toast';
-import { ErrorState } from '@/components/error-state';
+import { useErrorToast } from '@/lib/use-error-toast';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 export default function NewRunPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showError, showSuccess } = useErrorToast();
   const createRunMutation = useCreateRun();
 
   const [flowId, setFlowId] = useState<string | null>(null);
@@ -39,18 +39,10 @@ export default function NewRunPage() {
         payload: formData,
       });
 
-      toast({
-        title: 'Run Created',
-        description: `Run ${result.id} created successfully`,
-      });
-
+      showSuccess(`Run ${result.id.slice(0, 8)}... created successfully`);
       router.push(`/runs/${result.id}`);
     } catch (error: any) {
-      toast({
-        title: 'Failed to Create Run',
-        description: error.message || 'An error occurred',
-        variant: 'destructive',
-      });
+      showError(error);
     }
   };
 
@@ -71,7 +63,7 @@ export default function NewRunPage() {
   if (error) {
     return (
       <div className="container mx-auto px-4 py-12">
-        <ErrorState
+        <ErrorBanner
           error={error}
           title="Failed to Load Workflow"
           onRetry={() => window.location.reload()}

@@ -6,13 +6,14 @@ import { formatDuration, formatCost, formatTokens } from '@/lib/format-utils';
 import { CheckCircle2, XCircle, Clock, Wifi, WifiOff, AlertCircle } from 'lucide-react';
 import { EventType, Severity } from '@/lib/types';
 import { useState } from 'react';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 interface RunDetailProps {
   runId: string;
 }
 
 export function RunDetail({ runId }: RunDetailProps) {
-  const { run, events, isConnected, isLoading, error } = useRunEvents(runId);
+  const { run, events, isConnected, isLoading, error, connectionError, retry } = useRunEvents(runId);
   const [eventTypeFilter, setEventTypeFilter] = useState<EventType | 'all'>('all');
   const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all');
 
@@ -195,6 +196,16 @@ export function RunDetail({ runId }: RunDetailProps) {
 
       {/* Timeline */}
       <div className="flex-1 overflow-auto p-6 bg-gray-50">
+        {connectionError && (
+          <div className="mb-4">
+            <ErrorBanner
+              error={connectionError}
+              title="WebSocket Connection Failed"
+              onRetry={retry}
+              onDismiss={() => {}}
+            />
+          </div>
+        )}
         <RunTimeline events={filteredEvents} />
       </div>
     </div>

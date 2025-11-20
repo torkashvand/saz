@@ -10,7 +10,7 @@ import { useCompileFlow, useRegisterFlow, useFlowGraph } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
 import { JsonView } from '@/components/json-view';
 import { WorkflowGraph } from '@/components/workflow-graph';
-import { ApiError } from '@/lib/api';
+import type { AppError } from '@/lib/errors';
 import type { RegisterFlowResponse, CompileFlowResponse } from '@/lib/types';
 
 // Dynamically import Monaco editor to avoid SSR issues
@@ -200,7 +200,7 @@ export default function RegisterPage() {
   const [compiledFlow, setCompiledFlow] = useState<CompileFlowResponse | null>(null);
   const [registeredFlow, setRegisteredFlow] = useState<RegisterFlowResponse | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [registrationError, setRegistrationError] = useState<Error | ApiError | null>(null);
+  const [registrationError, setRegistrationError] = useState<Error | AppError | null>(null);
 
   const { data: flowGraph } = useFlowGraph(registeredFlow?.id || null);
 
@@ -385,20 +385,15 @@ export default function RegisterPage() {
                       Registration Failed
                     </div>
                     <div className="text-xs text-red-700 mb-2">
-                      {registrationError instanceof ApiError
-                        ? registrationError.message
+                      {registrationError && typeof registrationError === 'object' && 'kind' in registrationError
+                        ? (registrationError as AppError).message
                         : registrationError instanceof Error
                         ? registrationError.message
                         : 'An error occurred while registering the flow'}
                     </div>
-                    {registrationError instanceof ApiError && registrationError.details && (
+                    {registrationError && typeof registrationError === 'object' && 'kind' in registrationError && (registrationError as AppError).validationErrors && (
                       <div className="text-xs text-red-600 font-mono mb-2">
-                        {registrationError.details.map((d) => d.message).join(', ')}
-                      </div>
-                    )}
-                    {registrationError instanceof ApiError && registrationError.requestId && (
-                      <div className="text-xs text-red-500">
-                        Request ID: {registrationError.requestId}
+                        {(registrationError as AppError).validationErrors!.map((d: any) => d.message).join(', ')}
                       </div>
                     )}
                   </div>

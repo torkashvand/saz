@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ErrorState } from '@/components/error-state';
+import { ErrorBanner } from '@/components/ui/error-banner';
 import { Search } from 'lucide-react';
 import Link from 'next/link';
 
@@ -70,8 +70,8 @@ export default function FlowsPage() {
         </select>
       </div>
 
-      {isError ? (
-        <ErrorState
+      {error ? (
+        <ErrorBanner
           error={error}
           title="Failed to Load Flows"
           onRetry={() => window.location.reload()}

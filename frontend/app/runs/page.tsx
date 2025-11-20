@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { ErrorState } from '@/components/error-state';
+import { ErrorBanner } from '@/components/ui/error-banner';
 import { RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import type { RunListItem, FlowListItem } from '@/lib/types';
@@ -80,8 +80,8 @@ export default function RunsPage() {
       </div>
 
       {/* Table */}
-      {isError ? (
-        <ErrorState error={error} title="Failed to Load Runs" onRetry={() => refetch()} />
+      {error ? (
+        <ErrorBanner error={error} title="Failed to Load Runs" onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="text-center py-8">Loading runs...</div>
       ) : runs && runs.items && runs.items.length > 0 ? (

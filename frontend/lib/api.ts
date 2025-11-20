@@ -34,29 +34,34 @@ import type {
   // Legacy
   FlowGraphResponse,
 } from './types';
+import { fromHttpError, fromNetworkError, fromUnknownError } from './errors';
+import { addBreadcrumb, captureAppError } from './monitoring';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
-/**
- * Standardized API error matching backend ErrorResponse
- */
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public error: string,
-    message: string,
-    public details?: Array<{ field?: string; message: string; code?: string }>,
-    public requestId?: string,
-    public timestamp?: string,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
-
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT
+): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const method = options?.method || 'GET';
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Add breadcrumb for debugging
+  addBreadcrumb(
+    `API Request: ${method} ${endpoint}`,
+    'api',
+    {
+      method,
+      endpoint,
+      hasBody: !!options?.body,
+    }
+  );
 
   try {
     const response = await fetch(url, {
@@ -65,46 +70,69 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
         'Content-Type': 'application/json',
         ...options?.headers,
       },
+      signal: controller.signal,
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+    clearTimeout(timeoutId);
 
-      // Handle standardized error response
-      if (errorData.error && errorData.message) {
-        throw new ApiError(
-          response.status,
-          errorData.error,
-          errorData.message,
-          errorData.details,
-          errorData.request_id,
-          errorData.timestamp,
-        );
+    if (!response.ok) {
+      const appError = await fromHttpError(response);
+
+      // Add error breadcrumb
+      addBreadcrumb(
+        `API Error: ${response.status} ${endpoint}`,
+        'api',
+        {
+          status: response.status,
+          errorKind: appError.kind,
+        }
+      );
+
+      // Capture server errors to Sentry
+      if (response.status >= 500) {
+        captureAppError(appError, {
+          url: url,
+          method,
+          endpoint,
+        });
       }
 
-      // Legacy error handling
-      throw new ApiError(
-        response.status,
-        'api_error',
-        errorData.detail || `Request failed with status ${response.status}`,
-        undefined,
-        undefined,
-        new Date().toISOString(),
-      );
+      throw appError;
+    }
+
+    // Add success breadcrumb
+    addBreadcrumb(
+      `API Success: ${method} ${endpoint}`,
+      'api',
+      { status: response.status }
+    );
+
+    // Handle empty responses (204, etc.)
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      return {} as T;
     }
 
     return await response.json();
   } catch (error) {
-    if (error instanceof ApiError) throw error;
+    clearTimeout(timeoutId);
 
-    throw new ApiError(
-      0,
-      'network_error',
-      error instanceof Error ? error.message : 'Network error',
-      undefined,
-      undefined,
-      new Date().toISOString(),
-    );
+    // If already an AppError, rethrow
+    if (error && typeof error === 'object' && 'kind' in error) {
+      throw error;
+    }
+
+    // Network/timeout errors
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TypeError')) {
+      const appError = fromNetworkError(error);
+      captureAppError(appError, { url, method, endpoint });
+      throw appError;
+    }
+
+    // Unknown errors
+    const appError = fromUnknownError(error);
+    captureAppError(appError, { url, method, endpoint });
+    throw appError;
   }
 }
 

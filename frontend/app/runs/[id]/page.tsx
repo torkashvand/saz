@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useRunDetails, useRunGraph } from '@/lib/hooks';
 import { api } from '@/lib/api';
-import { useToast } from '@/components/ui/use-toast';
+import { useErrorToast } from '@/lib/use-error-toast';
 import {
   Loader2,
   CheckCircle2,
@@ -22,7 +22,7 @@ import {
 import { WorkflowGraph } from '@/components/workflow-graph';
 import { CollapsibleJson } from '@/components/json-view';
 import { RunConsole } from '@/components/run-console';
-import { ErrorState } from '@/components/error-state';
+import { ErrorBanner } from '@/components/ui/error-banner';
 import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
@@ -127,8 +127,8 @@ export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
   const runId = params.id as string;
-  const { toast } = useToast();
-  const { data: run, isLoading: isLoadingRun, error, isError } = useRunDetails(runId);
+  const { showError, showSuccess } = useErrorToast();
+  const { data: run, isLoading: isLoadingRun, error } = useRunDetails(runId);
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
   const [activeTab, setActiveTab] = useState('console');
 
@@ -136,19 +136,10 @@ export default function RunDetailPage() {
   const retryMutation = useMutation({
     mutationFn: () => api.retryRun(runId),
     onSuccess: (data) => {
-      toast({
-        title: 'Run Retried',
-        description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
-      });
+      showSuccess(`New run created: ${data.new_run_id.slice(0, 8)}...`);
       router.push(`/runs/${data.new_run_id}`);
     },
-    onError: (error: any) => {
-      toast({
-        title: 'Retry Failed',
-        description: error.message || 'Failed to retry run',
-        variant: 'destructive',
-      });
-    },
+    onError: showError,
   });
 
   // Replay mutation
@@ -156,19 +147,12 @@ export default function RunDetailPage() {
   const replayMutation = useMutation({
     mutationFn: (fromStep: number) => api.replayRun(runId, fromStep),
     onSuccess: (data) => {
-      toast({
-        title: 'Run Replayed',
-        description: `New run created: ${data.new_run_id.slice(0, 8)}...`,
-      });
+      showSuccess(`New run created: ${data.new_run_id.slice(0, 8)}...`);
       router.push(`/runs/${data.new_run_id}`);
       setReplayStep(null);
     },
     onError: (error: any) => {
-      toast({
-        title: 'Replay Failed',
-        description: error.message || 'Failed to replay run',
-        variant: 'destructive',
-      });
+      showError(error);
       setReplayStep(null);
     },
   });
@@ -181,10 +165,10 @@ export default function RunDetailPage() {
     );
   }
 
-  if (isError) {
+  if (error) {
     return (
       <div className="container mx-auto px-4 py-12">
-        <ErrorState
+        <ErrorBanner
           error={error}
           title="Failed to Load Run"
           onRetry={() => window.location.reload()}
@@ -320,11 +304,7 @@ export default function RunDetailPage() {
                     setReplayStep(stepNum);
                     replayMutation.mutate(stepNum);
                   } else {
-                    toast({
-                      title: 'Invalid Step',
-                      description: `Please enter a number between 0 and ${run.steps.length - 1}`,
-                      variant: 'destructive',
-                    });
+                    showError(`Please enter a number between 0 and ${run.steps.length - 1}`);
                   }
                 }
               }}

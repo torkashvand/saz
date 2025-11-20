@@ -1,21 +1,24 @@
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ApiError } from '@/lib/api';
+import type { AppError } from '@/lib/errors';
 
 interface ErrorStateProps {
-  error: Error | ApiError | unknown;
+  error: Error | AppError | unknown;
   onRetry?: () => void;
   title?: string;
 }
 
+/**
+ * @deprecated Use ErrorBanner from '@/components/ui/error-banner' instead
+ */
 export function ErrorState({
   error,
   onRetry,
   title = 'Something went wrong',
 }: ErrorStateProps) {
   const getErrorMessage = () => {
-    if (error instanceof ApiError) {
-      return error.message;
+    if (error && typeof error === 'object' && 'kind' in error) {
+      return (error as AppError).message;
     }
     if (error instanceof Error) {
       return error.message;
@@ -24,16 +27,17 @@ export function ErrorState({
   };
 
   const getErrorDetails = () => {
-    if (error instanceof ApiError && error.details) {
-      return error.details.map((d) => d.message).join(', ');
+    if (error && typeof error === 'object' && 'kind' in error) {
+      const appError = error as AppError;
+      if (appError.validationErrors) {
+        return appError.validationErrors.map((d: any) => d.message).join(', ');
+      }
     }
     return null;
   };
 
   const getRequestId = () => {
-    if (error instanceof ApiError && error.requestId) {
-      return error.requestId;
-    }
+    // AppError doesn't have requestId, but we keep this for backwards compatibility
     return null;
   };
 

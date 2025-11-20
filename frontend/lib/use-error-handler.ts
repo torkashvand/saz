@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { toast } from '@/components/ui/use-toast';
-import { ApiError } from './api';
+import type { AppError } from './errors';
 
 interface UseErrorHandlerOptions {
-  error: Error | ApiError | unknown | null;
+  error: Error | AppError | unknown | null;
   isError: boolean;
   context?: string; // E.g., "loading flows", "registering flow"
   showToast?: boolean; // Default: true
@@ -11,6 +11,8 @@ interface UseErrorHandlerOptions {
 
 /**
  * Custom hook for consistent error handling across the application.
+ *
+ * @deprecated Use useErrorToast from '@/lib/use-error-toast' instead
  *
  * @example
  * const { data, isLoading, error, isError } = useQuery({...});
@@ -31,8 +33,8 @@ export function useErrorHandler({
     if (!isError || !error) return;
 
     const errorMessage =
-      error instanceof ApiError
-        ? error.message
+      error && typeof error === 'object' && 'kind' in error
+        ? (error as AppError).message
         : error instanceof Error
         ? error.message
         : 'An unexpected error occurred';
@@ -40,8 +42,8 @@ export function useErrorHandler({
     console.error(`Error while ${context}:`, {
       error,
       message: errorMessage,
-      requestId: error instanceof ApiError ? error.requestId : undefined,
-      details: error instanceof ApiError ? error.details : undefined,
+      kind: error && typeof error === 'object' && 'kind' in error ? (error as AppError).kind : undefined,
+      validationErrors: error && typeof error === 'object' && 'kind' in error ? (error as AppError).validationErrors : undefined,
     });
 
     if (showToast) {
@@ -55,10 +57,12 @@ export function useErrorHandler({
 
   return {
     errorMessage:
-      error instanceof ApiError || error instanceof Error
+      error && typeof error === 'object' && 'kind' in error
+        ? (error as AppError).message
+        : error instanceof Error
         ? error.message
         : 'An unexpected error occurred',
-    errorDetails: error instanceof ApiError ? error.details : undefined,
-    requestId: error instanceof ApiError ? error.requestId : undefined,
+    errorDetails: error && typeof error === 'object' && 'kind' in error ? (error as AppError).validationErrors : undefined,
+    requestId: undefined, // AppError doesn't have requestId
   };
 }

@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/components/ui/use-toast';
-import { ErrorState } from '@/components/error-state';
+import { ErrorBanner } from '@/components/ui/error-banner';
+import { FieldError } from '@/components/ui/field-error';
+import { useErrorToast } from '@/lib/use-error-toast';
+import { getFieldError } from '@/lib/errors';
+import type { AppError } from '@/lib/errors';
 import type {
   CredentialResponse,
   CreateCredentialRequest,
@@ -25,8 +28,8 @@ const CREDENTIAL_TYPES = [
 ] as const;
 
 export default function CredentialsPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { showError, showSuccess } = useErrorToast();
   const [isCreating, setIsCreating] = useState(false);
   const [editingCredential, setEditingCredential] = useState<string | null>(null);
 
@@ -36,107 +39,56 @@ export default function CredentialsPage() {
   const [description, setDescription] = useState('');
   const [dataJson, setDataJson] = useState('{}');
 
+  // Track mutation error for field-level validation
+  const [mutationError, setMutationError] = useState<AppError | null>(null);
+
   // Fetch credentials
   const { data: credentials, isLoading, error, isError } = useQuery({
     queryKey: ['credentials'],
     queryFn: () => api.listCredentials(),
   });
 
-  // Create credential mutation with timeout handling
+  // Create credential mutation
   const createMutation = useMutation({
     mutationFn: (data: CreateCredentialRequest) => api.createCredential(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials'] });
-      toast({
-        title: 'Success',
-        description: 'Credential created successfully',
-      });
+      showSuccess('Credential created successfully');
       resetForm();
     },
-    onError: (error: any) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create credential',
-        variant: 'destructive',
-      });
+    onError: (error: AppError) => {
+      setMutationError(error);
+      if (!error.validationErrors) {
+        showError(error);
+      }
     },
-    // Add retry configuration to prevent stuck state
-    retry: false,
   });
 
-  // Update credential mutation with timeout handling
+  // Update credential mutation
   const updateMutation = useMutation({
     mutationFn: ({ name, data }: { name: string; data: UpdateCredentialRequest }) =>
       api.updateCredential(name, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials'] });
-      toast({
-        title: 'Success',
-        description: 'Credential updated successfully',
-      });
+      showSuccess('Credential updated successfully');
       resetForm();
     },
-    onError: (error: any) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update credential',
-        variant: 'destructive',
-      });
+    onError: (error: AppError) => {
+      setMutationError(error);
+      if (!error.validationErrors) {
+        showError(error);
+      }
     },
-    // Add retry configuration to prevent stuck state
-    retry: false,
   });
-
-  // Auto-reset stuck mutations after timeout
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-
-    if (createMutation.isPending || updateMutation.isPending) {
-      // If mutation is pending for more than 30 seconds, show warning
-      timeout = setTimeout(() => {
-        if (createMutation.isPending || updateMutation.isPending) {
-          toast({
-            title: 'Warning',
-            description: 'Request is taking longer than expected. Please check your connection.',
-            variant: 'destructive',
-          });
-
-          // Auto-reset after 60 seconds total
-          setTimeout(() => {
-            if (createMutation.isPending || updateMutation.isPending) {
-              toast({
-                title: 'Timeout',
-                description: 'Request timed out. Please try again.',
-                variant: 'destructive',
-              });
-              createMutation.reset();
-              updateMutation.reset();
-            }
-          }, 30000);
-        }
-      }, 30000);
-    }
-
-    return () => clearTimeout(timeout);
-  }, [createMutation.isPending, updateMutation.isPending, createMutation, updateMutation, toast]);
 
   // Delete credential mutation
   const deleteMutation = useMutation({
     mutationFn: (name: string) => api.deleteCredential(name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials'] });
-      toast({
-        title: 'Success',
-        description: 'Credential deleted successfully',
-      });
+      showSuccess('Credential deleted successfully');
     },
-    onError: (error: any) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete credential',
-        variant: 'destructive',
-      });
-    },
+    onError: showError,
   });
 
   const resetForm = () => {
@@ -146,6 +98,7 @@ export default function CredentialsPage() {
     setCredentialType('api_token');
     setDescription('');
     setDataJson('{}');
+    setMutationError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -155,11 +108,7 @@ export default function CredentialsPage() {
     try {
       data = JSON.parse(dataJson);
     } catch {
-      toast({
-        title: 'Error',
-        description: 'Invalid JSON in data field',
-        variant: 'destructive',
-      });
+      showError('Invalid JSON in data field');
       return;
     }
 
@@ -209,6 +158,16 @@ export default function CredentialsPage() {
           <h2 className="text-xl font-semibold mb-4">
             {editingCredential ? 'Update Credential' : 'Create Credential'}
           </h2>
+
+          {/* Show general error banner if not a validation error */}
+          {mutationError && !mutationError.validationErrors && (
+            <ErrorBanner
+              error={mutationError}
+              title={editingCredential ? 'Failed to Update Credential' : 'Failed to Create Credential'}
+              onDismiss={() => setMutationError(null)}
+            />
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label htmlFor="name">Name</Label>
@@ -220,6 +179,7 @@ export default function CredentialsPage() {
                 disabled={!!editingCredential}
                 required
               />
+              <FieldError message={getFieldError(mutationError, 'name')} />
             </div>
 
             <div>
@@ -246,6 +206,7 @@ export default function CredentialsPage() {
               {editingCredential && (
                 <p className="text-sm text-gray-500 mt-1">Type cannot be changed when editing</p>
               )}
+              <FieldError message={getFieldError(mutationError, 'type')} />
             </div>
 
             <div>
@@ -256,6 +217,7 @@ export default function CredentialsPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="OpenAI API key for production"
               />
+              <FieldError message={getFieldError(mutationError, 'description')} />
             </div>
 
             <div>
@@ -272,6 +234,7 @@ export default function CredentialsPage() {
               <p className="text-sm text-gray-500 mt-1">
                 Example: {`{"token": "sk-...", "endpoint": "https://..."}`}
               </p>
+              <FieldError message={getFieldError(mutationError, 'data')} />
             </div>
 
             <div className="flex gap-2">
@@ -304,8 +267,8 @@ export default function CredentialsPage() {
       )}
 
       {/* Credentials List */}
-      {isError ? (
-        <ErrorState
+      {error ? (
+        <ErrorBanner
           error={error}
           title="Failed to Load Credentials"
           onRetry={() => window.location.reload()}

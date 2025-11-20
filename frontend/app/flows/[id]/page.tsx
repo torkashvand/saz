@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ErrorState } from '@/components/error-state';
+import { ErrorBanner } from '@/components/ui/error-banner';
+import { useErrorToast } from '@/lib/use-error-toast';
 import { Shield, Code, Network, PlayCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -28,10 +29,10 @@ export default function FlowDetailPage({ params }: { params: { id: string } }) {
     return <div className="p-8">Loading flow...</div>;
   }
 
-  if (isError) {
+  if (error) {
     return (
       <div className="p-8">
-        <ErrorState error={error} title="Failed to Load Flow" onRetry={() => window.location.reload()} />
+        <ErrorBanner error={error} title="Failed to Load Flow" onRetry={() => window.location.reload()} />
       </div>
     );
   }
@@ -212,6 +213,7 @@ function LaunchTab({
   formSchema: any;
   router: any;
 }) {
+  const { showError, showSuccess } = useErrorToast();
   const [payload, setPayload] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -220,9 +222,10 @@ function LaunchTab({
     setSubmitting(true);
     try {
       const result = await api.createRun({ flow_id: flowId, payload });
+      showSuccess(`Run ${result.id.slice(0, 8)}... created successfully`);
       router.push(`/runs/${result.id}`);
-    } catch (err) {
-      alert('Failed to create run: ' + (err as Error).message);
+    } catch (err: any) {
+      showError(err);
       setSubmitting(false);
     }
   };

@@ -8,6 +8,7 @@ import { TelemetryProgressHeader } from './telemetry-progress-header';
 import { TelemetryStepDrawer } from './telemetry-step-drawer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { ErrorBanner } from '@/components/ui/error-banner';
 import type { Event } from '@/lib/types';
 
 interface RunConsoleProps {
@@ -18,7 +19,7 @@ interface RunConsoleProps {
 }
 
 export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunConsoleProps) {
-  const { events, isConnected } = useRunEvents(runId);
+  const { events, isConnected, connectionError, retry } = useRunEvents(runId);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'errors' | 'policy'>('all');
 
@@ -96,6 +97,17 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
         runStatus={runStatus}
         elapsedMs={elapsedMs}
       />
+
+      {connectionError && (
+        <div className="mb-4">
+          <ErrorBanner
+            error={connectionError}
+            title="WebSocket Connection Failed"
+            onRetry={retry}
+            onDismiss={() => {}}
+          />
+        </div>
+      )}
 
       <Card className="mb-4">
         <CardContent className="p-3">

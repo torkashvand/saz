@@ -47,8 +47,10 @@ export function groupEventsByStep(events: Event[]): {
     let duration_ms: number | null = null;
     if (startEvent && (completeEvent || failedEvent)) {
       const endEvent = completeEvent || failedEvent;
-      duration_ms =
-        new Date(endEvent.timestamp).getTime() - new Date(startEvent.timestamp).getTime();
+      if (endEvent) {
+        duration_ms =
+          new Date(endEvent.timestamp).getTime() - new Date(startEvent.timestamp).getTime();
+      }
     }
 
     steps.push({

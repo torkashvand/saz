@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     """The encryption key used for securing credentials."""
     LLM_MODEL: str = "gpt-4o-mini"
     """The default language model to use for LLM operations."""
+    PLANNER_MODEL: str = "gpt-4o"
+    """The model used for planning tasks."""
+    CRITIC_MODEL: str = "gpt-4o"
+    """The model used for critiquing plans."""
 
 
 settings = Settings()

@@ -7,7 +7,6 @@ This module provides a thin bootstrap layer that:
 - Includes domain-based routers from saz.api.routes.*
 """
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -22,22 +21,21 @@ from saz.api.errors import (
 )
 from saz.engine.scheduler import get_scheduler
 from saz.globals import initialize_globals
+from saz.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup/shutdown lifecycle management."""
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = settings.DATABASE_URL
 
     # Initialize global singletons (planner, critic, policy engine, etc.)
     initialize_globals(
-        planner_model=os.environ.get("PLANNER_MODEL", "gpt-4o"),
-        critic_model=os.environ.get("CRITIC_MODEL", "gpt-4o"),
+        planner_model=settings.PLANNER_MODEL,
+        critic_model=settings.CRITIC_MODEL,
     )
 
-    # Initialize background scheduler
-    if database_url:
-        get_scheduler(database_url)
+    get_scheduler(database_url)
 
     yield
 
@@ -87,6 +85,11 @@ def create_app() -> FastAPI:
     app.include_router(credentials_router)
     app.include_router(webhooks_router)
     app.include_router(stream_router)
+
+    # Register global WebSocket endpoint for event broadcasting
+    from saz.api.websocket import websocket_endpoint
+
+    app.add_websocket_route("/ws/events", websocket_endpoint)
 
     return app
 

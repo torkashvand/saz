@@ -100,7 +100,7 @@ def run_with_events(db_engine, app_client):
 
 
 def test_get_run_summary_success(app_client, run_with_events):
-    """GET /api/v1/runs/{id} returns run summary."""
+    """GET /api/v1/runs/{id} returns run detail with steps."""
     response = app_client.get("/api/v1/runs/run_123")
 
     assert response.status_code == 200
@@ -110,17 +110,17 @@ def test_get_run_summary_success(app_client, run_with_events):
     assert data["flow_id"] == "flow_1"
     assert data["status"] == "completed"
     assert data["planner_mode"] == "deterministic"
-    assert data["total_events"] == 7
     assert data["total_tokens"] == 1000
     assert data["total_cost_usd"] == 0.05
     assert data["duration_ms"] == 5000
-    assert data["error_count"] == 1
 
-    # Check event counts
-    assert "run.started" in data["event_counts"]
-    assert data["event_counts"]["run.started"] == 1
-    assert data["event_counts"]["step.started"] == 1
-    assert data["event_counts"]["tool.succeeded"] == 1
+    # Check that steps array is present (RunDetailResponse)
+    assert "steps" in data
+    assert isinstance(data["steps"], list)
+
+    # Check that flow_name is present
+    assert "flow_name" in data
+    assert isinstance(data["flow_name"], str)
 
 
 def test_get_run_summary_not_found(app_client):

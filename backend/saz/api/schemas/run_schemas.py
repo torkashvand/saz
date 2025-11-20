@@ -10,8 +10,7 @@ class CreateRunRequest(BaseModel):
     """Request to create a new run."""
 
     flow_id: str
-    input_data: dict[str, Any] = Field(default_factory=dict)
-    context: dict[str, Any] | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateRunResponse(BaseModel):
@@ -41,7 +40,7 @@ class RunListItem(BaseModel):
 class RunListResponse(BaseModel):
     """Response for listing runs."""
 
-    runs: list[RunListItem]
+    items: list[RunListItem]
     total: int
     limit: int
     offset: int

@@ -84,7 +84,7 @@ class FlowListItem(BaseModel):
 class FlowListResponse(BaseModel):
     """Response for listing flows."""
 
-    flows: list[FlowListItem]
+    items: list[FlowListItem]
     total: int
 
 

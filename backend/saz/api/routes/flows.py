@@ -29,7 +29,7 @@ async def list_flows(
     flows, total = service.list(limit=limit, offset=offset)
 
     return FlowListResponse(
-        flows=[
+        items=[
             FlowListItem(
                 id=f.id,
                 name=f.name,

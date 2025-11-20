@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query
 
 from saz.api.dependencies import RunServiceDep
 from saz.api.errors import NotFoundError
-from saz.api.schemas.event_schemas import EventListResponse, RunSummaryResponse
+from saz.api.schemas.event_schemas import EventListResponse
 from saz.api.schemas.run_schemas import (
     ComplianceReportResponse,
     CreateRunRequest,
@@ -14,6 +14,7 @@ from saz.api.schemas.run_schemas import (
     ReplayRunResponse,
     RetryRunRequest,
     RetryRunResponse,
+    RunDetailResponse,
     RunListItem,
     RunListResponse,
     RunStepsResponse,
@@ -47,7 +48,7 @@ async def list_runs(
             runs_with_flow.append(run)
 
     return RunListResponse(
-        runs=[
+        items=[
             RunListItem(
                 id=r.id,
                 flow_id=r.flow_id,
@@ -76,7 +77,7 @@ async def create_run(
     # RunService.create returns run_id string, not run object
     run_id = service.create(
         flow_id=req.flow_id,
-        payload=req.input_data or {},
+        payload=req.payload or {},
     )
 
     # Get the created run
@@ -164,42 +165,59 @@ async def get_run_events(
     )
 
 
-@router.get("/{run_id}", response_model=RunSummaryResponse)
+@router.get("/{run_id}", response_model=RunDetailResponse)
 async def get_run_detail(
     run_id: str,
     service: RunServiceDep,
-) -> RunSummaryResponse:
-    """Get run detail with aggregated event metrics."""
+) -> RunDetailResponse:
+    """Get run detail with steps."""
     # Get run model directly to access all fields
-    assert service.uow.run_reads is not None
-    run = service.uow.run_reads.get(run_id)
+    assert service.uow.runs is not None
+    run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
-
-    # Aggregate event metrics
-    assert service.uow.event_queries is not None
-    event_counts = service.uow.event_queries.count_by_type(run_id)
-    total_events = sum(event_counts.values())
-    error_count = service.uow.event_queries.count_errors(run_id)
 
     # Calculate duration if completed
     duration_ms = None
     if run.completed_at and run.created_at:
         duration_ms = int((run.completed_at - run.created_at).total_seconds() * 1000)
 
-    return RunSummaryResponse(
+    # Convert steps to StepSummary
+    from saz.api.schemas.run_schemas import StepSummary
+
+    return RunDetailResponse(
         id=run.id,
         flow_id=run.flow_id,
+        flow_name=run.flow.name,
         status=run.status,
         planner_mode=run.planner_mode,
+        payload=run.payload or {},
+        error=run.error,
         created_at=run.created_at,
         completed_at=run.completed_at,
         duration_ms=duration_ms or run.duration_ms,
-        total_events=total_events,
-        event_counts=event_counts,
         total_tokens=run.total_tokens or 0,
         total_cost_usd=run.total_cost_usd or 0.0,
-        error_count=error_count,
+        policy_violations=run.policy_violations,
+        steps=[
+            StepSummary(
+                id=s.id,
+                number=s.number,
+                name=s.name,
+                step_type=s.step_type,
+                status=s.status,
+                start_ts=s.start_ts,
+                end_ts=s.end_ts,
+                duration_ms=s.duration_ms,
+                retry_count=s.retry_count,
+                tokens=s.tokens,
+                cost_usd=s.cost_usd,
+                input=s.input,
+                output=s.output,
+                error=s.error,
+            )
+            for s in (run.steps or [])
+        ],
     )
 
 

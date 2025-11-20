@@ -1,5 +1,7 @@
 """Run management and execution endpoints."""
 
+import logging
+
 from fastapi import APIRouter, Query
 
 from saz.api.dependencies import RunServiceDep
@@ -20,8 +22,10 @@ from saz.api.schemas.run_schemas import (
     RunStepsResponse,
     RunSummary,
 )
+from saz.engine.scheduler import get_scheduler
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=RunListResponse)
@@ -79,6 +83,14 @@ async def create_run(
         flow_id=req.flow_id,
         payload=req.payload or {},
     )
+
+    # Schedule the run for execution
+    scheduler = get_scheduler()
+    scheduled = scheduler.schedule(run_id)
+    if not scheduled:
+        # Run is already scheduled/running, which shouldn't happen for new runs
+        # but we'll log it and continue
+        logger.warning(f"Run {run_id} could not be scheduled (already running?)")
 
     # Get the created run
     assert service.uow.runs is not None
@@ -333,6 +345,10 @@ async def retry_run_endpoint(
     if not new_run:
         raise NotFoundError(f"New run not found: {new_run_id}")
 
+    # Schedule the new run for execution
+    scheduler = get_scheduler()
+    scheduler.schedule(new_run_id)
+
     return RetryRunResponse(
         new_run_id=new_run.id,
         original_run_id=run_id,
@@ -359,6 +375,10 @@ async def replay_run_endpoint(
 
     if not new_run:
         raise NotFoundError(f"New run not found: {new_run_id}")
+
+    # Schedule the new run for execution
+    scheduler = get_scheduler()
+    scheduler.schedule(new_run_id)
 
     return ReplayRunResponse(
         new_run_id=new_run.id,

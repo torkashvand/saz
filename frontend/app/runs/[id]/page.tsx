@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useRunDetails, useRunGraph } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
+import { useRunEvents } from '@/lib/use-run-events';
 import {
   Loader2,
   CheckCircle2,
@@ -18,11 +19,14 @@ import {
   RefreshCw,
   Rewind,
   AlertCircle,
+  Layout,
 } from 'lucide-react';
 import { WorkflowGraph } from '@/components/workflow-graph';
 import { CollapsibleJson } from '@/components/json-view';
-import { RunConsole } from '@/components/run-console';
 import { ErrorBanner } from '@/components/ui/error-banner';
+import { ResizableSplit } from '@/components/ui/resizable-split';
+import { StepTimeline as NewStepTimeline } from '@/components/step-timeline';
+import { EnhancedConsolePanel } from '@/components/enhanced-console-panel';
 import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
@@ -128,9 +132,12 @@ export default function RunDetailPage() {
   const router = useRouter();
   const runId = params.id as string;
   const { showError, showSuccess } = useErrorToast();
-  const { data: run, isLoading: isLoadingRun, error, refetch } = useRunDetails(runId);
+  const { data: run, isLoading: isLoadingRun, error } = useRunDetails(runId);
   const { data: runGraph, isLoading: isLoadingGraph } = useRunGraph(runId);
-  const [activeTab, setActiveTab] = useState('console');
+  const { events } = useRunEvents(runId);
+  const [activeTab, setActiveTab] = useState('split-view');
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -365,11 +372,9 @@ export default function RunDetailPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full">
-          <TabsTrigger value="console" className="flex-1">
-            Console
-          </TabsTrigger>
-          <TabsTrigger value="timeline" className="flex-1">
-            Timeline
+          <TabsTrigger value="split-view" className="flex-1">
+            <Layout className="h-4 w-4 mr-2" />
+            Split View
           </TabsTrigger>
           <TabsTrigger value="graph" className="flex-1">
             Graph
@@ -382,28 +387,36 @@ export default function RunDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Keep RunConsole mounted at all times to preserve event history */}
-        <div className="mt-6" style={{ display: activeTab === 'console' ? 'block' : 'none' }}>
-          <RunConsole
-            runId={runId}
-            runStatus={run.status}
-            startedAt={run.started_at}
-            completedAt={run.completed_at}
-          />
-        </div>
-
-        {/* Empty TabsContent for console to maintain tab structure */}
-        <TabsContent value="console" className="mt-6" style={{ display: 'none' }} />
-
-        <TabsContent value="timeline" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Step Timeline</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StepTimeline steps={run.steps} />
-            </CardContent>
-          </Card>
+        {/* Split View - Timeline + Console */}
+        <TabsContent value="split-view" className="mt-6">
+          <div className="border rounded-lg overflow-hidden" style={{ height: 'calc(100vh - 400px)', minHeight: '600px' }}>
+            <ResizableSplit
+              left={
+                <NewStepTimeline
+                  steps={run.steps}
+                  selectedStepId={selectedStepId}
+                  expandedSteps={expandedSteps}
+                  onSelectStep={setSelectedStepId}
+                  onToggleStep={(stepId) => {
+                    const next = new Set(expandedSteps);
+                    next.has(stepId) ? next.delete(stepId) : next.add(stepId);
+                    setExpandedSteps(next);
+                  }}
+                />
+              }
+              right={
+                <EnhancedConsolePanel
+                  events={events}
+                  selectedStepId={selectedStepId}
+                  onSelectStep={setSelectedStepId}
+                />
+              }
+              defaultLeftWidth={40}
+              minLeftWidth={30}
+              minRightWidth={40}
+              storageKey={`run-split-view-${runId}`}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="graph" className="mt-6">

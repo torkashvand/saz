@@ -240,128 +240,91 @@ export interface WSEvent {
   data: Record<string, any>;
 }
 
-// --- Telemetry Events ---
+// --- Unified Event System ---
 
-export type TelemetryEventType =
-  | 'trace.plan'
-  | 'trace.step.grounded'
-  | 'trace.policy.check'
-  | 'trace.tool.start'
-  | 'trace.tool.end'
-  | 'trace.route.chosen'
-  | 'trace.critique'
-  | 'trace.usage'
-  | 'trace.progress';
+export type EventType =
+  // Run lifecycle
+  | 'run.started' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'run.suspended' | 'run.resumed'
+  // Step lifecycle
+  | 'step.started' | 'step.completed' | 'step.failed' | 'step.skipped' | 'step.suspended' | 'step.resumed'
+  // Tool execution
+  | 'tool.started' | 'tool.succeeded' | 'tool.failed'
+  // Planner (agentic mode)
+  | 'plan.generated' | 'plan.updated' | 'branch.chosen'
+  // Policy & safety
+  | 'policy.pii.redacted' | 'policy.budget.updated' | 'policy.budget.exhausted' | 'policy.rate_limited' | 'policy.blocked'
+  // Usage & progress
+  | 'usage.recorded' | 'progress.updated'
+  // Human interaction
+  | 'approval.requested' | 'approval.granted' | 'approval.denied' | 'action.aborted'
+  // Artifacts
+  | 'artifact.created'
+  // System
+  | 'system.error' | 'system.warning';
 
-export interface PIIStats {
-  tokenized_count: number;
-  detokenized_paths: string[];
-  blocked_paths: string[];
-}
+export type Severity = 'info' | 'warn' | 'error';
+export type Actor = 'system' | 'user' | 'llm';
+export type PlannerMode = 'deterministic' | 'agentic';
 
-export interface PlanStep {
+export interface Event {
   id: string;
-  intent: string;
-  deps: string[];
-}
+  event_type: EventType;
+  timestamp: string; // ISO 8601
+  schema_version: number;
 
-export interface TelemetryPlanEvent {
-  type: 'trace.plan';
   run_id: string;
-  total_steps: number;
-  steps: PlanStep[];
-  timestamp: string;
-}
+  step_id: string | null;
+  correlation_id: string | null;
 
-export interface TelemetryStepGroundedEvent {
-  type: 'trace.step.grounded';
-  run_id: string;
-  step_id: string;
-  intent: string;
-  input_summary: string;
-  timestamp: string;
-}
+  planner_mode: PlannerMode;
+  severity: Severity;
+  actor: Actor;
 
-export interface TelemetryPolicyCheckEvent {
-  type: 'trace.policy.check';
-  run_id: string;
-  step_id: string;
-  tool: string;
-  allowed: boolean;
-  reason?: string;
-  pii_stats?: PIIStats;
-  timestamp: string;
-}
-
-export interface TelemetryToolStartEvent {
-  type: 'trace.tool.start';
-  run_id: string;
-  step_id: string;
-  tool: string;
-  attempt: number;
-  timestamp: string;
-}
-
-export interface TelemetryToolEndEvent {
-  type: 'trace.tool.end';
-  run_id: string;
-  step_id: string;
-  tool: string;
-  duration_ms: number;
-  status: 'success' | 'error';
-  error_type?: string;
-  timestamp: string;
-}
-
-export interface TelemetryRouteChosenEvent {
-  type: 'trace.route.chosen';
-  run_id: string;
-  step_id: string;
-  route: string;
-  signal_summary: string;
-  timestamp: string;
-}
-
-export interface TelemetryCritiqueEvent {
-  type: 'trace.critique';
-  run_id: string;
-  step_id: string;
-  verdict: 'PASS' | 'FAIL' | 'ESCALATE' | 'REPLAN';
-  confidence: number;
-  issues: string[];
   summary: string;
-  timestamp: string;
+  payload: Record<string, any>;
+  tags: Record<string, string>;
 }
 
-export interface TelemetryUsageEvent {
-  type: 'trace.usage';
-  run_id: string;
-  step_id: string;
-  tokens: number;
-  cost_usd: number;
-  duration_ms: number;
-  timestamp: string;
+export interface RunSummary {
+  id: string;
+  flow_id: string;
+  status: string;
+  planner_mode: PlannerMode;
+
+  created_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+
+  total_events: number;
+  event_counts: Record<string, number>;
+  total_tokens: number;
+  total_cost_usd: number;
+  error_count: number;
 }
 
-export interface TelemetryProgressEvent {
-  type: 'trace.progress';
-  run_id: string;
-  completed: number;
+export interface EventListResponse {
+  events: Event[];
   total: number;
-  percent: number;
-  timestamp: string;
+  cursor: string | null;
+  has_more: boolean;
 }
 
-export type TelemetryEvent =
-  | TelemetryPlanEvent
-  | TelemetryStepGroundedEvent
-  | TelemetryPolicyCheckEvent
-  | TelemetryToolStartEvent
-  | TelemetryToolEndEvent
-  | TelemetryRouteChosenEvent
-  | TelemetryCritiqueEvent
-  | TelemetryUsageEvent
-  | TelemetryProgressEvent;
+// Derived UI state
+export interface StepTimeline {
+  step_id: string;
+  step_name: string;
+  status: 'running' | 'completed' | 'failed' | 'skipped';
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  events: Event[];
+}
+
+export interface RunTimeline {
+  run: RunSummary;
+  steps: StepTimeline[];
+  orphan_events: Event[]; // Events not tied to a step
+}
 
 // ========== Additional Types ==========
 

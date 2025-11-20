@@ -62,7 +62,10 @@ async def service_error_handler(request: Request, exc: Exception) -> JSONRespons
     envelope = ErrorEnvelope(
         error=exc.code, message=exc.message, timestamp=datetime.now(UTC).isoformat()
     )
-    return JSONResponse(status_code=exc.status_code, content=envelope.model_dump())
+    # Include 'detail' for FastAPI compatibility
+    response_data = envelope.model_dump()
+    response_data["detail"] = exc.message
+    return JSONResponse(status_code=exc.status_code, content=response_data)
 
 
 async def value_error_handler(request: Request, exc: Exception) -> JSONResponse:

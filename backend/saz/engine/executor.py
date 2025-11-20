@@ -37,34 +37,12 @@ from saz.agents.schemas import (
     StepAction,
     Verdict,
 )
-from saz.api.websocket import broadcast_events
+from saz.audit.event_emitter import EventEmitter
 from saz.db.models import Step
 from saz.db.unit_of_work import UnitOfWork
-from saz.domain.events import (
-    RunCompleted,
-    RunFailed,
-    RunStarted,
-    StepCompleted,
-    StepFailed,
-    StepStarted,
-)
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
 from saz.settings import settings
-from saz.telemetry import (
-    CritiqueEvent,
-    PIIStats,
-    PlanGeneratedEvent,
-    PolicyCheckEvent,
-    RunProgressEvent,
-    StepGroundedEvent,
-    TelemetryConfig,
-    TelemetryLevel,
-    TelemetrySanitizer,
-    ToolEndEvent,
-    ToolStartEvent,
-    UsageEvent,
-)
 from saz.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -131,10 +109,6 @@ class WorkflowExecutor:
         self.critic = critic
         self.policy_engine = policy_engine
 
-        # Telemetry (will be initialized per-run from DSL)
-        self.telemetry_config: TelemetryConfig | None = None
-        self.telemetry_sanitizer = TelemetrySanitizer(pii_detector=policy_engine.pii_detector)
-
         # Set secret resolver for executor agent
         self.executor_agent.secret_resolver = self._resolve_secret
 
@@ -158,31 +132,48 @@ class WorkflowExecutor:
             flow = self.uow.flows.get(run.flow_id)
             if not flow:
                 logger.error(f"Flow not found: {run.flow_id}")
+                # Create minimal emitter for error case
+                emitter = EventEmitter(
+                    uow=self.uow,
+                    run_id=run_id,
+                    planner_mode="deterministic",
+                    pii_policy="redact",
+                )
                 await self._fail_run(
                     run_id,
                     {"message": f"Flow not found: {run.flow_id}", "type": "FlowNotFoundError"},
+                    emitter,
                 )
                 return
 
             # Mark run as running
             assert self.uow.runs is not None
             self.uow.runs.mark_running(run_id)
-            self.uow.add_event(RunStarted(run_id, flow.id))
-            self.uow.commit()
 
-            # Broadcast run started event
-            events = self.uow.collect_events()
-            await broadcast_events(events)
+            # Get planner mode from workflow spec
+            workflow_spec = flow.definition.get("workflow", {})
+            planner_mode = workflow_spec.get("planner_mode", "deterministic")
+
+            # Get PII policy from DSL
+            policies_dict = flow.definition.get("policies", {})
+            pii_policy = policies_dict.get("pii", {}).get("mode", "redact")
+
+            # Initialize event emitter
+            emitter = EventEmitter(
+                uow=self.uow,
+                run_id=run_id,
+                planner_mode=planner_mode,
+                pii_policy=pii_policy,
+            )
+
+            # Emit run started event
+            emitter.run_started(flow_id=flow.id, flow_name=flow.name)
+            await emitter.commit_and_broadcast()
 
             logger.info(f"Starting agentic execution for run {run_id} (flow: {flow.name})")
 
             # Initialize policy engine from DSL
-            policies_dict = flow.definition.get("policies", {})
             self.policy_engine.initialize_from_dsl(run_id, policies_dict)
-
-            # Initialize telemetry from DSL
-            telemetry_dict = flow.definition.get("telemetry")
-            self.telemetry_config = TelemetryConfig.from_dsl(telemetry_dict)
 
             # Initialize execution context
             context: dict[str, Any] = {
@@ -193,13 +184,13 @@ class WorkflowExecutor:
                 "step_results": {},
                 "artifacts": {},
                 "completed_steps": [],
+                "emitter": emitter,  # Pass emitter in context for nested calls
             }
 
-            # Get workflow specification
-            workflow_spec = flow.definition.get("workflow", {})
+            # Check if workflow exists
             if not workflow_spec:
                 logger.warning(f"No workflow defined for flow {flow.id}")
-                await self._complete_run(run_id)
+                await self._complete_run(run_id, emitter)
                 return
 
             # Generate execution plan
@@ -212,25 +203,21 @@ class WorkflowExecutor:
                 f"(estimated: ${plan.estimated_cost_usd:.3f}, {plan.estimated_time_seconds}s)"
             )
 
-            # Emit plan generated telemetry event
-            if self.telemetry_config and self.telemetry_config.is_enabled():
-                steps_summary = [
-                    {
-                        "id": step.step_id,
-                        "intent": self.telemetry_sanitizer.sanitize_intent(step),
-                        "deps": getattr(step, "dependencies", []),
-                    }
-                    for step in plan.steps
-                ]
-
-                await self._emit_telemetry(
-                    PlanGeneratedEvent(
-                        run_id=run_id,
-                        total_steps=len(plan.steps),
-                        steps=steps_summary,
-                    ),
-                    level=TelemetryLevel.META,
-                )
+            # Emit plan generated event
+            steps_summary = [
+                {
+                    "id": step.step_id,
+                    "intent": step.reasoning,
+                    "deps": getattr(step, "dependencies", []),
+                }
+                for step in plan.steps
+            ]
+            emitter.plan_generated(
+                total_steps=len(plan.steps),
+                steps=steps_summary,
+                estimated_cost=plan.estimated_cost_usd,
+            )
+            await emitter.commit_and_broadcast()
 
             # Execute plan steps sequentially
             for step_number, plan_step in enumerate(plan.steps):
@@ -246,6 +233,7 @@ class WorkflowExecutor:
                             "step": plan_step.step_id,
                             "step_number": step_number,
                         },
+                        emitter,
                     )
                     return
 
@@ -262,34 +250,26 @@ class WorkflowExecutor:
                     # Record step execution in policy engine
                     self.policy_engine.record_step(run_id)
 
-                    # Emit usage telemetry event (if tokens/cost available)
+                    # Emit usage event (if tokens/cost available)
                     step_entity = self._get_current_step(run_id, plan_step.step_id)
                     if step_entity.tokens and step_entity.tokens > 0:
-                        await self._emit_telemetry(
-                            UsageEvent(
-                                run_id=run_id,
-                                step_id=plan_step.step_id,
-                                tokens=step_entity.tokens or 0,
-                                cost_usd=step_entity.cost_usd or 0.0,
-                                duration_ms=0.0,  # Would need timing tracking
-                            ),
-                            level=TelemetryLevel.BRIEF,
+                        emitter.usage_recorded(
+                            step_id=plan_step.step_id,
+                            tokens=step_entity.tokens or 0,
+                            cost_usd=step_entity.cost_usd or 0.0,
+                            duration_ms=step_entity.duration_ms or 0,
                         )
 
-                    # Emit progress telemetry event
+                    # Emit progress event
                     completed = len(context["completed_steps"])
                     total = len(plan.steps)
                     percent = (completed / total) * 100 if total > 0 else 0
-
-                    await self._emit_telemetry(
-                        RunProgressEvent(
-                            run_id=run_id,
-                            completed=completed,
-                            total=total,
-                            percent=percent,
-                        ),
-                        level=TelemetryLevel.META,
+                    emitter.progress_updated(
+                        completed=completed,
+                        total=total,
+                        percent=percent,
                     )
+                    await emitter.commit_and_broadcast()
 
                 except PolicyViolation as step_error:
                     # Policy violation - always fail immediately
@@ -300,7 +280,7 @@ class WorkflowExecutor:
                         "step_number": step_number,
                     }
                     logger.error(f"Step {plan_step.step_id} blocked by policy: {step_error}")
-                    await self._fail_run(run_id, error_dict)
+                    await self._fail_run(run_id, error_dict, emitter)
                     return
 
                 except CritiqueFailure as step_error:
@@ -313,7 +293,7 @@ class WorkflowExecutor:
                         "critique": step_error.critique.model_dump(),
                     }
                     logger.error(f"Step {plan_step.step_id} failed critique: {step_error}")
-                    await self._fail_run(run_id, error_dict)
+                    await self._fail_run(run_id, error_dict, emitter)
                     return
 
                 except EscalationRequired as step_error:
@@ -340,7 +320,7 @@ class WorkflowExecutor:
                         "critique": step_error.critique.model_dump(),
                     }
                     logger.warning(f"Step {plan_step.step_id} requires replanning: {step_error}")
-                    await self._fail_run(run_id, error_dict)
+                    await self._fail_run(run_id, error_dict, emitter)
                     return
 
                 except Exception as step_error:
@@ -359,7 +339,7 @@ class WorkflowExecutor:
 
                     if plan_step.error_handling == ErrorHandling.FAIL:
                         logger.error(f"Step {plan_step.step_id} failed, failing run: {step_error}")
-                        await self._fail_run(run_id, error_dict)
+                        await self._fail_run(run_id, error_dict, emitter)
                         return
 
                     elif plan_step.error_handling == ErrorHandling.ESCALATE:
@@ -379,16 +359,29 @@ class WorkflowExecutor:
                         # RETRY is handled within _execute_plan_step
                         # If we reach here, retries exhausted
                         logger.error(f"Step {plan_step.step_id} retries exhausted: {step_error}")
-                        await self._fail_run(run_id, error_dict)
+                        await self._fail_run(run_id, error_dict, emitter)
                         return
 
             # All steps completed successfully
-            await self._complete_run(run_id)
+            await self._complete_run(run_id, emitter)
 
         except Exception as e:
             logger.exception(f"Fatal error executing run {run_id}: {e}")
             tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
             tb_snippet = "".join(tb_lines[-5:])
+
+            # Create emitter for error case (if not already created)
+            try:
+                emitter = context.get("emitter")  # type: ignore
+            except (NameError, UnboundLocalError):
+                # If context wasn't created, create a minimal emitter
+                emitter = EventEmitter(
+                    uow=self.uow,
+                    run_id=run_id,
+                    planner_mode="deterministic",
+                    pii_policy="redact",
+                )
+
             await self._fail_run(
                 run_id,
                 {
@@ -396,6 +389,7 @@ class WorkflowExecutor:
                     "type": type(e).__name__,
                     "traceback": tb_snippet,
                 },
+                emitter,
             )
 
     async def _generate_plan(
@@ -469,18 +463,20 @@ class WorkflowExecutor:
         step_id = plan_step.step_id
         logger.info(f"Executing step {step_number}: {step_id} (action: {plan_step.action.value})")
 
+        # Get emitter from context
+        emitter: EventEmitter = context["emitter"]
+
         # Create step record
         assert self.uow.steps is not None
         step = self.uow.steps.append(
             run_id=run_id, number=step_number, name=step_id, status="running"
         )
         step.start_ts = datetime.now(UTC)
-        self.uow.add_event(StepStarted(run_id, step_id, step_id, step_number))
         self.uow.commit()
 
-        # Broadcast step started event
-        events = self.uow.collect_events()
-        await broadcast_events(events)
+        # Emit step started event
+        emitter.step_started(step_id=step_id, step_name=step_id, step_number=step_number)
+        await emitter.commit_and_broadcast()
 
         # Execute with retries
         max_attempts = plan_step.max_retries + 1
@@ -515,22 +511,15 @@ class WorkflowExecutor:
 
                 # Store result
                 step.output = result
-
-                self.uow.add_event(
-                    StepCompleted(
-                        run_id=run_id,
-                        step_id=step_id,
-                        duration_ms=step.duration_ms or 0,
-                        step_name=step_id,
-                        step_number=step_number,
-                        output=result,
-                    )
-                )
                 self.uow.commit()
 
-                # Broadcast step completed event
-                events = self.uow.collect_events()
-                await broadcast_events(events)
+                # Emit step completed event
+                emitter.step_completed(
+                    step_id=step_id,
+                    step_name=step_id,
+                    duration_ms=step.duration_ms or 0,
+                )
+                await emitter.commit_and_broadcast()
 
                 logger.info(f"Step {step_id} completed successfully")
                 return result
@@ -564,21 +553,16 @@ class WorkflowExecutor:
                         "attempts": max_attempts,
                     }
                     step.error = error_dict
-
-                    self.uow.add_event(
-                        StepFailed(
-                            run_id=run_id,
-                            step_id=step_id,
-                            error=error_dict,
-                            step_name=step_id,
-                            step_number=step_number,
-                        )
-                    )
                     self.uow.commit()
 
-                    # Broadcast step failed event
-                    events = self.uow.collect_events()
-                    await broadcast_events(events)
+                    # Emit step failed event
+                    emitter.step_failed(
+                        step_id=step_id,
+                        step_name=step_id,
+                        error=str(error_dict["message"]),
+                        error_type=str(error_dict["type"]),
+                    )
+                    await emitter.commit_and_broadcast()
 
                     logger.error(f"Step {step_id} failed after {max_attempts} attempts")
                     raise last_error from last_error
@@ -641,6 +625,9 @@ class WorkflowExecutor:
             EscalationRequired: If critic returns ESCALATE verdict
             ReplanRequired: If critic returns REPLAN verdict
         """
+        # Get emitter from context
+        emitter: EventEmitter = context["emitter"]
+
         # 1. Ground step
         tool_specs_dict = self.tool_registry.get_tool_specs_dict()
         tool_call = self.executor_agent.ground(
@@ -666,45 +653,11 @@ class WorkflowExecutor:
         step.step_type = plan_step.action.value
         self.uow.commit()
 
-        # Emit step grounded telemetry event
-        await self._emit_telemetry(
-            StepGroundedEvent(
-                run_id=run_id,
-                step_id=plan_step.step_id,
-                intent=self.telemetry_sanitizer.sanitize_intent(plan_step),
-                input_summary=self.telemetry_sanitizer.sanitize_input_summary(tool_call.arguments),
-            ),
-            level=TelemetryLevel.VERBOSE,
-        )
-
         # 2. Policy check (before tokenization, to detect raw PII)
         allowed, reason = self.policy_engine.check_tool_call(
             tool_name=tool_call.tool,
             arguments=tool_call.arguments,
             run_id=run_id,
-        )
-        # Get PII stats for telemetry
-        pii_stats_data = None
-        if run_id in self.policy_engine._token_vaults:
-            vault = self.policy_engine._token_vaults[run_id]
-            stats = vault.get_stats()
-            pii_stats_data = PIIStats(
-                tokenized_count=stats.get("total_tokens", 0),
-                detokenized_paths=[],
-                blocked_paths=[],
-            )
-
-        # Emit policy check telemetry event
-        await self._emit_telemetry(
-            PolicyCheckEvent(
-                run_id=run_id,
-                step_id=plan_step.step_id,
-                tool=tool_call.tool,
-                allowed=allowed,
-                reason=reason,
-                pii_stats=pii_stats_data,
-            ),
-            level=TelemetryLevel.BRIEF,
         )
 
         if not allowed:
@@ -743,21 +696,11 @@ class WorkflowExecutor:
             f"Executing tool {tool_call.tool} with idempotency key {tool_call.idempotency_key}"
         )
 
-        # Emit tool start telemetry event
-        tool_start_time = datetime.now()
-        await self._emit_telemetry(
-            ToolStartEvent(
-                run_id=run_id,
-                step_id=plan_step.step_id,
-                tool=tool_call.tool,
-                attempt=1,
-            ),
-            level=TelemetryLevel.BRIEF,
-        )
+        # Emit tool started event
+        emitter.tool_started(step_id=plan_step.step_id, tool_name=tool_call.tool, attempt=1)
+        await emitter.commit_and_broadcast()
 
-        # Execute tool
-        tool_status = "success"
-        tool_error_type = None
+        tool_start_time = datetime.now()
         try:
             result = await self.tool_registry.execute_tool(
                 tool_name=tool_call.tool,
@@ -766,24 +709,27 @@ class WorkflowExecutor:
                 run_id=run_id,
                 step_id=plan_step.step_id,
             )
-        except Exception as tool_error:
-            tool_status = "error"
-            tool_error_type = type(tool_error).__name__
-            raise
-        finally:
-            # Emit tool end telemetry event
-            tool_duration_ms = (datetime.now() - tool_start_time).total_seconds() * 1000
-            await self._emit_telemetry(
-                ToolEndEvent(
-                    run_id=run_id,
-                    step_id=plan_step.step_id,
-                    tool=tool_call.tool,
-                    duration_ms=tool_duration_ms,
-                    status=tool_status,
-                    error_type=tool_error_type,
-                ),
-                level=TelemetryLevel.BRIEF,
+
+            # Tool succeeded
+            tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
+            emitter.tool_succeeded(
+                step_id=plan_step.step_id,
+                tool_name=tool_call.tool,
+                duration_ms=tool_duration_ms,
             )
+            await emitter.commit_and_broadcast()
+
+        except Exception as tool_error:
+            # Tool failed
+            tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
+            emitter.tool_failed(
+                step_id=plan_step.step_id,
+                tool_name=tool_call.tool,
+                error=str(tool_error),
+                error_type=type(tool_error).__name__,
+            )
+            await emitter.commit_and_broadcast()
+            raise
 
         # 4. Extract and record AI usage
         tokens = 0
@@ -839,19 +785,6 @@ class WorkflowExecutor:
                 "confidence": critique.confidence,
                 "issues_count": len(critique.issues),
             },
-        )
-
-        # Emit critique telemetry event
-        await self._emit_telemetry(
-            CritiqueEvent(
-                run_id=run_id,
-                step_id=plan_step.step_id,
-                verdict=critique.verdict.value,
-                confidence=critique.confidence,
-                issues=[str(issue)[:80] for issue in critique.issues[:5]],
-                summary=self.telemetry_sanitizer.sanitize_critique_summary(critique.model_dump()),
-            ),
-            level=TelemetryLevel.META,
         )
 
         # 7. Handle verdict
@@ -969,23 +902,30 @@ class WorkflowExecutor:
         # Execute via tool registry (webhook_wait tool)
         return await self._execute_tool_call(plan_step, context, run_id)
 
-    async def _complete_run(self, run_id: str) -> None:
+    async def _complete_run(self, run_id: str, emitter: EventEmitter) -> None:
         """
         Mark run as completed and broadcast event.
 
         Args:
             run_id: Run identifier
+            emitter: Event emitter for broadcasting events
         """
         assert self.uow.runs is not None
         self.uow.runs.mark_completed(run_id)
-        self.uow.add_event(RunCompleted(run_id))
         self.uow.commit()
 
-        events = self.uow.collect_events()
-        await broadcast_events(events)
-
-        # Log budget stats
+        # Get budget stats for logging
         budget_stats = self.policy_engine.get_budget_status(run_id)
+
+        # Emit run completed event
+        emitter.run_completed(
+            tokens=budget_stats["tokens"]["used"],
+            cost_usd=budget_stats["cost"]["used"],
+            steps=budget_stats["steps"]["used"],
+            duration_seconds=budget_stats["time"]["used_seconds"],
+        )
+        await emitter.commit_and_broadcast()
+
         logger.info(
             f"Run {run_id} completed successfully. "
             f"Budget used: {budget_stats['tokens']['used']} tokens, "
@@ -997,21 +937,25 @@ class WorkflowExecutor:
         # Clear token vault for this run
         self.policy_engine.clear_token_vault(run_id)
 
-    async def _fail_run(self, run_id: str, error: dict) -> None:
+    async def _fail_run(self, run_id: str, error: dict, emitter: EventEmitter) -> None:
         """
         Mark run as failed and broadcast event.
 
         Args:
             run_id: Run identifier
             error: Error details
+            emitter: Event emitter for broadcasting events
         """
         assert self.uow.runs is not None
         self.uow.runs.mark_failed(run_id, error)
-        self.uow.add_event(RunFailed(run_id, error))
         self.uow.commit()
 
-        events = self.uow.collect_events()
-        await broadcast_events(events)
+        # Emit run failed event
+        emitter.run_failed(
+            error=error.get("message", "Unknown error"),
+            error_type=error.get("type", "UnknownError"),
+        )
+        await emitter.commit_and_broadcast()
 
         logger.error(f"Run {run_id} failed: {error.get('message', 'Unknown error')}")
 
@@ -1025,37 +969,6 @@ class WorkflowExecutor:
         if not step:
             raise ValueError(f"Step not found: {step_id}")
         return step
-
-    async def _emit_telemetry(
-        self, event: Any, level: TelemetryLevel = TelemetryLevel.META
-    ) -> None:
-        """
-        Emit telemetry event if enabled.
-
-        Args:
-            event: Telemetry event with to_dict() method
-            level: Minimum level required to emit
-        """
-        if not self.telemetry_config or not self.telemetry_config.should_emit(level):
-            return
-
-        try:
-            # Convert event to dict and add to domain events
-            event_dict = event.to_dict()
-
-            # Create a domain event wrapper for telemetry
-            from saz.domain.events import TelemetryEvent
-
-            telemetry_event = TelemetryEvent(event_dict)
-            self.uow.add_event(telemetry_event)
-            self.uow.commit()
-
-            # Broadcast immediately
-            events = self.uow.collect_events()
-            await broadcast_events(events)
-
-        except Exception as e:
-            logger.warning(f"Failed to emit telemetry: {e}")
 
     def _resolve_secret(self, secret_name: str) -> str | None:
         """

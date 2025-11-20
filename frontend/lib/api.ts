@@ -16,6 +16,12 @@ import type {
   AdvanceRunResponse,
   RetryRunResponse,
   ReplayRunResponse,
+  // Events
+  Event,
+  EventListResponse,
+  RunSummary,
+  EventType,
+  Severity,
   // Artifacts
   ArtifactListResponse,
   // Credentials
@@ -201,6 +207,38 @@ export const api = {
       method: 'POST',
     }),
 
+  /**
+   * Get run summary with aggregated event metrics
+   */
+  getRunSummary: (runId: string) => fetchApi<RunSummary>(`/api/v1/runs/${runId}`),
+
+  /**
+   * Get events for a run with filtering and pagination
+   */
+  getRunEvents: (
+    runId: string,
+    options?: {
+      event_type?: EventType[];
+      since?: string; // ISO 8601
+      until?: string; // ISO 8601
+      severity?: Severity;
+      limit?: number;
+      cursor?: string;
+    },
+  ) => {
+    const query = new URLSearchParams();
+    if (options?.event_type) {
+      options.event_type.forEach((t) => query.append('event_type', t));
+    }
+    if (options?.since) query.set('since', options.since);
+    if (options?.until) query.set('until', options.until);
+    if (options?.severity) query.set('severity', options.severity);
+    if (options?.limit) query.set('limit', options.limit.toString());
+    if (options?.cursor) query.set('cursor', options.cursor);
+
+    return fetchApi<EventListResponse>(`/api/v1/runs/${runId}/events?${query}`);
+  },
+
   // ========== Introspection Endpoints ==========
 
   /**
@@ -252,20 +290,27 @@ export const api = {
   // ========== WebSocket ==========
 
   /**
-   * Connect to WebSocket for live run updates
+   * Connect to WebSocket for live run event stream
    */
-  connectRunWebSocket: (
+  connectRunEventStream: (
     runId: string,
-    onMessage: (event: any) => void,
-    onError?: (error: Event) => void,
+    onEvent: (event: Event) => void,
+    onError?: (error: globalThis.Event) => void,
     onClose?: () => void,
   ): WebSocket => {
-    const ws = new WebSocket(`${WS_BASE_URL}/ws/runs/${runId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/v1/runs/${runId}/stream`);
 
-    ws.onmessage = (event) => {
+    ws.onmessage = (message) => {
       try {
-        const data = JSON.parse(event.data);
-        onMessage(data);
+        const data = JSON.parse(message.data);
+
+        // Handle ping/connected messages
+        if (data.type === 'ping' || data.type === 'connected') {
+          return;
+        }
+
+        // Handle event objects
+        onEvent(data as Event);
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e);
       }
@@ -277,7 +322,7 @@ export const api = {
     };
 
     ws.onclose = () => {
-      console.log('WebSocket closed');
+      console.log('WebSocket closed for run:', runId);
       onClose?.();
     };
 

@@ -2,13 +2,13 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { Filter } from 'lucide-react';
-import { useTelemetryEvents } from '@/lib/use-telemetry-events';
+import { useRunEvents } from '@/lib/use-run-events';
 import { TelemetryTimeline } from './telemetry-timeline';
 import { TelemetryProgressHeader } from './telemetry-progress-header';
 import { TelemetryStepDrawer } from './telemetry-step-drawer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import type { TelemetryEvent, TelemetryUsageEvent, TelemetryProgressEvent } from '@/lib/types';
+import type { Event } from '@/lib/types';
 
 interface RunConsoleProps {
   runId: string;
@@ -18,14 +18,14 @@ interface RunConsoleProps {
 }
 
 export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunConsoleProps) {
-  const { events, isConnected } = useTelemetryEvents(runId);
+  const { events, isConnected } = useRunEvents(runId);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'errors' | 'policy'>('all');
 
   // Debug: log events as they arrive
   useEffect(() => {
     if (events.length > 0) {
-      console.log('[Console] Total events:', events.length, 'Last:', events[events.length - 1].type);
+      console.log('[Console] Total events:', events.length, 'Last:', events[events.length - 1].event_type);
     }
   }, [events]);
 
@@ -41,26 +41,21 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
   const filteredEvents = useMemo(() => {
     if (filter === 'errors') {
       return events.filter((e) => {
-        if (e.type === 'trace.tool.end') {
-          return e.status === 'error';
+        if (e.event_type === 'tool.failed') {
+          return true;
         }
-        if (e.type === 'trace.critique') {
-          return e.verdict !== 'PASS';
+        if (e.event_type === 'system.error') {
+          return true;
         }
-        if (e.type === 'trace.policy.check') {
-          return !e.allowed;
+        if (e.event_type === 'policy.blocked' || e.event_type === 'policy.rate_limited') {
+          return true;
         }
         return false;
       });
     } else if (filter === 'policy') {
       return events.filter((e) => {
-        if (e.type === 'trace.policy.check') {
+        if (e.event_type.startsWith('policy.')) {
           return true;
-        }
-        if (e.type === 'trace.tool.start') {
-          return events.some(
-            (pe) => pe.type === 'trace.policy.check' && pe.step_id === e.step_id,
-          );
         }
         return false;
       });
@@ -70,18 +65,19 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
 
   // Extract latest progress event
   const latestProgress = useMemo(() => {
-    const progressEvents = events.filter((e) => e.type === 'trace.progress') as TelemetryProgressEvent[];
-    return progressEvents[progressEvents.length - 1];
+    const progressEvents = events.filter((e) => e.event_type === 'progress.updated');
+    if (progressEvents.length === 0) return undefined;
+    const lastEvent = progressEvents[progressEvents.length - 1];
+    return lastEvent.payload as any;
   }, [events]);
 
   // Extract all usage events
   const usageEvents = useMemo(() => {
-    return events.filter((e) => e.type === 'trace.usage') as TelemetryUsageEvent[];
+    return events.filter((e) => e.event_type === 'usage.recorded');
   }, [events]);
 
   return (
     <div className="relative">
-      {/* Connection status and info */}
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className={`flex items-center gap-2 text-sm ${isConnected ? 'text-green-600' : 'text-yellow-600'}`}>
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
@@ -94,7 +90,6 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
         )}
       </div>
 
-      {/* Progress Header */}
       <TelemetryProgressHeader
         progressEvent={latestProgress}
         usageEvents={usageEvents}
@@ -102,7 +97,6 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
         elapsedMs={elapsedMs}
       />
 
-      {/* Filter Controls */}
       <Card className="mb-4">
         <CardContent className="p-3">
           <div className="flex items-center justify-between">
@@ -144,10 +138,8 @@ export function RunConsole({ runId, runStatus, startedAt, completedAt }: RunCons
         </CardContent>
       </Card>
 
-      {/* Timeline */}
       <TelemetryTimeline events={filteredEvents} onStepClick={setSelectedStepId} />
 
-      {/* Step Drawer */}
       {selectedStepId && (
         <TelemetryStepDrawer
           stepId={selectedStepId}

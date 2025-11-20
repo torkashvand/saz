@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -44,18 +44,22 @@ class Run(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
     # queued, running, suspended, failed, completed
+    planner_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="deterministic")
+    # deterministic, agentic
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Compliance tracking fields
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     policy_violations: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     flow: Mapped["Flow"] = relationship("Flow", back_populates="runs")
@@ -64,6 +68,9 @@ class Run(Base):
     )
     artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact", back_populates="run", cascade="all, delete-orphan"
+    )
+    events: Mapped[list["Event"]] = relationship(
+        "Event", back_populates="run", cascade="all, delete-orphan", order_by="Event.timestamp"
     )
 
 
@@ -99,6 +106,9 @@ class Step(Base):
     run: Mapped["Run"] = relationship("Run", back_populates="steps")
     artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact", back_populates="step", cascade="all, delete-orphan"
+    )
+    events: Mapped[list["Event"]] = relationship(
+        "Event", back_populates="step", cascade="all, delete-orphan", order_by="Event.timestamp"
     )
 
     def __repr__(self) -> str:
@@ -149,3 +159,41 @@ class Credential(Base):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+
+class Event(Base):
+    """Event entity - immutable audit event log."""
+
+    __tablename__ = "events"
+
+    # Primary identity
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Context (foreign keys for joins)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    step_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("steps.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
+    # Metadata
+    planner_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="info")
+    actor: Mapped[str] = mapped_column(String(10), nullable=False, default="system")
+
+    # Content
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tags: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    # Relationships
+    run: Mapped["Run"] = relationship("Run", back_populates="events")
+    step: Mapped["Step | None"] = relationship("Step", back_populates="events")
+
+    def __repr__(self) -> str:
+        return f"<Event {self.event_type} @ {self.timestamp}>"

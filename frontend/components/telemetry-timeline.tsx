@@ -12,21 +12,20 @@ import {
   Activity,
   TrendingUp,
 } from 'lucide-react';
-import type { TelemetryEvent } from '@/lib/types';
+import type { Event } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface TelemetryTimelineProps {
-  events: TelemetryEvent[];
+  events: Event[];
   onStepClick?: (stepId: string) => void;
 }
 
 interface TelemetryEventItemProps {
-  event: TelemetryEvent;
+  event: Event;
   relativeTime: string;
   onStepClick?: (stepId: string) => void;
 }
 
-// Helper: Calculate relative time from start
 function calculateRelativeTime(startMs: number, eventMs: number): string {
   const diffMs = eventMs - startMs;
 
@@ -41,146 +40,105 @@ function calculateRelativeTime(startMs: number, eventMs: number): string {
   }
 }
 
-// Helper: Get display info for each event type
-function getEventDisplay(event: TelemetryEvent): {
+function getEventDisplay(event: Event): {
   icon: React.ComponentType<{ className?: string }>;
   color: string;
   label: string;
   details?: string;
 } {
-  const eventType = event.type;
+  const eventType = event.event_type;
 
   switch (eventType) {
-    case 'trace.plan': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.plan' }>;
-      const stepList = e.steps.map(s => `  ${s.id}: ${s.intent}`).join('\n');
+    case 'plan.generated': {
+      const steps = event.payload?.steps || [];
+      const stepList = steps.map((s: any) => `  ${s.id}: ${s.intent}`).join('\n');
       return {
         icon: GitBranch,
         color: 'border-purple-500',
-        label: '🎯 Execution Plan Generated',
-        details: `${e.total_steps} steps planned:\n${stepList}`,
+        label: 'Plan Generated',
+        details: `${steps.length} steps planned:\n${stepList}`,
       };
     }
 
-    case 'trace.step.grounded': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.step.grounded' }>;
+    case 'step.started': {
       return {
         icon: Activity,
         color: 'border-blue-500',
-        label: `📋 ${e.step_id}`,
-        details: `${e.intent}\n💭 Input: ${e.input_summary}`,
+        label: `Step: ${event.payload?.step_id || event.step_id}`,
+        details: `${event.summary}`,
       };
     }
 
-    case 'trace.policy.check': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.policy.check' }>;
-      let piiDetails = '';
-      if (e.pii_stats) {
-        const parts = [];
-        if (e.pii_stats.tokenized_count > 0) {
-          parts.push(`🔒 ${e.pii_stats.tokenized_count} PII values tokenized`);
-        }
-        if (e.pii_stats.detokenized_paths.length > 0) {
-          parts.push(`🔓 Detokenized: ${e.pii_stats.detokenized_paths.join(', ')}`);
-        }
-        if (e.pii_stats.blocked_paths.length > 0) {
-          parts.push(`🚫 Blocked: ${e.pii_stats.blocked_paths.join(', ')}`);
-        }
-        piiDetails = parts.length > 0 ? '\n' + parts.join('\n') : '';
-      }
-
+    case 'policy.pii.redacted':
+    case 'policy.blocked':
+    case 'policy.rate_limited': {
+      const isAllowed = eventType !== 'policy.blocked';
       return {
         icon: Shield,
-        color: e.allowed ? 'border-green-500' : 'border-red-500',
-        label: e.allowed ? '✅ Policy Check: Allowed' : '❌ Policy Check: Blocked',
-        details: `Tool: ${e.tool}${e.reason ? `\n⚠️  Reason: ${e.reason}` : ''}${piiDetails}`,
+        color: isAllowed ? 'border-green-500' : 'border-red-500',
+        label: isAllowed ? 'Policy: Allowed' : 'Policy: Blocked',
+        details: `${event.summary}`,
       };
     }
 
-    case 'trace.tool.start': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.tool.start' }>;
+    case 'tool.started': {
       return {
         icon: PlayCircle,
         color: 'border-cyan-500',
-        label: `▶️  Executing: ${e.tool}`,
-        details: `Attempt #${e.attempt}`,
+        label: `Tool: ${event.payload?.tool || 'Unknown'}`,
+        details: `Attempt #${event.payload?.attempt || 1}`,
       };
     }
 
-    case 'trace.tool.end': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.tool.end' }>;
-      const statusEmoji = e.status === 'success' ? '✅' : '❌';
+    case 'tool.succeeded':
+    case 'tool.failed': {
+      const isSuccess = eventType === 'tool.succeeded';
       return {
-        icon: e.status === 'success' ? StopCircle : XCircle,
-        color: e.status === 'success' ? 'border-cyan-500' : 'border-red-500',
-        label: `${statusEmoji} ${e.tool} ${e.status === 'success' ? 'Completed' : 'Failed'}`,
-        details: `⏱️  Duration: ${e.duration_ms.toFixed(0)}ms${e.error_type ? `\n❌ Error: ${e.error_type}` : ''}`,
+        icon: isSuccess ? StopCircle : XCircle,
+        color: isSuccess ? 'border-cyan-500' : 'border-red-500',
+        label: `Tool ${isSuccess ? 'Completed' : 'Failed'}: ${event.payload?.tool || 'Unknown'}`,
+        details: `Duration: ${event.payload?.duration_ms?.toFixed(0) || 0}ms${event.payload?.error ? `\nError: ${event.payload.error}` : ''}`,
       };
     }
 
-    case 'trace.route.chosen': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.route.chosen' }>;
+    case 'branch.chosen': {
       return {
         icon: GitBranch,
         color: 'border-amber-500',
-        label: `Route: ${e.route}`,
-        details: e.signal_summary,
+        label: `Route: ${event.payload?.route || 'Unknown'}`,
+        details: event.payload?.signal_summary || event.summary,
       };
     }
 
-    case 'trace.critique': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.critique' }>;
-      const verdictIcon = {
-        PASS: CheckCircle2,
-        FAIL: XCircle,
-        ESCALATE: AlertCircle,
-        REPLAN: Activity,
-      }[e.verdict] || Activity;
-      const verdictColor = {
-        PASS: 'border-green-500',
-        FAIL: 'border-red-500',
-        ESCALATE: 'border-yellow-500',
-        REPLAN: 'border-orange-500',
-      }[e.verdict] || 'border-gray-500';
-
-      const verdictEmoji = {
-        PASS: '✅',
-        FAIL: '❌',
-        ESCALATE: '⚠️',
-        REPLAN: '🔄',
-      }[e.verdict] || '❓';
-
-      let issuesDetail = '';
-      if (e.issues.length > 0) {
-        issuesDetail = '\n❗ Issues:\n' + e.issues.map((i) => `  • ${i}`).join('\n');
-      }
-
+    case 'system.error':
+    case 'system.warning': {
+      const isError = eventType === 'system.error';
+      const verdictIcon = isError ? XCircle : AlertCircle;
       return {
         icon: verdictIcon,
-        color: verdictColor,
-        label: `${verdictEmoji} Critique: ${e.verdict}`,
-        details: `📊 Confidence: ${(e.confidence * 100).toFixed(0)}%\n${e.summary}${issuesDetail}`,
+        color: isError ? 'border-red-500' : 'border-yellow-500',
+        label: `${isError ? 'Error' : 'Warning'}: ${event.summary}`,
+        details: event.payload?.details || '',
       };
     }
 
-    case 'trace.usage': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.usage' }>;
+    case 'usage.recorded': {
       return {
         icon: TrendingUp,
         color: 'border-indigo-500',
-        label: '📈 Resource Usage',
-        details: `🔢 ${e.tokens.toLocaleString()} tokens\n💰 $${e.cost_usd.toFixed(4)}\n⏱️  ${e.duration_ms.toFixed(0)}ms`,
+        label: 'Resource Usage',
+        details: `Tokens: ${event.payload?.tokens?.toLocaleString() || 0}\nCost: $${event.payload?.cost_usd?.toFixed(4) || '0.0000'}\nDuration: ${event.payload?.duration_ms?.toFixed(0) || 0}ms`,
       };
     }
 
-    case 'trace.progress': {
-      const e = event as Extract<TelemetryEvent, { type: 'trace.progress' }>;
-      const progressBar = '▓'.repeat(Math.floor(e.percent / 5)) + '░'.repeat(20 - Math.floor(e.percent / 5));
+    case 'progress.updated': {
+      const percent = event.payload?.percent || 0;
+      const progressBar = '▓'.repeat(Math.floor(percent / 5)) + '░'.repeat(20 - Math.floor(percent / 5));
       return {
         icon: Activity,
         color: 'border-slate-500',
-        label: `📊 Progress: ${e.percent.toFixed(1)}%`,
-        details: `${progressBar}\n${e.completed}/${e.total} steps completed`,
+        label: `Progress: ${percent.toFixed(1)}%`,
+        details: `${progressBar}\n${event.payload?.completed || 0}/${event.payload?.total || 0} steps`,
       };
     }
 
@@ -189,12 +147,11 @@ function getEventDisplay(event: TelemetryEvent): {
         icon: Activity,
         color: 'border-gray-500',
         label: eventType,
-        details: undefined,
+        details: event.summary,
       };
   }
 }
 
-// Event item component
 function TelemetryEventItem({ event, relativeTime, onStepClick }: TelemetryEventItemProps) {
   const { icon: Icon, color, label, details } = getEventDisplay(event);
 
@@ -202,7 +159,7 @@ function TelemetryEventItem({ event, relativeTime, onStepClick }: TelemetryEvent
     <div
       className={`border-l-4 ${color} bg-muted/30 p-3 rounded hover:bg-muted/50 transition-colors cursor-pointer`}
       onClick={() => {
-        if ('step_id' in event && onStepClick) {
+        if (event.step_id && onStepClick) {
           onStepClick(event.step_id);
         }
       }}
@@ -225,13 +182,11 @@ function TelemetryEventItem({ event, relativeTime, onStepClick }: TelemetryEvent
   );
 }
 
-// Main timeline component
 export function TelemetryTimeline({ events, onStepClick }: TelemetryTimelineProps) {
   const [autoScroll, setAutoScroll] = useState(true);
   const timelineRef = useRef<HTMLDivElement>(null);
   const lastEventCountRef = useRef(0);
 
-  // Auto-scroll to bottom when new events arrive
   useEffect(() => {
     if (autoScroll && events.length > lastEventCountRef.current && timelineRef.current) {
       timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
@@ -239,7 +194,6 @@ export function TelemetryTimeline({ events, onStepClick }: TelemetryTimelineProp
     lastEventCountRef.current = events.length;
   }, [events, autoScroll]);
 
-  // Detect manual scroll up
   const handleScroll = () => {
     if (!timelineRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = timelineRef.current;
@@ -252,7 +206,7 @@ export function TelemetryTimeline({ events, onStepClick }: TelemetryTimelineProp
       <Card>
         <CardContent className="p-8 text-center text-muted-foreground">
           <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>No telemetry events yet</p>
+          <p>No events yet</p>
           <p className="text-sm mt-2">Events will appear here as the workflow executes</p>
         </CardContent>
       </Card>
@@ -283,7 +237,7 @@ export function TelemetryTimeline({ events, onStepClick }: TelemetryTimelineProp
           >
             {events.map((event, idx) => (
               <TelemetryEventItem
-                key={`${event.type}-${idx}`}
+                key={`${event.id}-${idx}`}
                 event={event}
                 relativeTime={calculateRelativeTime(
                   firstTimestamp,

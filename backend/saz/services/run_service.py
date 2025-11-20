@@ -1,7 +1,6 @@
 """Run service - business logic for run operations."""
 
 from saz.db.unit_of_work import UnitOfWork
-from saz.domain.events import RunCompleted, RunFailed, RunStarted, RunSuspended
 from saz.repositories.read.dtos import RunDetailDTO, RunListItemDTO
 
 
@@ -22,9 +21,6 @@ class RunService:
 
         # Create run
         run = self.uow.runs.create(flow_id, payload)
-
-        # Emit event before commit
-        self.uow.add_event(RunStarted(run.id, flow_id))
         self.uow.commit()
 
         return run.id
@@ -60,7 +56,6 @@ class RunService:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
         self.uow.commit()
-        self.uow.add_event(RunCompleted(run_id))
 
     def mark_failed(self, run_id: str, error: dict) -> None:
         """Mark run as failed."""
@@ -69,7 +64,6 @@ class RunService:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
         self.uow.commit()
-        self.uow.add_event(RunFailed(run_id, error))
 
     def mark_suspended(self, run_id: str, reason: str) -> None:
         """Mark run as suspended."""
@@ -78,7 +72,6 @@ class RunService:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
         self.uow.commit()
-        self.uow.add_event(RunSuspended(run_id, reason))
 
     def retry(self, run_id: str) -> str:
         """Retry a failed run by finding failing step and creating new run."""

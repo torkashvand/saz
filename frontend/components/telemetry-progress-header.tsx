@@ -1,12 +1,12 @@
 'use client';
 
 import { Activity, Clock, DollarSign, Zap } from 'lucide-react';
-import type { TelemetryProgressEvent, TelemetryUsageEvent } from '@/lib/types';
+import type { Event } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface TelemetryProgressHeaderProps {
-  progressEvent?: TelemetryProgressEvent;
-  usageEvents: TelemetryUsageEvent[];
+  progressEvent?: any;
+  usageEvents: Event[];
   runStatus: string;
   elapsedMs?: number;
 }
@@ -17,8 +17,8 @@ export function TelemetryProgressHeader({
   runStatus,
   elapsedMs,
 }: TelemetryProgressHeaderProps) {
-  const totalTokens = usageEvents.reduce((sum, e) => sum + e.tokens, 0);
-  const totalCost = usageEvents.reduce((sum, e) => sum + e.cost_usd, 0);
+  const totalTokens = usageEvents.reduce((sum, e) => sum + (e.payload?.tokens || 0), 0);
+  const totalCost = usageEvents.reduce((sum, e) => sum + (e.payload?.cost_usd || 0), 0);
   const percent = progressEvent?.percent || 0;
 
   const statusColor = {
@@ -41,7 +41,6 @@ export function TelemetryProgressHeader({
           </div>
         </div>
 
-        {/* Progress bar */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">
@@ -59,7 +58,6 @@ export function TelemetryProgressHeader({
           </div>
         </div>
 
-        {/* Metrics grid */}
         <div className="grid grid-cols-3 gap-4">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-indigo-500" />

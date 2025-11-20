@@ -13,6 +13,11 @@ class RunReadRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get(self, run_id: str) -> Run | None:
+        """Get a run by ID."""
+        stmt = select(Run).where(Run.id == run_id)
+        return self.session.scalar(stmt)
+
     def list(
         self,
         flow_id: str | None = None,

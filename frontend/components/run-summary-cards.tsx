@@ -38,7 +38,9 @@ export function RunSummaryCards({ metrics, isRunning }: RunSummaryCardsProps) {
           {metrics.totalSteps > 0 && (
             <p className="text-xs text-slate-500 mt-1">
               {metrics.completedSteps} completed
-              {metrics.failedSteps > 0 && `, ${metrics.failedSteps} failed`}
+              {metrics.failedSteps > 0 && (
+                <span className="text-red-600 font-medium">, {metrics.failedSteps} failed</span>
+              )}
             </p>
           )}
         </CardContent>

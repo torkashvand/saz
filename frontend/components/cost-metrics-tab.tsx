@@ -18,7 +18,7 @@ function formatCost(cost: number): string {
  * Cost breakdown tab showing per-step token usage and costs.
  *
  * Design principles:
- * - Clear summary cards at top
+ * - Show only derived, cost-specific insights (no duplication with global summary)
  * - Detailed breakdown table
  * - Visual representation of cost distribution
  */
@@ -43,44 +43,31 @@ export function CostMetricsTab({
     (step.cost_usd || 0) > (max.cost_usd || 0) ? step : max
   , steps[0] || { cost_usd: 0 });
 
+  // Calculate LLM vs non-LLM split (heuristic: steps with tokens are LLM)
+  const llmSteps = steps.filter(s => s.tokens && s.tokens > 0);
+  const llmCost = llmSteps.reduce((sum, s) => sum + (s.cost_usd || 0), 0);
+  const nonLlmCost = totalCost - llmCost;
+  const llmPercentage = totalCost > 0 ? (llmCost / totalCost) * 100 : 0;
+
   return (
     <div className="space-y-6">
-      {/* Summary cards */}
+      {/* Derived insights - no duplication with global summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-slate-500">
-                Total Tokens
+                Avg per AI Step
               </CardTitle>
               <Zap className="h-4 w-4 text-slate-400" />
             </div>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-slate-900">
-              {totalTokens.toLocaleString()}
+              {avgTokensPerStep.toLocaleString()}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Avg {avgTokensPerStep.toLocaleString()} per step
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">
-                Total Cost
-              </CardTitle>
-              <DollarSign className="h-4 w-4 text-slate-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-slate-900">
-              {formatCost(totalCost)}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              Avg {formatCost(avgCostPerStep)} per step
+              tokens • {formatCost(avgCostPerStep)}
             </p>
           </CardContent>
         </Card>
@@ -100,7 +87,26 @@ export function CostMetricsTab({
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}
-              {(mostExpensiveStep.tokens || 0).toLocaleString()} tokens
+              {((mostExpensiveStep.cost_usd || 0) / totalCost * 100).toFixed(1)}% of total
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-slate-500">
+                AI vs Non-AI Cost
+              </CardTitle>
+              <DollarSign className="h-4 w-4 text-slate-400" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-slate-900">
+              {llmPercentage.toFixed(0)}%
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              {formatCost(llmCost)} AI • {formatCost(nonLlmCost)} other
             </p>
           </CardContent>
         </Card>

@@ -21,12 +21,14 @@ import {
   AlertCircle,
   Layout,
 } from 'lucide-react';
-import { WorkflowGraph } from '@/components/workflow-graph';
 import { CollapsibleJson } from '@/components/json-view';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { StepTimeline as NewStepTimeline } from '@/components/step-timeline';
 import { EnhancedConsolePanel } from '@/components/enhanced-console-panel';
+import { RunSummaryCards } from '@/components/run-summary-cards';
+import { RunGraphView } from '@/components/run-graph-view';
+import { useRunMetrics } from '@/lib/use-run-metrics';
 import type { RunStep, StepStatus } from '@/lib/types';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
@@ -139,6 +141,10 @@ export default function RunDetailPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
 
+  // Calculate metrics with proper aggregation
+  const metrics = useRunMetrics(run);
+  const isRunning = run?.status === 'running' || run?.status === 'pending';
+
   // Retry mutation
   const retryMutation = useMutation({
     mutationFn: () => api.retryRun(runId),
@@ -199,7 +205,6 @@ export default function RunDetailPage() {
     );
   }
 
-  const isRunning = run.status === 'running' || run.status === 'pending';
   const isFailed = run.status === 'failed';
   const isSuspended = run.status === 'suspended';
 
@@ -326,47 +331,8 @@ export default function RunDetailPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Steps</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{run.steps?.length || 0}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Total Tokens</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{run.total_tokens?.toLocaleString() || '0'}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Total Cost</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{formatCost(run.total_cost_usd)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-muted-foreground">Duration</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-bold">
-              {run.started_at && run.completed_at
-                ? formatDuration(
-                    new Date(run.completed_at).getTime() - new Date(run.started_at).getTime(),
-                  )
-                : isRunning
-                  ? formatDuration(Date.now() - new Date(run.started_at || Date.now()).getTime())
-                  : '-'}
-            </p>
-          </CardContent>
-        </Card>
+      <div className="mb-6">
+        <RunSummaryCards metrics={metrics} isRunning={isRunning} />
       </div>
 
       {/* Tabs */}
@@ -407,6 +373,7 @@ export default function RunDetailPage() {
               right={
                 <EnhancedConsolePanel
                   events={events}
+                  steps={run.steps || []}
                   selectedStepId={selectedStepId}
                   onSelectStep={setSelectedStepId}
                 />
@@ -425,19 +392,12 @@ export default function RunDetailPage() {
               <CardTitle>Workflow Graph</CardTitle>
             </CardHeader>
             <CardContent>
-              {isLoadingGraph ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
-              ) : runGraph ? (
-                <WorkflowGraph
-                  nodes={runGraph.nodes}
-                  edges={runGraph.edges}
-                  status={runGraph.status_by_step || {}}
-                />
-              ) : (
-                <p className="text-center py-12 text-muted-foreground">Graph data not available</p>
-              )}
+              <RunGraphView
+                runGraph={runGraph}
+                steps={run.steps || []}
+                isLoading={isLoadingGraph}
+                onStepClick={setSelectedStepId}
+              />
             </CardContent>
           </Card>
         </TabsContent>

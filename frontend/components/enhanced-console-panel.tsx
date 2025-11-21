@@ -1,18 +1,35 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, X, Filter } from 'lucide-react';
+import { Search, X, Filter, Info, AlertTriangle, XCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import type { Event } from '@/lib/types';
+import type { Event, RunStep } from '@/lib/types';
 
 interface EnhancedConsolePanelProps {
   events: Event[];
+  steps: RunStep[]; // Pass steps to map IDs to numbers/names
   selectedStepId: string | null;
   onSelectStep: (stepId: string) => void;
 }
 
 type LevelFilter = 'all' | 'info' | 'warning' | 'error';
+
+/**
+ * Map step IDs to human-readable labels.
+ * UX decision: Build a lookup table so every log line can show
+ * "Step 3: extract_ticket" instead of just "step-abc123..."
+ */
+function buildStepLookup(steps: RunStep[]) {
+  const lookup: Record<string, { number: number; name: string }> = {};
+  steps.forEach((step) => {
+    lookup[step.id] = {
+      number: step.number,
+      name: step.name,
+    };
+  });
+  return lookup;
+}
 
 function formatTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
@@ -26,12 +43,23 @@ function getEventLevel(event: Event): string {
   return 'info';
 }
 
+/**
+ * Individual log line component.
+ *
+ * UX decisions:
+ * - Show step number + name prominently (e.g., "Step 3: extract_ticket")
+ * - Make event type and level icon the primary visual anchors
+ * - De-emphasize timestamps (still visible but muted)
+ * - Clickable step badge to jump to that step in timeline
+ */
 function LogLine({
   event,
+  stepInfo,
   highlight,
   onClickStep,
 }: {
   event: Event;
+  stepInfo?: { number: number; name: string };
   highlight: string;
   onClickStep: () => void;
 }) {
@@ -46,40 +74,50 @@ function LogLine({
       )
     : message;
 
-  const levelColors = {
-    error: 'text-red-400',
-    warning: 'text-yellow-400',
-    info: 'text-blue-400',
+  // Level-specific styling with icons
+  const levelConfig = {
+    error: { icon: XCircle, color: 'text-red-400', bgClass: 'bg-red-950/20' },
+    warning: { icon: AlertTriangle, color: 'text-yellow-400', bgClass: 'bg-yellow-950/20' },
+    info: { icon: Info, color: 'text-blue-400', bgClass: '' },
   };
+
+  const config = levelConfig[level as keyof typeof levelConfig] || levelConfig.info;
+  const LevelIcon = config.icon;
 
   return (
     <div
       className={`
-        flex gap-3 px-3 py-1.5 hover:bg-slate-700/50 font-mono text-xs
-        ${level === 'error' ? 'bg-red-950/20' : ''}
-        ${level === 'warning' ? 'bg-yellow-950/20' : ''}
+        flex gap-2 px-3 py-2 hover:bg-slate-700/50 font-mono text-xs border-b border-slate-800
+        ${config.bgClass}
       `}
     >
-      <span className="text-slate-500 flex-shrink-0 w-24">
+      {/* Timestamp - de-emphasized */}
+      <span className="text-slate-500 flex-shrink-0 w-20 text-[10px] leading-relaxed">
         {formatTimestamp(event.timestamp)}
       </span>
 
-      {event.step_id && (
+      {/* Step badge - primary element */}
+      {stepInfo && (
         <button
           onClick={onClickStep}
-          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex-shrink-0 transition-colors"
-          title="Jump to this step"
+          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded flex-shrink-0 transition-colors font-semibold"
+          title={`Jump to Step ${stepInfo.number}: ${stepInfo.name}`}
         >
-          [step-{event.step_id.slice(0, 8)}]
+          Step {stepInfo.number}
         </button>
       )}
 
-      <span className={`font-semibold flex-shrink-0 w-32 ${levelColors[level as keyof typeof levelColors]}`}>
-        {event.event_type}
-      </span>
+      {/* Level icon + event type - primary visual anchor */}
+      <div className="flex items-center gap-1.5 flex-shrink-0 min-w-[140px]">
+        <LevelIcon className={`h-3.5 w-3.5 ${config.color}`} />
+        <span className={`font-semibold ${config.color}`}>
+          {event.event_type}
+        </span>
+      </div>
 
+      {/* Message */}
       <span
-        className="text-slate-200 flex-1 break-words"
+        className="text-slate-200 flex-1 break-words leading-relaxed"
         dangerouslySetInnerHTML={{ __html: highlightedMessage }}
       />
     </div>
@@ -88,6 +126,7 @@ function LogLine({
 
 export function EnhancedConsolePanel({
   events,
+  steps,
   selectedStepId,
   onSelectStep,
 }: EnhancedConsolePanelProps) {
@@ -96,6 +135,9 @@ export function EnhancedConsolePanel({
   const [autoScroll, setAutoScroll] = useState(true);
   const logEndRef = useRef<HTMLDivElement>(null);
   const logViewerRef = useRef<HTMLDivElement>(null);
+
+  // Build step lookup table (memoized)
+  const stepLookup = useMemo(() => buildStepLookup(steps), [steps]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -297,6 +339,7 @@ export function EnhancedConsolePanel({
               <LogLine
                 key={event.id}
                 event={event}
+                stepInfo={event.step_id ? stepLookup[event.step_id] : undefined}
                 highlight={search}
                 onClickStep={() => event.step_id && onSelectStep(event.step_id)}
               />

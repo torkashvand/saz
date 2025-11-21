@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { StepCard } from './step-card';
 import { Button } from './ui/button';
@@ -76,7 +76,19 @@ export function StepTimeline({
 
   const handleStepClick = (stepId: string) => {
     onSelectStep(selectedStepId === stepId ? null : stepId);
-    onToggleStep(stepId);
+
+    // Expand the step if not already expanded
+    if (!expandedSteps.has(stepId)) {
+      onToggleStep(stepId);
+    }
+
+    // Scroll to the step card
+    setTimeout(() => {
+      const element = document.querySelector(`[data-step-id="${stepId}"]`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   return (

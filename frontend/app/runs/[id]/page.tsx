@@ -23,13 +23,17 @@ import {
 } from 'lucide-react';
 import { CollapsibleJson } from '@/components/json-view';
 import { ErrorBanner } from '@/components/ui/error-banner';
+import { ErrorSummaryBanner } from '@/components/error-summary';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { StepTimeline as NewStepTimeline } from '@/components/step-timeline';
 import { EnhancedConsolePanel } from '@/components/enhanced-console-panel';
 import { RunSummaryCards } from '@/components/run-summary-cards';
 import { RunGraphView } from '@/components/run-graph-view';
+import { CostMetricsTab } from '@/components/cost-metrics-tab';
 import { useRunMetrics } from '@/lib/use-run-metrics';
+import { buildErrorSummary } from '@/lib/error-enrichment';
 import type { RunStep, StepStatus } from '@/lib/types';
+import type { RemediationAction } from '@/lib/types-enhanced';
 
 const STATUS_ICONS: Record<StepStatus, React.ReactNode> = {
   pending: <Clock className="h-5 w-5 text-slate-400" />,
@@ -208,6 +212,41 @@ export default function RunDetailPage() {
   const isFailed = run.status === 'failed';
   const isSuspended = run.status === 'suspended';
 
+  // Build error summary for failed runs
+  const errorSummary = isFailed ? buildErrorSummary(run) : null;
+
+  // Handle remediation actions
+  const handleRemediationAction = (action: RemediationAction) => {
+    switch (action) {
+      case 'configure_credential':
+        router.push('/credentials');
+        break;
+      case 'retry':
+        retryMutation.mutate();
+        break;
+      case 'fix_input_data':
+        // Navigate to flow definition or input editor
+        router.push(`/flows/${run.flow_id}`);
+        break;
+      case 'view_logs':
+        // Switch to split view tab and ensure logs are visible
+        setActiveTab('split-view');
+        if (errorSummary?.failed_step_number) {
+          const failedStep = run.steps?.find(s => s.number === errorSummary.failed_step_number);
+          if (failedStep) {
+            setSelectedStepId(failedStep.id);
+          }
+        }
+        break;
+      case 'check_api_status':
+      case 'contact_support':
+      case 'check_permissions':
+        // These would typically open external links or modals
+        showError(`Action "${action}" not yet implemented`);
+        break;
+    }
+  };
+
   // Determine status display
   const getStatusLabel = (status: string) => {
     switch (status) {
@@ -263,60 +302,32 @@ export default function RunDetailPage() {
         </div>
         <p className="text-sm text-muted-foreground font-mono">{runId}</p>
 
-        {/* Error Panel */}
-        {run.error && (
-          <div className="mt-4 border-l-4 border-red-500 bg-red-50 p-4 rounded">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-red-900">Run Failed</p>
-                <p className="text-sm text-red-700 mt-1">
-                  {typeof run.error === 'object' && run.error !== null ? run.error.message : run.error}
-                </p>
-                {run.error?.type && (
-                  <p className="text-xs text-red-600 mt-1">Type: {run.error.type}</p>
-                )}
-                {run.error?.traceback && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-red-600 cursor-pointer hover:underline">
-                      Show traceback
-                    </summary>
-                    <pre className="mt-2 text-xs text-red-800 bg-red-100 p-2 rounded overflow-x-auto font-mono">
-                      {run.error.traceback}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            </div>
+        {/* Error Summary Banner */}
+        {errorSummary && (
+          <div className="mt-4">
+            <ErrorSummaryBanner
+              error={errorSummary}
+              onAction={handleRemediationAction}
+            />
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="mt-4 flex gap-2">
-          {isFailed && (
-            <Button
-              onClick={() => retryMutation.mutate()}
-              disabled={retryMutation.isPending}
-              size="sm"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry from Failing Step
-            </Button>
-          )}
-          {!isRunning && run.steps && run.steps.length > 0 && (
+        {/* Action Buttons (for runs that need replay without error) */}
+        {!isFailed && !isRunning && run.steps && run.steps.length > 0 && (
+          <div className="mt-4">
             <Button
               variant="outline"
               onClick={() => {
                 const step = prompt(
-                  `Enter step number to replay from (0-${run.steps.length - 1}):`,
+                  `Enter step number to replay from (1-${run.steps.length}):`,
                 );
                 if (step !== null) {
                   const stepNum = parseInt(step, 10);
-                  if (!isNaN(stepNum) && stepNum >= 0 && stepNum < run.steps.length) {
-                    setReplayStep(stepNum);
-                    replayMutation.mutate(stepNum);
+                  if (!isNaN(stepNum) && stepNum >= 1 && stepNum <= run.steps.length) {
+                    setReplayStep(stepNum - 1);
+                    replayMutation.mutate(stepNum - 1);
                   } else {
-                    showError(`Please enter a number between 0 and ${run.steps.length - 1}`);
+                    showError(`Please enter a number between 1 and ${run.steps.length}`);
                   }
                 }
               }}
@@ -326,8 +337,8 @@ export default function RunDetailPage() {
               <Rewind className="h-4 w-4 mr-2" />
               Replay from Step...
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -342,12 +353,12 @@ export default function RunDetailPage() {
             <Layout className="h-4 w-4 mr-2" />
             Split View
           </TabsTrigger>
-          <TabsTrigger value="graph" className="flex-1">
-            Graph
-          </TabsTrigger>
-          <TabsTrigger value="artifacts" className="flex-1">
-            Artifacts {run.artifacts && run.artifacts.length > 0 && `(${run.artifacts.length})`}
-          </TabsTrigger>
+          {/* Graph tab hidden - redundant with Split View */}
+          {run.artifacts && run.artifacts.length > 0 && (
+            <TabsTrigger value="artifacts" className="flex-1">
+              Artifacts ({run.artifacts.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="cost" className="flex-1">
             Cost Breakdown
           </TabsTrigger>
@@ -386,29 +397,15 @@ export default function RunDetailPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="graph" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Workflow Graph</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <RunGraphView
-                runGraph={runGraph}
-                steps={run.steps || []}
-                isLoading={isLoadingGraph}
-                onStepClick={setSelectedStepId}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {/* TODO: Graph tab removed - was redundant. If needed later, integrate a compact inline graph in Split View */}
 
-        <TabsContent value="artifacts" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Artifacts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {run.artifacts && run.artifacts.length > 0 ? (
+        {run.artifacts && run.artifacts.length > 0 && (
+          <TabsContent value="artifacts" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Artifacts</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="space-y-2">
                   {run.artifacts.map((artifactId) => (
                     <div key={artifactId} className="border rounded p-3 font-mono text-sm">
@@ -416,51 +413,17 @@ export default function RunDetailPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-center py-12 text-muted-foreground">No artifacts generated</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="cost" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Cost Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center pb-4 border-b">
-                  <span className="text-lg font-medium">Total</span>
-                  <span className="text-2xl font-bold">{formatCost(run.total_cost_usd)}</span>
-                </div>
-
-                <div className="space-y-2">
-                  {run.steps && run.steps
-                    .filter((s) => s.cost_usd && s.cost_usd > 0)
-                    .map((step) => (
-                      <div key={step.id} className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground">
-                          {step.id} <span className="text-xs">({step.step_type})</span>
-                        </span>
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs text-muted-foreground">
-                            {step.tokens} tokens
-                          </span>
-                          <span className="font-mono">{formatCost(step.cost_usd)}</span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-
-                {run.steps && run.steps.filter((s) => s.cost_usd && s.cost_usd > 0).length === 0 && (
-                  <p className="text-center py-6 text-muted-foreground text-sm">
-                    No AI operations with cost tracking
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <CostMetricsTab
+            steps={run.steps || []}
+            totalTokens={metrics.totalTokens || 0}
+            totalCost={metrics.totalCost || 0}
+          />
         </TabsContent>
       </Tabs>
     </div>

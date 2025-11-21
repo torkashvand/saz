@@ -58,8 +58,14 @@ class Run(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
     )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # UX enhancement fields
+    error_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    run_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    triggered_by: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
     flow: Mapped["Flow"] = relationship("Flow", back_populates="runs")

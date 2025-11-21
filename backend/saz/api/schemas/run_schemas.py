@@ -81,6 +81,11 @@ class StepSummary(BaseModel):
     output: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
 
+    # NEW: Enhanced UX fields
+    description: str | None = Field(None, description="User-friendly step description")
+    failure_reason: str | None = Field(None, description="Human-readable failure message")
+    error_category: str | None = Field(None, description="Categorized error type")
+
 
 class RunDetail(BaseModel):
     """Detailed run information with all fields."""
@@ -102,6 +107,43 @@ class RunDetail(BaseModel):
     steps: list[Any] = Field(default_factory=list)  # Can be StepSummary or db model
 
 
+class ErrorSummarySchema(BaseModel):
+    """Human-readable error summary with remediation actions."""
+
+    message: str = Field(..., description="Human-readable error message")
+    category: str = Field(..., description="Error category (missing_credential, http_error, etc.)")
+    failed_step_number: int | None = Field(None, description="Step number where error occurred")
+    failed_step_name: str | None = Field(None, description="Step name where error occurred")
+    remediation_actions: list[str] = Field(
+        default_factory=list, description="Suggested remediation actions"
+    )
+    technical_details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Technical details (error_type, stack_trace, raw_error, etc.)",
+    )
+
+
+class RunMetadataSchema(BaseModel):
+    """Aggregated metadata for a run."""
+
+    total_steps: int
+    succeeded_steps: int
+    failed_steps: int
+    running_steps: int
+    skipped_steps: int
+
+
+class TriggeredBySchema(BaseModel):
+    """Information about who/what triggered the run."""
+
+    type: str = Field(..., description="Trigger type: user, system, schedule, webhook")
+    user_id: str | None = None
+    user_name: str | None = None
+    trigger_source: str | None = Field(
+        None, description="Source: manual, cron, github_webhook, etc."
+    )
+
+
 class RunDetailResponse(BaseModel):
     """Detailed run information with steps."""
 
@@ -114,11 +156,18 @@ class RunDetailResponse(BaseModel):
     error: dict[str, Any] | None = None
     created_at: datetime
     completed_at: datetime | None = None
+    started_at: datetime | None = Field(None, description="When run actually started execution")
     duration_ms: int | None = None
     total_tokens: int
     total_cost_usd: float
     policy_violations: dict[str, Any] | None = None
     steps: list[StepSummary]
+
+    error_summary: ErrorSummarySchema | None = Field(
+        None, description="Human-readable error summary"
+    )
+    run_metadata: RunMetadataSchema | None = Field(None, description="Aggregated step counts")
+    triggered_by: TriggeredBySchema | None = Field(None, description="Who/what triggered this run")
 
 
 class RunStepsResponse(BaseModel):

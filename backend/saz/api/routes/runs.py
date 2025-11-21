@@ -28,6 +28,38 @@ router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 logger = logging.getLogger(__name__)
 
 
+def sanitize_error(error: dict | None, include_sensitive: bool) -> dict | None:
+    """
+    Sanitize error object to remove stack traces unless explicitly requested.
+
+    Args:
+        error: Error dictionary from Step.error or Run.error
+        include_sensitive: Whether to include stack traces
+
+    Returns:
+        Sanitized error dict or None
+    """
+    if not error:
+        return None
+
+    if include_sensitive:
+        # Return full error including stack traces
+        return error
+
+    # Return sanitized version WITHOUT stack traces
+    sanitized = {
+        "type": error.get("type"),
+        "message": error.get("message"),
+        # DO NOT include 'traceback' or 'stack_trace'
+    }
+
+    # Include HTTP status if present (not sensitive)
+    if "status_code" in error:
+        sanitized["status_code"] = error["status_code"]
+
+    return sanitized
+
+
 @router.get("", response_model=RunListResponse)
 async def list_runs(
     service: RunServiceDep,
@@ -84,6 +116,22 @@ async def create_run(
         payload=req.payload or {},
     )
 
+    # Get the created run to enrich with triggered_by
+    assert service.uow.runs is not None
+    run = service.uow.runs.get(run_id)
+    if not run:
+        raise NotFoundError(f"Run not found after creation: {run_id}")
+
+    # Set triggered_by information (for now, mark as system since we don't have auth yet)
+    # In production, you would get the current user from authentication context
+    run.triggered_by = {
+        "type": "user",  # or "system", "schedule", "webhook"
+        "user_id": None,  # Replace with actual user ID from auth context
+        "user_name": "System",  # Replace with actual user name from auth context
+        "trigger_source": "manual",
+    }
+    service.uow.commit()
+
     # Schedule the run for execution
     scheduler = get_scheduler()
     scheduled = scheduler.schedule(run_id)
@@ -91,12 +139,6 @@ async def create_run(
         # Run is already scheduled/running, which shouldn't happen for new runs
         # but we'll log it and continue
         logger.warning(f"Run {run_id} could not be scheduled (already running?)")
-
-    # Get the created run
-    assert service.uow.runs is not None
-    run = service.uow.runs.get(run_id)
-    if not run:
-        raise NotFoundError(f"Run not found after creation: {run_id}")
 
     return CreateRunResponse(
         id=run.id,
@@ -181,8 +223,26 @@ async def get_run_events(
 async def get_run_detail(
     run_id: str,
     service: RunServiceDep,
+    include_sensitive: bool = Query(False, description="Include stack traces (for debugging only)"),
 ) -> RunDetailResponse:
-    """Get run detail with steps."""
+    """Get run detail with steps and enhanced UX fields.
+
+    By default, stack traces and sensitive error details are NOT included.
+
+    The include_sensitive parameter only works if ALLOW_SENSITIVE_DATA=true in environment.
+    This prevents accidental exposure in production even if the parameter is set.
+    """
+    from saz.settings import settings
+
+    # Override include_sensitive based on environment variable
+    # Even if client requests sensitive data, deny if env var is False
+    include_sensitive = include_sensitive and settings.ALLOW_SENSITIVE_DATA
+
+    if include_sensitive:
+        logger.warning(
+            "Sensitive data requested and allowed by environment",
+            extra={"run_id": run_id, "endpoint": f"/api/v1/runs/{run_id}"},
+        )
     # Get run model directly to access all fields
     assert service.uow.runs is not None
     run = service.uow.runs.get(run_id)
@@ -194,24 +254,42 @@ async def get_run_detail(
     if run.completed_at and run.created_at:
         duration_ms = int((run.completed_at - run.created_at).total_seconds() * 1000)
 
-    # Convert steps to StepSummary
-    from saz.api.schemas.run_schemas import StepSummary
+    # Import enrichment service
+    from saz.api.schemas.run_schemas import (
+        ErrorSummarySchema,
+        RunMetadataSchema,
+        StepSummary,
+        TriggeredBySchema,
+    )
+    from saz.domain.error_enrichment import ErrorEnrichmentService
 
-    return RunDetailResponse(
-        id=run.id,
-        flow_id=run.flow_id,
-        flow_name=run.flow.name,
-        status=run.status,
-        planner_mode=run.planner_mode,
-        payload=run.payload or {},
-        error=run.error,
-        created_at=run.created_at,
-        completed_at=run.completed_at,
-        duration_ms=duration_ms or run.duration_ms,
-        total_tokens=run.total_tokens or 0,
-        total_cost_usd=run.total_cost_usd or 0.0,
-        policy_violations=run.policy_violations,
-        steps=[
+    # Build error summary if run failed
+    error_summary_obj = None
+    if run.status in ("failed", "error"):
+        failed_step = next((s for s in (run.steps or []) if s.status == "failed"), None)
+        error_summary = ErrorEnrichmentService.build_error_summary(run, failed_step)
+        if error_summary:
+            error_summary_obj = ErrorSummarySchema(**error_summary.to_dict())
+
+    # Calculate metadata
+    metadata = ErrorEnrichmentService.calculate_run_metadata(run)
+    metadata_obj = RunMetadataSchema(**metadata)
+
+    # Get flow definition for step descriptions
+    assert service.uow.flows is not None
+    flow = service.uow.flows.get(run.flow_id)
+    flow_definition = flow.definition if flow else None
+
+    # Convert steps to StepSummary with enrichment
+    enriched_steps = []
+    for s in run.steps or []:
+        # Get step description from flow definition
+        description = ErrorEnrichmentService.get_step_description(s, flow_definition)
+
+        # Get failure reason if step failed
+        failure_reason, error_category = ErrorEnrichmentService.enrich_step_with_failure_reason(s)
+
+        enriched_steps.append(
             StepSummary(
                 id=s.id,
                 number=s.number,
@@ -226,10 +304,37 @@ async def get_run_detail(
                 cost_usd=s.cost_usd,
                 input=s.input,
                 output=s.output,
-                error=s.error,
+                error=sanitize_error(s.error, include_sensitive),  # Sanitize error
+                description=description,
+                failure_reason=failure_reason,
+                error_category=error_category,
             )
-            for s in (run.steps or [])
-        ],
+        )
+
+    # Build triggered_by object
+    triggered_by_obj = None
+    if run.triggered_by:
+        triggered_by_obj = TriggeredBySchema(**run.triggered_by)
+
+    return RunDetailResponse(
+        id=run.id,
+        flow_id=run.flow_id,
+        flow_name=run.flow.name,
+        status=run.status,
+        planner_mode=run.planner_mode,
+        payload=run.payload or {},
+        error=sanitize_error(run.error, include_sensitive),  # Sanitize run-level error
+        created_at=run.created_at,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        duration_ms=duration_ms or run.duration_ms,
+        total_tokens=run.total_tokens or 0,
+        total_cost_usd=run.total_cost_usd or 0.0,
+        policy_violations=run.policy_violations,
+        steps=enriched_steps,
+        error_summary=error_summary_obj,
+        run_metadata=metadata_obj,
+        triggered_by=triggered_by_obj,
     )
 
 

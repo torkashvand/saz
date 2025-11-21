@@ -1,6 +1,6 @@
 """Initial schema for clean architecture
 
-Revision ID: 001_initial
+Revision ID: 001
 Revises:
 Create Date: 2025-01-12 00:00:00.000000
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '001_initial'
+revision = '001'
 down_revision = None
 branch_labels = None
 depends_on = None

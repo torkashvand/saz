@@ -97,16 +97,39 @@ export interface RunDetailResponse {
   payload: Record<string, any>;
   error?: any;
   created_at: string;
-  started_at?: string;  // Optional: May be added by backend or equal to created_at
+  started_at?: string;
   completed_at?: string;
   duration_ms?: number;
   total_tokens: number;
   total_cost_usd: number;
-  total_events?: number;  // Optional: For event-based UI
-  error_count?: number;  // Optional: For error tracking UI
+  total_events?: number;
+  error_count?: number;
   policy_violations?: any;
   steps: RunStep[];
-  artifacts?: string[];  // Optional: List of artifact IDs
+  artifacts?: string[];
+
+  // Enhanced UX fields
+  error_summary?: {
+    message: string;
+    category: string;
+    failed_step_number: number | null;
+    failed_step_name: string | null;
+    remediation_actions: string[];
+    technical_details: Record<string, any>;
+  };
+  run_metadata?: {
+    total_steps: number;
+    succeeded_steps: number;
+    failed_steps: number;
+    running_steps: number;
+    skipped_steps: number;
+  };
+  triggered_by?: {
+    type: string;
+    user_id?: string;
+    user_name?: string;
+    trigger_source?: string;
+  };
 }
 
 export interface RunStep {
@@ -124,6 +147,11 @@ export interface RunStep {
   input?: any;
   output?: any;
   error?: any;
+
+  // Enhanced UX fields
+  description?: string;
+  failure_reason?: string;
+  error_category?: string;
 }
 
 export interface RunStepsResponse {

@@ -1,7 +1,7 @@
 """Create events table for unified audit log
 
-Revision ID: 002_events
-Revises: 001_initial
+Revision ID: 002
+Revises: 001
 Create Date: 2025-11-20
 
 """
@@ -12,8 +12,8 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '002_events'
-down_revision = '001_initial'
+revision = '002'
+down_revision = '001'
 branch_labels = None
 depends_on = None
 

@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     """The model used for planning tasks."""
     CRITIC_MODEL: str = "gpt-4o"
     """The model used for critiquing plans."""
+    ALLOW_SENSITIVE_DATA: bool = False
+    """Whether to allow exposing sensitive data (stack traces) via API.
+
+    WARNING: Should ALWAYS be False in production.
+    Only set to True in development/staging for debugging.
+    """
 
 
 settings = Settings()

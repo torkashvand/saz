@@ -69,10 +69,10 @@ class StepSummary(BaseModel):
     id: str
     number: int
     name: str
-    step_type: str | None = None
+    step_type: str
     status: str
-    start_ts: datetime | None = None
-    end_ts: datetime | None = None
+    start_ts: datetime | None = None  # ISO string in response
+    end_ts: datetime | None = None  # ISO string in response
     duration_ms: int | None = None
     retry_count: int = 0
     tokens: int | None = None
@@ -144,6 +144,15 @@ class TriggeredBySchema(BaseModel):
     )
 
 
+class PlannedStepSchema(BaseModel):
+    """Planned step from workflow definition (before execution)."""
+
+    index: int = Field(..., description="0-based step index in planned sequence")
+    id: str = Field(..., description="Step identifier from workflow definition")
+    name: str = Field(..., description="Human-readable step name/label")
+    step_type: str | None = Field(None, description="Step type (tool.call, ai.extract, etc.)")
+
+
 class RunDetailResponse(BaseModel):
     """Detailed run information with steps."""
 
@@ -168,6 +177,10 @@ class RunDetailResponse(BaseModel):
     )
     run_metadata: RunMetadataSchema | None = Field(None, description="Aggregated step counts")
     triggered_by: TriggeredBySchema | None = Field(None, description="Who/what triggered this run")
+    planned_steps: list[PlannedStepSchema] = Field(
+        default_factory=list,
+        description="Planned steps from workflow definition (for deterministic flows)",
+    )
 
 
 class RunStepsResponse(BaseModel):

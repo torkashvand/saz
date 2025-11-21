@@ -12,6 +12,7 @@ from saz.api.schemas.run_schemas import (
     CreateRunRequest,
     CreateRunResponse,
     ExecutionGraphResponse,
+    PlannedStepSchema,
     ReplayRunRequest,
     ReplayRunResponse,
     RetryRunRequest,
@@ -316,6 +317,29 @@ async def get_run_detail(
     if run.triggered_by:
         triggered_by_obj = TriggeredBySchema(**run.triggered_by)
 
+    # Extract planned steps from flow definition
+    planned_steps_list: list[PlannedStepSchema] = []
+    if flow_definition:
+        workflow_steps = flow_definition.get("workflow", {}).get("steps", [])
+        for idx, step_def in enumerate(workflow_steps):
+            step_type = step_def.get("type", "unknown")
+            step_id = step_def.get("id", f"step_{idx}")
+
+            # AI steps use 'instruction', other steps use 'description'
+            if step_type and step_type.startswith("ai."):
+                step_name = step_def.get("instruction", step_id)
+            else:
+                step_name = step_def.get("description", step_id)
+
+            planned_steps_list.append(
+                PlannedStepSchema(
+                    index=idx,
+                    id=step_id,
+                    name=step_name,
+                    step_type=step_type,
+                )
+            )
+
     return RunDetailResponse(
         id=run.id,
         flow_id=run.flow_id,
@@ -335,6 +359,7 @@ async def get_run_detail(
         error_summary=error_summary_obj,
         run_metadata=metadata_obj,
         triggered_by=triggered_by_obj,
+        planned_steps=planned_steps_list,
     )
 
 

@@ -106,7 +106,7 @@ class Step(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
     critique: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     policy_flags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    step_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    step_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Relationships
     run: Mapped["Run"] = relationship("Run", back_populates="steps")

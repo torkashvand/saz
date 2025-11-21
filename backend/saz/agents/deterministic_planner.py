@@ -147,6 +147,7 @@ class DeterministicPlanner:
 
         return PlanStep(
             step_id=step_id,
+            step_type=step_type,
             action=action,
             tool_name=tool_name,
             input_template=input_template,

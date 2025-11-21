@@ -16,10 +16,18 @@ class StepRepository(BaseRepository[Step]):
     def __init__(self, session: Session):
         super().__init__(session, Step)
 
-    def append(self, run_id: str, number: int, name: str, status: str = "queued") -> Step:
+    def append(
+        self, run_id: str, number: int, name: str, step_type: str, status: str = "queued"
+    ) -> Step:
         """Append new step to run."""
         step = Step(
-            id=str(uuid4()), run_id=run_id, number=number, name=name, status=status, retry_count=0
+            id=str(uuid4()),
+            run_id=run_id,
+            number=number,
+            name=name,
+            step_type=step_type,
+            status=status,
+            retry_count=0,
         )
         return self.add(step)
 

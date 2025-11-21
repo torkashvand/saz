@@ -469,7 +469,11 @@ class WorkflowExecutor:
         # Create step record
         assert self.uow.steps is not None
         step = self.uow.steps.append(
-            run_id=run_id, number=step_number, name=step_id, status="running"
+            run_id=run_id,
+            number=step_number,
+            name=step_id,
+            step_type=plan_step.step_type,
+            status="running",
         )
         step.start_ts = datetime.now(UTC)
         self.uow.commit()

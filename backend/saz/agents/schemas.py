@@ -28,6 +28,7 @@ class PlanStep(BaseModel):
     """Single step in an execution plan"""
 
     step_id: str = Field(..., description="Unique step identifier matching workflow")
+    step_type: str = Field(..., description="Step type from workflow DSL")
     action: StepAction
     tool_name: str | None = None
     input_template: dict = Field(

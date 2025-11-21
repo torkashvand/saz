@@ -130,13 +130,21 @@ export interface RunDetailResponse {
     user_name?: string;
     trigger_source?: string;
   };
+  planned_steps: PlannedStep[];
+}
+
+export interface PlannedStep {
+  index: number;
+  id: string;
+  name: string;
+  step_type: string | null;
 }
 
 export interface RunStep {
   id: string;
   number: number;
   name: string;
-  step_type?: string;
+  step_type: string;
   status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
   start_ts?: string;
   end_ts?: string;

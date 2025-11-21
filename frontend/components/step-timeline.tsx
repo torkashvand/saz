@@ -5,10 +5,12 @@ import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { StepCard } from './step-card';
 import { Button } from './ui/button';
 import { StatusPill } from './ui/status-badge';
-import type { RunStep, StepStatus } from '@/lib/types';
+import { PlannedStepPill } from './planned-step-pill';
+import type { RunStep, StepStatus, PlannedStep } from '@/lib/types';
 
 interface StepTimelineProps {
   steps: RunStep[];
+  plannedSteps: PlannedStep[];
   selectedStepId: string | null;
   expandedSteps: Set<string>;
   onSelectStep: (stepId: string | null) => void;
@@ -19,12 +21,17 @@ type FilterType = 'all' | 'completed' | 'failed' | 'running';
 
 export function StepTimeline({
   steps,
+  plannedSteps,
   selectedStepId,
   expandedSteps,
   onSelectStep,
   onToggleStep,
 }: StepTimelineProps) {
   const [filter, setFilter] = useState<FilterType>('all');
+
+  // Use planned steps if available, fallback to executed steps
+  const displaySteps = plannedSteps.length > 0 ? plannedSteps : [];
+  const totalSteps = displaySteps.length || steps.length;
 
   // Filter steps based on selected filter
   const filteredSteps = useMemo(() => {
@@ -119,34 +126,57 @@ export function StepTimeline({
           </div>
         </div>
 
-        {/* Mini overview */}
+        {/* Mini overview - show all planned steps from the start */}
         <div className="grid grid-cols-6 gap-2">
-          {steps.map((step, idx) => {
-            const isSelected = step.id === selectedStepId;
-            const statusColor =
-              step.status === 'completed' || step.status === 'success'
-                ? 'bg-green-500'
-                : step.status === 'failed'
-                  ? 'bg-red-500'
-                  : step.status === 'running'
-                    ? 'bg-blue-500'
-                    : 'bg-slate-300';
+          {displaySteps.length > 0 ? (
+            displaySteps.map((planned) => {
+              // Find matching executed step by index
+              const executedStep = steps.find(s => s.number === planned.index);
+              const isSelected = executedStep ? executedStep.id === selectedStepId : false;
 
-            return (
-              <button
-                key={step.id}
-                onClick={() => handleStepClick(step.id)}
-                className={`
-                  h-8 rounded text-xs font-medium transition-all
-                  ${isSelected ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                  ${statusColor} text-white hover:opacity-90
-                `}
-                title={`${idx + 1}. ${step.name} (${step.status})`}
-              >
-                {idx + 1}
-              </button>
-            );
-          })}
+              return (
+                <PlannedStepPill
+                  key={planned.id}
+                  planned={planned}
+                  executedStep={executedStep}
+                  isSelected={isSelected}
+                  onClick={() => {
+                    if (executedStep) {
+                      handleStepClick(executedStep.id);
+                    }
+                  }}
+                />
+              );
+            })
+          ) : (
+            // Fallback for agentic mode or when planned_steps not available
+            steps.map((step, idx) => {
+              const isSelected = step.id === selectedStepId;
+              const statusColor =
+                step.status === 'completed' || step.status === 'success'
+                  ? 'bg-green-500'
+                  : step.status === 'failed'
+                    ? 'bg-red-500'
+                    : step.status === 'running'
+                      ? 'bg-blue-500'
+                      : 'bg-slate-300';
+
+              return (
+                <button
+                  key={step.id}
+                  onClick={() => handleStepClick(step.id)}
+                  className={`
+                    h-8 rounded text-xs font-medium transition-all
+                    ${isSelected ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                    ${statusColor} text-white hover:opacity-90
+                  `}
+                  title={`${idx + 1}. ${step.name} (${step.status})`}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 

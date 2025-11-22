@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { PlannedStep, RunStep } from '@/lib/types';
 
@@ -22,22 +23,40 @@ function getStepStatus(planned: PlannedStep, executedSteps: RunStep[]): StepVisu
   return 'not_started';
 }
 
+function formatDuration(ms?: number): string | null {
+  if (!ms) return null;
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function getStatusLabel(status: StepVisualStatus): string {
+  return {
+    not_started: 'Not started',
+    running: 'Running',
+    completed: 'Completed',
+    failed: 'Failed',
+  }[status];
+}
+
 export function StepProgressTimeline({
   plannedSteps,
   executedSteps,
   selectedStepIndex,
   onSelectStep,
 }: StepProgressTimelineProps) {
+  const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
+
   if (plannedSteps.length === 0) return null;
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">
-      <div className="flex items-center gap-1 relative">
+      <div className="flex items-center gap-1 relative pb-16">
         {/* Progress line */}
         <div className="absolute top-2 left-0 right-0 h-0.5 bg-slate-200" style={{ zIndex: 0 }} />
 
         {plannedSteps.map((planned, index) => {
           const status = getStepStatus(planned, executedSteps);
+          const isExpanded = expandedStepIndex === index;
           const isSelected = selectedStepIndex === index;
           const executed = executedSteps.find(s => s.number === planned.index);
 
@@ -50,41 +69,70 @@ export function StepProgressTimeline({
           }[status];
 
           return (
-            <button
+            <div
               key={planned.id}
-              onClick={() => executed && onSelectStep(index)}
-              disabled={!executed}
-              className={cn(
-                'flex-1 flex flex-col items-center gap-1.5 relative group',
-                executed && 'cursor-pointer',
-                !executed && 'cursor-default'
-              )}
-              style={{ zIndex: 1 }}
-              title={`Step ${index + 1}: ${planned.name}`}
+              className="flex-1 flex flex-col items-center gap-1.5 relative"
+              style={{ zIndex: isExpanded ? 10 : 1 }}
             >
-              {/* Dot */}
-              <div
+              <button
+                onClick={() => {
+                  if (executed) {
+                    onSelectStep(index);
+                    setExpandedStepIndex(isExpanded ? null : index);
+                  }
+                }}
+                disabled={!executed}
                 className={cn(
-                  'w-4 h-4 rounded-full transition-all',
-                  dotColor,
-                  isSelected && 'ring-2 ring-blue-400 ring-offset-2',
-                  executed && 'hover:scale-125'
+                  'flex flex-col items-center gap-1.5',
+                  executed && 'cursor-pointer',
+                  !executed && 'cursor-default'
                 )}
-              />
+                aria-label={`Step ${index + 1}: ${planned.name}. Status: ${getStatusLabel(status)}`}
+              >
+                {/* Dot */}
+                <div
+                  className={cn(
+                    'w-4 h-4 rounded-full transition-all',
+                    dotColor,
+                    isSelected && 'ring-2 ring-blue-400 ring-offset-2',
+                    executed && 'hover:scale-125'
+                  )}
+                />
 
-              {/* Label */}
-              <div className="text-center">
+                {/* Step number label */}
                 <div className="text-xs font-medium text-slate-700">
                   {index + 1}
                 </div>
-                {/* Show name on hover or for selected/failed steps */}
-                {(isSelected || status === 'failed') && (
-                  <div className="text-xs text-slate-500 max-w-[80px] truncate">
-                    {planned.name.slice(0, 20)}
+              </button>
+
+              {/* Info box on click */}
+              {isExpanded && (
+                <div className="absolute top-full mt-2 px-3 py-2 bg-white border border-slate-300 rounded-md shadow-md min-w-[160px] max-w-[240px] animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-slate-900">Step {index + 1}</div>
+                      <div className="text-xs text-slate-700 mt-1">
+                        {planned.name}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedStepIndex(null);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 transition-colors"
+                      aria-label="Close"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                )}
-              </div>
-            </button>
+                  {/* Arrow */}
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white border-l border-t border-slate-300 rotate-45" />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, CheckCircle2, Play, Settings, Zap, Globe, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { CollapsibleJson } from '@/components/json-view';
+import { CollapsibleJson } from '@/components/common/json-view';
 import type { RunStep } from '@/lib/types';
 
 interface CompactStepCardProps {
@@ -25,7 +25,7 @@ function getStepTypeIcon(stepType: string | null | undefined) {
 export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const isCompleted = step.status === 'completed' || step.status === 'success';
+  const isCompleted = step.status === 'completed';
   const isFailed = step.status === 'failed';
   const isRunning = step.status === 'running';
 

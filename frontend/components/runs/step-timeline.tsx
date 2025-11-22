@@ -18,7 +18,7 @@ function getStepStatus(planned: PlannedStep, executedSteps: RunStep[]): StepVisu
   if (!executed) return 'not_started';
 
   if (executed.status === 'running') return 'running';
-  if (executed.status === 'completed' || executed.status === 'success') return 'completed';
+  if (executed.status === 'completed') return 'completed';
   if (executed.status === 'failed') return 'failed';
   return 'not_started';
 }

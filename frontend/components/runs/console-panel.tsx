@@ -2,15 +2,15 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, X, Filter, Info, AlertTriangle, XCircle } from 'lucide-react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import type { Event, RunStep } from '@/lib/types';
 
 interface EnhancedConsolePanelProps {
   events: Event[];
   steps: RunStep[]; // Pass steps to map IDs to numbers/names
   selectedStepId: string | null;
-  onSelectStep: (stepId: string) => void;
+  onSelectStep: (stepId: string | null) => void;
 }
 
 type LevelFilter = 'all' | 'info' | 'warning' | 'error';

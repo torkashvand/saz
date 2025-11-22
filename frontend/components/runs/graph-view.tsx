@@ -1,5 +1,5 @@
-import { Card } from './ui/card';
-import { WorkflowGraph } from './workflow-graph';
+import { Card } from '@/components/ui/card';
+import { WorkflowGraph } from '@/components/workflows/workflow-graph';
 import { Loader2 } from 'lucide-react';
 import type { RunStep } from '@/lib/types';
 
@@ -38,7 +38,7 @@ export function RunGraphView({ runGraph, steps, isLoading, onStepClick }: RunGra
       <div className="text-center py-12">
         <p className="text-slate-500">Graph data not available</p>
         <p className="text-xs text-slate-400 mt-2">
-          This may be because the flow is still running or doesn't have a graph definition.
+          This may be because the flow is still running or doesn&apos;t have a graph definition.
         </p>
       </div>
     );

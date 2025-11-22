@@ -19,12 +19,10 @@ function getVisualStatus(executedStep?: RunStep): StepVisualStatus {
     case 'running':
       return 'running';
     case 'completed':
-    case 'success':
       return 'completed';
     case 'failed':
       return 'failed';
     case 'queued':
-    case 'pending':
       return 'not_started';
     case 'suspended':
       return 'skipped';

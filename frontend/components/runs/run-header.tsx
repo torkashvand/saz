@@ -52,7 +52,7 @@ export function RunHeader({ run, onRetry, onReplay, onConfigureCredential, isRet
             <div className="flex-1 space-y-2">
               <p className="text-sm text-red-900">
                 {errorSummary.message}
-                {failedStepNumber !== null && failedStepName && (
+                {failedStepNumber != null && failedStepName && (
                   <span className="block mt-1 text-red-700">
                     Failed at step {failedStepNumber + 1}: <span className="font-medium">{failedStepName}</span>
                   </span>

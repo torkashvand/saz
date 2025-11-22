@@ -21,15 +21,15 @@ import {
   AlertCircle,
   Layout,
 } from 'lucide-react';
-import { CollapsibleJson } from '@/components/json-view';
+import { CollapsibleJson } from '@/components/common/json-view';
 import { ErrorBanner } from '@/components/ui/error-banner';
-import { ErrorSummaryBanner } from '@/components/error-summary';
+import { ErrorSummaryBanner } from '@/components/runs/error-summary';
 import { ResizableSplit } from '@/components/ui/resizable-split';
-import { StepTimeline as NewStepTimeline } from '@/components/step-timeline';
-import { EnhancedConsolePanel } from '@/components/enhanced-console-panel';
-import { RunSummaryCards } from '@/components/run-summary-cards';
-import { RunGraphView } from '@/components/run-graph-view';
-import { CostMetricsTab } from '@/components/cost-metrics-tab';
+import { StepTimeline as NewStepTimeline } from '@/components/runs/step-timeline-legacy';
+import { EnhancedConsolePanel } from '@/components/runs/console-panel';
+import { RunSummaryCards } from '@/components/runs/summary-cards';
+import { RunGraphView } from '@/components/runs/graph-view';
+import { CostMetricsTab } from '@/components/metrics/metrics-tab';
 import { useRunMetrics } from '@/lib/use-run-metrics';
 import { buildErrorSummary } from '@/lib/error-enrichment';
 import type { RunStep, StepStatus } from '@/lib/types';

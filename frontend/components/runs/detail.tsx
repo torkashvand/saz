@@ -1,7 +1,7 @@
 "use client";
 
 import { useRunEvents } from '@/lib/use-run-events';
-import { RunTimeline } from './run-timeline';
+import { RunTimeline } from './timeline';
 import { formatDuration, formatCost, formatTokens } from '@/lib/format-utils';
 import { CheckCircle2, XCircle, Clock, Wifi, WifiOff, AlertCircle } from 'lucide-react';
 import { EventType, Severity } from '@/lib/types';

@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import { StepCard } from './step-card';
-import { Button } from './ui/button';
-import { StatusPill } from './ui/status-badge';
+import { CompactStepCard } from './step-card';
+import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-badge';
 import { PlannedStepPill } from './planned-step-pill';
 import type { RunStep, StepStatus, PlannedStep } from '@/lib/types';
 
@@ -39,13 +39,13 @@ export function StepTimeline({
 
     return steps.filter((step) => {
       if (filter === 'completed') {
-        return step.status === 'completed' || step.status === 'success';
+        return step.status === 'completed';
       }
       if (filter === 'failed') {
         return step.status === 'failed';
       }
       if (filter === 'running') {
-        return step.status === 'running' || step.status === 'pending';
+        return step.status === 'running';
       }
       return true;
     });
@@ -53,13 +53,9 @@ export function StepTimeline({
 
   // Calculate stats for filter pills
   const stats = useMemo(() => {
-    const completed = steps.filter(
-      (s) => s.status === 'completed' || s.status === 'success'
-    ).length;
+    const completed = steps.filter((s) => s.status === 'completed').length;
     const failed = steps.filter((s) => s.status === 'failed').length;
-    const running = steps.filter(
-      (s) => s.status === 'running' || s.status === 'pending'
-    ).length;
+    const running = steps.filter((s) => s.status === 'running').length;
 
     return { completed, failed, running, total: steps.length };
   }, [steps]);
@@ -153,7 +149,7 @@ export function StepTimeline({
             steps.map((step, idx) => {
               const isSelected = step.id === selectedStepId;
               const statusColor =
-                step.status === 'completed' || step.status === 'success'
+                step.status === 'completed'
                   ? 'bg-green-500'
                   : step.status === 'failed'
                     ? 'bg-red-500'
@@ -256,14 +252,10 @@ export function StepTimeline({
           </div>
         ) : (
           filteredSteps.map((step, idx) => (
-            <StepCard
+            <CompactStepCard
               key={step.id}
               step={step}
-              number={steps.indexOf(step) + 1}
-              isExpanded={expandedSteps.has(step.id)}
               isSelected={step.id === selectedStepId}
-              onToggle={() => onToggleStep(step.id)}
-              onFocusLogs={() => onSelectStep(step.id)}
             />
           ))
         )}

@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RunMetrics } from '@/lib/use-run-metrics';
 
 interface RunSummaryCardsProps {

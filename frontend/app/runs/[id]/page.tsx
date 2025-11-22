@@ -11,13 +11,13 @@ import { useRunEvents } from '@/lib/use-run-events';
 import { useRunMetrics } from '@/lib/use-run-metrics';
 import { buildErrorSummary } from '@/lib/error-enrichment';
 import { ErrorBanner } from '@/components/ui/error-banner';
-import { RunSummaryCards } from '@/components/run-summary-cards';
-import { RunHeader } from '@/components/redesign/run-header';
-import { StepProgressTimeline } from '@/components/redesign/step-progress-timeline';
-import { CompactStepCard } from '@/components/redesign/compact-step-card';
-import { BottomDrawer } from '@/components/redesign/bottom-drawer';
-import { CostMetricsView } from '@/components/redesign/cost-metrics-view';
-import { EnhancedConsolePanel } from '@/components/enhanced-console-panel';
+import { RunSummaryCards } from '@/components/runs/summary-cards';
+import { RunHeader } from '@/components/runs/run-header';
+import { StepProgressTimeline } from '@/components/runs/step-timeline';
+import { CompactStepCard } from '@/components/runs/step-card';
+import { BottomDrawer } from '@/components/common/bottom-drawer';
+import { CostMetricsView } from '@/components/metrics/cost-view';
+import { EnhancedConsolePanel } from '@/components/runs/console-panel';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
@@ -114,7 +114,7 @@ export default function RunDetailPageRedesign() {
     return (
       <div className="container mx-auto px-4 py-12">
         <ErrorBanner
-          error={error || 'Run not found'}
+          error={error || new Error('Run not found')}
           title="Failed to Load Run"
           onRetry={() => window.location.reload()}
         />

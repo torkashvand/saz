@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronRight, Settings, FileText, RefreshCw, Key, ExternalLink, Eye } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent } from './ui/card';
-import { CollapsibleJson } from './json-view';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { CollapsibleJson } from '@/components/common/json-view';
 import type { ErrorSummary, ErrorCategory, RemediationAction } from '@/lib/types-enhanced';
 
 interface ErrorSummaryProps {

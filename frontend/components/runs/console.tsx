@@ -3,9 +3,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Filter } from 'lucide-react';
 import { useRunEvents } from '@/lib/use-run-events';
-import { TelemetryTimeline } from './telemetry-timeline';
-import { TelemetryProgressHeader } from './telemetry-progress-header';
-import { TelemetryStepDrawer } from './telemetry-step-drawer';
+import { TelemetryTimeline } from '@/components/telemetry-timeline';
+import { TelemetryProgressHeader } from '@/components/telemetry-progress-header';
+import { TelemetryStepDrawer } from '@/components/telemetry-step-drawer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorBanner } from '@/components/ui/error-banner';

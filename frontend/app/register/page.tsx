@@ -8,8 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompileFlow, useRegisterFlow, useFlowGraph } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
-import { JsonView } from '@/components/json-view';
-import { WorkflowGraph } from '@/components/workflow-graph';
+import { JsonView } from '@/components/common/json-view';
+import { WorkflowGraph } from '@/components/workflows/workflow-graph';
 import type { AppError } from '@/lib/errors';
 import type { RegisterFlowResponse, CompileFlowResponse } from '@/lib/types';
 

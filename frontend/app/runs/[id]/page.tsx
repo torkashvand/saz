@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useRunDetails } from '@/lib/hooks';
@@ -9,7 +9,6 @@ import { api } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
 import { useRunEvents } from '@/lib/use-run-events';
 import { useRunMetrics } from '@/lib/use-run-metrics';
-import { buildErrorSummary } from '@/lib/error-enrichment';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { RunSummaryCards } from '@/components/runs/summary-cards';
 import { RunHeader } from '@/components/runs/run-header';
@@ -34,8 +33,6 @@ export default function RunDetailPageRedesign() {
   const [viewMode, setViewMode] = useState<ViewMode>('steps');
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
   const [drawerStepId, setDrawerStepId] = useState<string | null>(null);
-
-  const stepRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const isRunning = run?.status === 'running' || run?.status === 'pending';
 
@@ -80,6 +77,19 @@ export default function RunDetailPageRedesign() {
   const handleSelectStep = (index: number) => {
     setSelectedStepIndex(index);
     scrollToStep(index);
+  };
+
+  const handleStepCardClick = (stepNumber: number) => {
+    setSelectedStepIndex(stepNumber);
+    // Optionally scroll wizard into view if needed
+    const wizardElement = document.querySelector('[data-step-wizard]');
+    if (wizardElement) {
+      const rect = wizardElement.getBoundingClientRect();
+      // Only scroll if wizard is out of view
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        wizardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
   };
 
   const handleReplay = () => {
@@ -192,7 +202,7 @@ export default function RunDetailPageRedesign() {
 
       {/* Timeline (for Steps and Steps+Console modes) */}
       {(viewMode === 'steps' || viewMode === 'steps-console') && run.planned_steps && run.planned_steps.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-6" data-step-wizard>
           <StepProgressTimeline
             plannedSteps={run.planned_steps}
             executedSteps={run.steps}
@@ -211,6 +221,7 @@ export default function RunDetailPageRedesign() {
               step={step}
               isSelected={selectedStepIndex === step.number}
               onViewLogs={() => setDrawerStepId(step.id)}
+              onCardClick={() => handleStepCardClick(step.number)}
             />
           ))}
         </div>
@@ -227,6 +238,7 @@ export default function RunDetailPageRedesign() {
                     step={step}
                     isSelected={selectedStepIndex === step.number}
                     onViewLogs={() => setSelectedStepIndex(step.number)}
+                    onCardClick={() => handleStepCardClick(step.number)}
                   />
                 ))}
               </div>

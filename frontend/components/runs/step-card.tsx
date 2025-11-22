@@ -11,6 +11,7 @@ interface CompactStepCardProps {
   step: RunStep;
   isSelected?: boolean;
   onViewLogs?: () => void;
+  onCardClick?: () => void;
 }
 
 // Step type icon mapping
@@ -22,7 +23,7 @@ function getStepTypeIcon(stepType: string | null | undefined) {
   return { Icon: Play, color: 'text-slate-600', bg: 'bg-slate-100' }; // Default
 }
 
-export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCardProps) {
+export function CompactStepCard({ step, isSelected, onViewLogs, onCardClick }: CompactStepCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isCompleted = step.status === 'completed';
@@ -31,6 +32,15 @@ export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCar
 
   // Get step type icon
   const { Icon: StepIcon, color: iconColor, bg: iconBg } = getStepTypeIcon(step.step_type);
+
+  const handleCardClick = () => {
+    // Toggle expand state
+    setIsExpanded(!isExpanded);
+    // Notify parent about card click (for wizard sync)
+    if (onCardClick) {
+      onCardClick();
+    }
+  };
 
   // Count log levels (if available from step metadata)
   const logCounts = {
@@ -66,11 +76,11 @@ export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCar
       data-step-id={step.id}
       role="button"
       tabIndex={0}
-      onClick={() => setIsExpanded(!isExpanded)}
+      onClick={handleCardClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          setIsExpanded(!isExpanded);
+          handleCardClick();
         }
       }}
       className={cn(

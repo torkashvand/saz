@@ -64,10 +64,21 @@ export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCar
   return (
     <div
       data-step-id={step.id}
+      role="button"
+      tabIndex={0}
+      onClick={() => setIsExpanded(!isExpanded)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setIsExpanded(!isExpanded);
+        }
+      }}
       className={cn(
-        'border rounded-lg bg-white transition-all',
+        'border rounded-lg bg-white transition-all duration-200 cursor-pointer shadow-sm',
+        'hover:shadow-md hover:-translate-y-0.5',
+        'focus-visible:shadow-md focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
         isSelected && 'ring-2 ring-blue-400 shadow-md',
-        !isSelected && 'border-slate-200 hover:border-slate-300'
+        !isSelected && 'border-slate-200'
       )}
     >
       {/* Compact header */}
@@ -130,7 +141,10 @@ export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCar
             {/* Logs chip */}
             {onViewLogs && (
               <button
-                onClick={onViewLogs}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewLogs();
+                }}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors"
               >
                 <FileText className="h-3 w-3 text-slate-600" />
@@ -144,18 +158,13 @@ export function CompactStepCard({ step, isSelected, onViewLogs }: CompactStepCar
             )}
 
             {/* Expand toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="h-7 w-7 p-0"
-            >
+            <div className="h-7 w-7 flex items-center justify-center">
               {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
+                <ChevronUp className="h-4 w-4 text-slate-600" />
               ) : (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-4 w-4 text-slate-600" />
               )}
-            </Button>
+            </div>
           </div>
         </div>
 

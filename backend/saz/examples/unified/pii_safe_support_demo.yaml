@@ -1,0 +1,138 @@
+meta:
+  id: pii_safe_support_demo
+  title: "PII-Safe Support Inbox"
+  description: >
+    Demonstrates PII tokenization, safe logging, and redacted AI processing
+    for inbound support messages before they hit the ticketing system.
+  tags: ["support", "pii", "policies", "demo"]
+  complexity: "medium"
+  recommended: false
+
+schema_version: 1
+
+flow:
+  name: pii_safe_support_demo
+  version: "1.0"
+  description: PII-safe processing of inbound support messages before forwarding to ticketing
+
+form:
+  fields:
+    - name: message_text
+      type: string
+      required: true
+      description: Raw message content from user (may contain PII)
+    - name: channel
+      type: string
+      required: true
+      description: Source channel of the message (email, portal, chat, etc.)
+    - name: external_ticket_id
+      type: string
+      required: false
+      description: Optional external ticket/reference ID
+
+triggers:
+  manual: true
+  webhook:
+    path: "/support/pii-safe"
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: detect_and_tokenize_pii
+      type: ai.extract
+      instruction: |
+        Inspect this message for personal or sensitive data (PII).
+        Return:
+        - has_pii: whether any PII is present
+        - categories: which PII types you see
+          (email, phone, name, address, id_number, other)
+        - sanitized_text: a version of the message where you replace PII with
+          stable tokens like [EMAIL_1], [NAME_1], [PHONE_1].
+        Do NOT invent PII that isn't present.
+      params:
+        data:
+          text: "{{ $form.message_text }}"
+          channel: "{{ $form.channel }}"
+      schema:
+        type: object
+        properties:
+          has_pii:
+            type: boolean
+          categories:
+            type: array
+            items:
+              type: string
+          sanitized_text:
+            type: string
+        required: [has_pii, sanitized_text]
+      temperature: 0.1
+      max_tokens: 512
+
+    - id: summarize_for_agent
+      type: ai.generate
+      instruction: |
+        Write a short internal summary for the support agent.
+
+        Use ONLY the sanitized_text field (already tokenized).
+        Mention:
+        - what the user is asking
+        - any urgency hints
+        - which PII categories were detected (but not the raw values)
+
+        Keep it under 120 words.
+      params:
+        data:
+          sanitized_text: "{{ $step('detect_and_tokenize_pii').sanitized_text }}"
+          has_pii: "{{ $step('detect_and_tokenize_pii').has_pii }}"
+          categories: "{{ $step('detect_and_tokenize_pii').categories }}"
+      word_cap: 120
+      temperature: 0.3
+      max_tokens: 512
+
+    - id: forward_to_ticketing
+      type: tool.call
+      tool: http_request
+      description: Forward sanitized message and AI summary to ticketing system
+      params:
+        method: POST
+        url: "https://ticketing.example.com/api/v1/tickets"
+        headers:
+          Authorization: "Bearer {{ $secret('ticketing_api_token') }}"
+          Content-Type: "application/json"
+        body:
+          external_id: "{{ $form.external_ticket_id }}"
+          channel: "{{ $form.channel }}"
+          message_sanitized: "{{ $step('detect_and_tokenize_pii').sanitized_text }}"
+          has_pii: "{{ $step('detect_and_tokenize_pii').has_pii }}"
+          pii_categories: "{{ $step('detect_and_tokenize_pii').categories }}"
+          agent_summary: "{{ $step('summarize_for_agent') }}"
+      expect:
+        type: object
+        properties:
+          ticket_id:
+            type: string
+
+    - id: store_redacted_record
+      type: artifact.store
+      description: Store sanitized support message record
+      params:
+        name: "support_msg_{{ $env('RUN_ID') }}"
+        content:
+          channel: "{{ $form.channel }}"
+          external_ticket_id: "{{ $form.external_ticket_id }}"
+          has_pii: "{{ $step('detect_and_tokenize_pii').has_pii }}"
+          pii_categories: "{{ $step('detect_and_tokenize_pii').categories }}"
+          sanitized_text: "{{ $step('detect_and_tokenize_pii').sanitized_text }}"
+          agent_summary: "{{ $step('summarize_for_agent') }}"
+
+policies:
+  budget_usd: 0.10
+  defaults:
+    timeout_ms: 60000
+    continue_on_fail: false
+  pii:
+    allow: false
+    tokenize_model_inputs: true
+
+credentials:
+  uses: [ticketing_api_token]

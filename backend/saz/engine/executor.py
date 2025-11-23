@@ -34,7 +34,6 @@ from saz.agents.schemas import (
     ErrorHandling,
     ExecutionPlan,
     PlanStep,
-    StepAction,
     Verdict,
 )
 from saz.audit.event_emitter import EventEmitter
@@ -461,7 +460,7 @@ class WorkflowExecutor:
             Exception: If step fails after all retries
         """
         step_id = plan_step.step_id
-        logger.info(f"Executing step {step_number}: {step_id} (action: {plan_step.action.value})")
+        logger.info(f"Executing step {step_number}: {step_id} (type: {plan_step.step_type})")
 
         # Get emitter from context
         emitter: EventEmitter = context["emitter"]
@@ -579,7 +578,7 @@ class WorkflowExecutor:
 
     async def _execute_step_action(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
-        Execute step action (TOOL_CALL, CONDITION, HUMAN_APPROVAL, etc.).
+        Execute step based on step_type.
 
         Args:
             plan_step: Plan step specification
@@ -589,24 +588,29 @@ class WorkflowExecutor:
         Returns:
             Step result
         """
-        if plan_step.action == StepAction.TOOL_CALL:
+        t = plan_step.step_type
+
+        # AI operations and tool.call → execute as tool call
+        if t.startswith("ai.") or t == "tool.call" or t.startswith("artifact."):
             return await self._execute_tool_call(plan_step, context, run_id)
 
-        elif plan_step.action == StepAction.CONDITION:
+        # Condition evaluation
+        elif t == "condition":
             return await self._execute_condition(plan_step, context)
 
-        elif plan_step.action == StepAction.HUMAN_APPROVAL:
+        # Human approval gates
+        elif t == "human.approval":
             return await self._execute_human_approval(plan_step, context, run_id)
 
-        elif plan_step.action == StepAction.WEBHOOK_WAIT:
+        # Webhook wait
+        elif t == "webhook.wait":
             return await self._execute_webhook_wait(plan_step, context, run_id)
 
-        elif plan_step.action == StepAction.AI_ASSESS:
-            # AI_ASSESS is handled as a tool call
-            return await self._execute_tool_call(plan_step, context, run_id)
-
         else:
-            raise ValueError(f"Unknown step action: {plan_step.action}")
+            raise ValueError(
+                f"Unknown step_type: {t!r}. "
+                f"Expected: ai.*, tool.call, artifact.*, condition, human.approval, or webhook.wait"
+            )
 
     async def _execute_tool_call(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
@@ -657,7 +661,6 @@ class WorkflowExecutor:
         # Store grounded input in step record
         step = self._get_current_step(run_id, plan_step.step_id)
         step.input = {"tool": tool_call.tool, "arguments": tool_call.arguments}
-        step.step_type = plan_step.action.value
         self.uow.commit()
 
         # 2. Policy check (before tokenization, to detect raw PII)

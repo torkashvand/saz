@@ -3,7 +3,7 @@
 import pytest
 
 from saz.agents.deterministic_planner import DeterministicPlanner
-from saz.agents.schemas import ErrorHandling, StepAction
+from saz.agents.schemas import ErrorHandling
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ class TestStepPlanner:
 
         step = plan.steps[0]
         assert step.step_id == "ai_step"
-        assert step.action == StepAction.TOOL_CALL  # AI ops are MCP tools
+        assert step.step_type == "ai.generate"
         assert step.tool_name == "ai.generate"
         assert step.input_template["instruction"] == "Generate something"
         assert step.input_template["data"] == {"input": "test"}
@@ -133,7 +133,7 @@ class TestStepPlanner:
 
         step = plan.steps[0]
         assert step.step_id == "tool_step"
-        assert step.action == StepAction.TOOL_CALL
+        assert step.step_type == "tool.call"
         assert step.tool_name == "http_request"
         assert step.input_template == {"url": "https://api.example.com", "method": "GET"}
         assert step.max_retries == 3
@@ -165,7 +165,7 @@ class TestStepPlanner:
 
         step = plan.steps[0]
         assert step.step_id == "check"
-        assert step.action == StepAction.CONDITION
+        assert step.step_type == "condition"
         assert step.input_template["condition"] == "{{ $form.approved }} == true"
 
     @pytest.mark.asyncio
@@ -194,7 +194,7 @@ class TestStepPlanner:
 
         step = plan.steps[0]
         assert step.step_id == "approve"
-        assert step.action == StepAction.HUMAN_APPROVAL
+        assert step.step_type == "human.approval"
         assert step.error_handling == ErrorHandling.ESCALATE  # Default for approval
 
     @pytest.mark.asyncio

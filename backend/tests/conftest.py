@@ -206,7 +206,7 @@ def mock_llm_with_plan(mock_llm_port):
         "steps": [
             {
                 "step_id": "test_step",
-                "action": "tool_call",
+                "step_type": "tool_call",
                 "tool_name": "http_request",
                 "input_template": {"url": "https://example.com"},
                 "expected_output_schema": {"type": "object"},

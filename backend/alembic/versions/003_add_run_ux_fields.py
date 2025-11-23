@@ -27,7 +27,8 @@ def upgrade() -> None:
     # Add error_summary JSON field for human-readable error information
     op.add_column('runs', sa.Column('error_summary', sa.JSON(), nullable=True))
 
-    # Add run_metadata JSON field for aggregated step counts (note: 'metadata' is reserved in SQLAlchemy)
+    # Add run_metadata JSON field for aggregated step counts
+    # (note: 'metadata' is reserved in SQLAlchemy)
     op.add_column('runs', sa.Column('run_metadata', sa.JSON(), nullable=True))
 
     # Add triggered_by JSON field to track who/what started the run

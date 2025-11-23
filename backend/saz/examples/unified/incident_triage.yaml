@@ -1,0 +1,139 @@
+meta:
+  id: incident_triage
+  title: "Incident Triage Assistant"
+  description: "AI-powered incident classification, severity assessment, and team routing with PagerDuty integration"
+  tags: ["incidents", "agentic", "ops", "recommended"]
+  complexity: "medium"
+  recommended: true
+
+schema_version: 1
+
+flow:
+  name: incident_triage
+  version: "1.0"
+  description: AI-powered incident triage and routing
+
+form:
+  fields:
+    - name: incident_description
+      type: string
+      required: true
+      description: Incident description from alert or user report
+    - name: initial_severity
+      type: string
+      required: false
+      description: Optional initial severity (low/medium/high/critical)
+
+triggers:
+  manual: true
+  webhook:
+    path: "/incidents/triage"
+
+workflow:
+  planner_mode: agentic
+  steps:
+    - id: extract_incident_data
+      type: ai.extract
+      instruction: |
+        Extract structured information from this incident report:
+        - Category (infrastructure, application, database, network, security)
+        - Severity (low, medium, high, critical)
+        - Affected service or component
+        - Impact scope (single user, team, organization, external)
+        - Whether this appears to be a known issue
+      params:
+        data:
+          text: "{{ $form.incident_description }}"
+          initial_severity: "{{ $form.initial_severity }}"
+      schema:
+        type: object
+        properties:
+          category:
+            type: string
+            enum: [infrastructure, application, database, network, security, other]
+          severity:
+            type: string
+            enum: [low, medium, high, critical]
+          service:
+            type: string
+          impact_scope:
+            type: string
+            enum: [single_user, team, organization, external]
+          appears_known:
+            type: boolean
+        required: [category, severity, impact_scope]
+      temperature: 0.1
+      max_tokens: 512
+
+    - id: route_to_team
+      type: ai.route
+      instruction: |
+        Determine the correct engineering team to handle this incident.
+        Consider severity, category, and current on-call rotations.
+      params:
+        data:
+          category: "{{ $step('extract_incident_data').category }}"
+          severity: "{{ $step('extract_incident_data').severity }}"
+          service: "{{ $step('extract_incident_data').service }}"
+      branches_enum:
+        - platform_oncall
+        - app_backend_team
+        - app_frontend_team
+        - data_team
+        - security_team
+        - infrastructure_team
+      temperature: 0.1
+      max_tokens: 256
+
+    - id: generate_summary
+      type: ai.generate
+      instruction: |
+        Write a concise incident summary for the engineering team.
+        Include: what happened, severity, impact, and recommended next steps.
+        Keep it under 150 words, use bullet points.
+      params:
+        data:
+          incident: "{{ $form.incident_description }}"
+          extracted: "{{ $step('extract_incident_data') }}"
+          routed_to: "{{ $step('route_to_team').route }}"
+      word_cap: 150
+      temperature: 0.3
+      max_tokens: 512
+
+    - id: create_pagerduty_incident
+      type: tool.call
+      tool: http_request
+      description: Create incident in PagerDuty
+      params:
+        method: POST
+        url: "https://api.pagerduty.com/incidents"
+        headers:
+          Authorization: "Token token={{ $secret('pagerduty_api_token') }}"
+          Content-Type: "application/json"
+        body:
+          incident:
+            type: "incident"
+            title: "{{ $step('extract_incident_data').category }} - {{ $step('extract_incident_data').service }}"
+            urgency: "{{ $step('extract_incident_data').severity }}"
+            body:
+              type: "incident_body"
+              details: "{{ $step('generate_summary') }}"
+            escalation_policy:
+              id: "{{ $step('route_to_team').route }}"
+              type: "escalation_policy_reference"
+      expect:
+        type: object
+        properties:
+          incident:
+            type: object
+
+policies:
+  budget_usd: 0.50
+  defaults:
+    timeout_ms: 180000
+    continue_on_fail: false
+  pii:
+    allow: false
+
+credentials:
+  uses: [pagerduty_api_token]

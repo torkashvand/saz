@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import structlog
 
-from .schemas import ErrorHandling, ExecutionPlan, PlanStep, StepAction
+from .schemas import ErrorHandling, ExecutionPlan, PlanStep
 
 logger = structlog.get_logger(__name__)
 
@@ -23,29 +23,6 @@ class DeterministicPlanner:
     def __init__(self) -> None:
         """Initialize step planner."""
         self.logger = logger.bind(agent="step_planner")
-
-        # Map DSL step types to StepAction enum
-        self._action_map: dict[str, StepAction] = {
-            "tool.call": StepAction.TOOL_CALL,
-            "condition": StepAction.CONDITION,
-            "human.approval": StepAction.HUMAN_APPROVAL,
-            "webhook.wait": StepAction.WEBHOOK_WAIT,
-            # AI ops are all treated as TOOL_CALL (they're registered as MCP tools)
-            "ai.extract": StepAction.TOOL_CALL,
-            "ai.generate": StepAction.TOOL_CALL,
-            "ai.route": StepAction.TOOL_CALL,
-            "ai.score": StepAction.TOOL_CALL,
-            "ai.assess": StepAction.TOOL_CALL,
-            "ai.normalize": StepAction.TOOL_CALL,
-            "ai.match": StepAction.TOOL_CALL,
-            "ai.evaluate": StepAction.TOOL_CALL,
-            "ai.compare": StepAction.TOOL_CALL,
-            "ai.translate": StepAction.TOOL_CALL,
-            "ai.summarize": StepAction.TOOL_CALL,
-            "ai.fix_json": StepAction.TOOL_CALL,
-            "artifact.store": StepAction.TOOL_CALL,
-            "artifact.retrieve": StepAction.TOOL_CALL,
-        }
 
     async def plan(
         self,
@@ -123,9 +100,6 @@ class DeterministicPlanner:
         step_id = step_dict["id"]
         step_type = step_dict["type"]
 
-        # Map type to action
-        action = self._action_map.get(step_type, StepAction.TOOL_CALL)
-
         # Determine tool name
         tool_name = self._get_tool_name(step_dict, step_type)
 
@@ -148,7 +122,6 @@ class DeterministicPlanner:
         return PlanStep(
             step_id=step_id,
             step_type=step_type,
-            action=action,
             tool_name=tool_name,
             input_template=input_template,
             expected_output_schema=expected_output_schema,

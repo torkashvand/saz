@@ -1,0 +1,172 @@
+meta:
+  id: support_ticket_webhook
+  title: "Support Ticket Auto-Response"
+  description: "Webhook-triggered support ticket processing with sentiment analysis and auto-response generation"
+  tags: ["support", "webhook", "customer-service", "recommended"]
+  complexity: "medium"
+  recommended: true
+
+schema_version: 1
+
+flow:
+  name: support_ticket_webhook
+  version: "1.0"
+  description: AI-powered support ticket processing with routing and auto-response
+
+form:
+  fields:
+    - name: ticket_text
+      type: string
+      required: true
+      description: Support ticket content
+    - name: customer_email
+      type: string
+      required: true
+      description: Customer email address
+      format: email
+    - name: ticket_id
+      type: string
+      required: false
+      description: External ticket ID
+
+triggers:
+  manual: false
+  webhook:
+    path: "/support/ticket"
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: extract_ticket_data
+      type: ai.extract
+      instruction: |
+        Extract key information from this support ticket:
+        - Issue category (technical, billing, feature_request, bug_report, general)
+        - Priority level (low, medium, high, critical)
+        - Product or feature name
+        - Customer sentiment (positive, neutral, negative, angry)
+      params:
+        data:
+          text: "{{ $form.ticket_text }}"
+      schema:
+        type: object
+        properties:
+          category:
+            type: string
+            enum: [technical, billing, feature_request, bug_report, general]
+          priority:
+            type: string
+            enum: [low, medium, high, critical]
+          product:
+            type: string
+          sentiment:
+            type: string
+            enum: [positive, neutral, negative, angry]
+        required: [category, priority, sentiment]
+      temperature: 0.1
+      max_tokens: 512
+
+    - id: route_ticket
+      type: ai.route
+      instruction: |
+        Determine the correct team to handle this ticket based on category,
+        priority, and sentiment. Escalate angry customers to senior support.
+      params:
+        data:
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
+      branches_enum:
+        - engineering_support
+        - billing_team
+        - sales_team
+        - support_tier1
+        - support_tier2_escalation
+      temperature: 0.1
+      max_tokens: 256
+
+    - id: score_complexity
+      type: ai.score
+      instruction: |
+        Score the ticket complexity from 0 to 1:
+        0.0-0.3: Simple questions/FAQ/basic troubleshooting
+        0.3-0.6: Moderate; needs docs lookup or basic debugging
+        0.6-0.8: Complex; requires code review or system investigation
+        0.8-1.0: Critical bug, security issue, or architectural problem
+      params:
+        data:
+          ticket: "{{ $form.ticket_text }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+      temperature: 0.1
+      max_tokens: 256
+
+    - id: generate_response
+      type: ai.generate
+      instruction: |
+        Write a professional acknowledgment email for the customer.
+        - Acknowledge their issue with empathy
+        - Reference their sentiment appropriately
+        - Provide expected response time based on priority and complexity
+        - Keep it friendly but professional, under 200 words
+      params:
+        data:
+          customer_email: "{{ $form.customer_email }}"
+          ticket: "{{ $form.ticket_text }}"
+          category: "{{ $step('extract_ticket_data').category }}"
+          priority: "{{ $step('extract_ticket_data').priority }}"
+          sentiment: "{{ $step('extract_ticket_data').sentiment }}"
+          routed_to: "{{ $step('route_ticket').route }}"
+          complexity_score: "{{ $step('score_complexity').score }}"
+      word_cap: 200
+      temperature: 0.4
+      max_tokens: 1024
+
+    - id: send_response
+      type: tool.call
+      tool: http_request
+      description: Send auto-response email to customer
+      params:
+        method: POST
+        url: "https://api.sendgrid.com/v3/mail/send"
+        headers:
+          Authorization: "Bearer {{ $secret('sendgrid_api_key') }}"
+        body:
+          personalizations:
+            - to:
+                - email: "{{ $form.customer_email }}"
+          from:
+            email: "support@example.com"
+            name: "Customer Support"
+          subject: "Re: Your support ticket {{ $form.ticket_id }}"
+          content:
+            - type: "text/plain"
+              value: "{{ $step('generate_response') }}"
+      expect:
+        type: object
+
+    - id: store_ticket_artifact
+      type: artifact.store
+      description: Store processed ticket data and AI analysis
+      params:
+        name: "ticket_{{ $form.ticket_id }}_{{ $env('TIMESTAMP') }}"
+        content:
+          ticket_id: "{{ $form.ticket_id }}"
+          customer_email: "{{ $form.customer_email }}"
+          extracted: "{{ $step('extract_ticket_data') }}"
+          routing: "{{ $step('route_ticket') }}"
+          complexity: "{{ $step('score_complexity').score }}"
+          response_sent: "{{ $step('generate_response') }}"
+
+policies:
+  budget_usd: 0.30
+  defaults:
+    timeout_ms: 120000
+    continue_on_fail: false
+  rate_limits:
+    http_request:
+      rpm: 60
+  pii:
+    allow: false
+
+credentials:
+  uses: [sendgrid_api_key]

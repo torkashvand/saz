@@ -100,22 +100,29 @@ class TelemetrySanitizer:
         Extract safe intent description from step.
 
         Args:
-            step: Plan step
+            step: Plan step (PlanStep or similar with step_type/reasoning)
 
         Returns:
             Intent string (≤160 chars)
         """
         try:
-            if hasattr(step, "description") and step.description:
-                desc = str(step.description)
-                redacted = self.pii_detector.redact(desc, replacement="<REDACTED>")
+            # Prefer reasoning field (from PlanStep)
+            if hasattr(step, "reasoning") and step.reasoning:
+                redacted = self.pii_detector.redact(step.reasoning, replacement="<REDACTED>")
                 return self._truncate(redacted, self.MAX_SUMMARY_LENGTH)
 
-            if hasattr(step, "action"):
-                action = str(step.action)
-                if hasattr(step, "tool_name"):
-                    return f"{action}: {step.tool_name}"
-                return action
+            # Fall back to description (legacy or other step types)
+            if hasattr(step, "description") and step.description:
+                redacted = self.pii_detector.redact(step.description, replacement="<REDACTED>")
+                return self._truncate(redacted, self.MAX_SUMMARY_LENGTH)
+
+            # Build from step_type + tool_name
+            step_type = getattr(step, "step_type", None)
+            if step_type:
+                tool_name = getattr(step, "tool_name", None)
+                if tool_name:
+                    return f"{step_type}: {tool_name}"
+                return step_type
 
             return "<no intent>"
 

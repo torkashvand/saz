@@ -356,4 +356,20 @@ export const api = {
 
     return ws;
   },
+
+  // ========== Templates ==========
+
+  /**
+   * List all available flow templates
+   */
+  listTemplates: (recommendedOnly: boolean = false) =>
+    fetchApi<import('./types').TemplateSummary[]>(
+      `/api/templates${recommendedOnly ? '?recommended_only=true' : ''}`
+    ),
+
+  /**
+   * Get detailed template with YAML content
+   */
+  getTemplate: (templateId: string) =>
+    fetchApi<import('./types').TemplateDetail>(`/api/templates/${templateId}`),
 };

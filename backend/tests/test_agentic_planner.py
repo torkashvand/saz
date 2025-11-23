@@ -19,15 +19,18 @@ def planner():
 def mock_llm_response():
     """Mock LLM response with valid ExecutionPlan JSON."""
     return Mock(
-        content='{"plan_id": "550e8400-e29b-41d4-a716-446655440000", '
-        '"steps": [{"step_id": "analyze", "action": "tool_call", "tool_name": "ai.extract", '
-        '"input_template": {"instruction": "Extract incident details", '
-        '"data": {"text": "{{ $form.incident_summary }}"}},'
-        ' "expected_output_schema": {"type": "object"}, '
-        '"error_handling": "retry", "max_retries": 2, '
-        '"reasoning": "Extract structured data from incident"}],'
-        ' "estimated_cost_usd": 0.02, "estimated_time_seconds": 5, '
-        '"reasoning": "Plan to analyze and route incident"}',
+        content=(
+            '{"plan_id": "550e8400-e29b-41d4-a716-446655440000", '
+            '"steps": [{"step_id": "analyze", "step_type": "tool_call", '
+            '"action": "tool_call", "tool_name": "ai.extract", '
+            '"input_template": {"instruction": "Extract incident details", '
+            '"data": {"text": "{{ $form.incident_summary }}"}},'
+            ' "expected_output_schema": {"type": "object"}, '
+            '"error_handling": "retry", "max_retries": 2, '
+            '"reasoning": "Extract structured data from incident"}],'
+            ' "estimated_cost_usd": 0.02, "estimated_time_seconds": 5, '
+            '"reasoning": "Plan to analyze and route incident"}'
+        ),
         total_tokens=500,
     )
 

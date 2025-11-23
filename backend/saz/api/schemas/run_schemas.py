@@ -80,11 +80,9 @@ class StepSummary(BaseModel):
     input: dict[str, Any] | None = None
     output: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
-
-    # NEW: Enhanced UX fields
-    description: str | None = Field(None, description="User-friendly step description")
-    failure_reason: str | None = Field(None, description="Human-readable failure message")
-    error_category: str | None = Field(None, description="Categorized error type")
+    description: str | None = Field(default=None, description="User-friendly step description")
+    failure_reason: str | None = Field(default=None, description="Human-readable failure message")
+    error_category: str | None = Field(default=None, description="Categorized error type")
 
 
 class RunDetail(BaseModel):

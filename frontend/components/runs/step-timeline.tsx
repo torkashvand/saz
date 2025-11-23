@@ -7,20 +7,48 @@ import type { PlannedStep, RunStep } from '@/lib/types';
 interface StepProgressTimelineProps {
   plannedSteps: PlannedStep[];
   executedSteps: RunStep[];
+  runStatus: string;
   selectedStepIndex: number | null;
   onSelectStep: (index: number) => void;
 }
 
 type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed';
 
-function getStepStatus(planned: PlannedStep, executedSteps: RunStep[]): StepVisualStatus {
-  const executed = executedSteps.find(s => s.number === planned.index);
-  if (!executed) return 'not_started';
+/**
+ * Derive step states with run-started awareness.
+ * When run has started but no steps executed yet, show first step as "running".
+ */
+function deriveStepStates(
+  plannedSteps: PlannedStep[],
+  executedSteps: RunStep[],
+  runStatus: string
+): StepVisualStatus[] {
+  // Check if run has started
+  const runHasStarted = runStatus === 'running' || runStatus === 'completed' || runStatus === 'failed';
 
-  if (executed.status === 'running') return 'running';
-  if (executed.status === 'completed') return 'completed';
-  if (executed.status === 'failed') return 'failed';
-  return 'not_started';
+  // Check if any step has started executing
+  const anyStepStarted = executedSteps.some(
+    s => s.status === 'running' || s.status === 'completed' || s.status === 'failed' || s.status === 'suspended'
+  );
+
+  return plannedSteps.map((planned, index) => {
+    const executed = executedSteps.find(s => s.number === planned.index);
+
+    // If we have an executed step, use its status
+    if (executed) {
+      if (executed.status === 'running') return 'running';
+      if (executed.status === 'completed') return 'completed';
+      if (executed.status === 'failed') return 'failed';
+      return 'not_started';
+    }
+
+    // Special case: first step shows "running" when run started but no steps executed yet
+    if (index === 0 && runHasStarted && !anyStepStarted) {
+      return 'running';
+    }
+
+    return 'not_started';
+  });
 }
 
 function formatDuration(ms?: number): string | null {
@@ -41,12 +69,16 @@ function getStatusLabel(status: StepVisualStatus): string {
 export function StepProgressTimeline({
   plannedSteps,
   executedSteps,
+  runStatus,
   selectedStepIndex,
   onSelectStep,
 }: StepProgressTimelineProps) {
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
 
   if (plannedSteps.length === 0) return null;
+
+  // Derive all step states once (considers run-started state)
+  const stepStates = deriveStepStates(plannedSteps, executedSteps, runStatus);
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -55,7 +87,7 @@ export function StepProgressTimeline({
         <div className="absolute top-2 left-0 right-0 h-0.5 bg-slate-200" style={{ zIndex: 0 }} />
 
         {plannedSteps.map((planned, index) => {
-          const status = getStepStatus(planned, executedSteps);
+          const status = stepStates[index];
           const isExpanded = expandedStepIndex === index;
           const isSelected = selectedStepIndex === index;
           const executed = executedSteps.find(s => s.number === planned.index);

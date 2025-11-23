@@ -371,3 +371,37 @@ export interface WorkflowSummary {
   ai_steps: number;
   credentials: string[];
 }
+
+// ========== Templates ==========
+
+export interface TemplateSummary {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  complexity: string;
+  recommended: boolean;
+  flow_name: string;
+  steps_count: number;
+  ai_steps: number;
+  credentials: string[];
+}
+
+export interface TemplateDetail {
+  metadata: {
+    id: string;
+    title: string;
+    description: string;
+    tags: string[];
+    complexity: string;
+    recommended: boolean;
+  };
+  yaml: string;
+  flow_name: string;
+  flow_version: string;
+  flow_description: string;
+  steps_count: number;
+  ai_steps: number;
+  credentials: string[];
+  form_schema: Record<string, any>;
+}

@@ -1,0 +1,180 @@
+meta:
+  id: runbook_with_callback
+  title: "Runbook Execution with Callback"
+  description: "Execute operational runbook with external system callback for long-running tasks"
+  tags: ["runbook", "ops", "callback", "automation"]
+  complexity: "medium"
+  recommended: false
+
+schema_version: 1
+
+flow:
+  name: runbook_with_callback
+  version: "1.0"
+  description: Operational runbook with webhook callback pattern
+
+form:
+  fields:
+    - name: runbook_type
+      type: string
+      required: true
+      description: Type of runbook to execute
+    - name: target_hosts
+      type: string
+      required: true
+      description: Comma-separated list of target hosts
+    - name: parameters
+      type: text
+      required: false
+      description: Additional runbook parameters (JSON string)
+
+triggers:
+  manual: true
+  schedule:
+    cron: "0 2 * * *"
+    timezone: "UTC"
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: validate_targets
+      type: ai.extract
+      instruction: |
+        Validate that the target hosts are appropriate for this runbook type.
+        Check for any obvious issues or misconfigurations.
+      params:
+        data:
+          runbook_type: "{{ $form.runbook_type }}"
+          targets: "{{ $form.target_hosts }}"
+      schema:
+        type: object
+        properties:
+          valid:
+            type: boolean
+          issues:
+            type: array
+            items:
+              type: string
+          recommendations:
+            type: string
+        required: [valid]
+      temperature: 0.1
+      max_tokens: 512
+
+    - id: initiate_runbook
+      type: tool.call
+      tool: http_request
+      description: Start runbook execution on orchestration platform
+      params:
+        method: POST
+        url: "https://orchestrator.example.com/api/runbooks/execute"
+        headers:
+          Authorization: "Bearer {{ $secret('orchestrator_api_key') }}"
+        body:
+          runbook_type: "{{ $form.runbook_type }}"
+          targets: "{{ $form.target_hosts }}"
+          parameters: "{{ $form.parameters }}"
+          callback_url: "https://saz.example.com/api/webhooks/runbook/{{ $env('RUN_ID') }}"
+      expect:
+        type: object
+        properties:
+          execution_id:
+            type: string
+
+    - id: wait_for_completion
+      type: webhook.wait
+      description: Wait for runbook execution completion callback
+      params:
+        event_name: "runbook.complete"
+        timeout_minutes: 120
+        webhook_path: "/runbook/{{ $env('RUN_ID') }}"
+        expected_payload:
+          execution_id: "{{ $step('initiate_runbook').execution_id }}"
+          status: "completed"
+
+    - id: analyze_results
+      type: ai.extract
+      instruction: |
+        Analyze the runbook execution results.
+        Identify any errors, warnings, or notable outcomes.
+        Summarize the overall success and any follow-up actions needed.
+      params:
+        data:
+          runbook_type: "{{ $form.runbook_type }}"
+          callback_data: "{{ $step('wait_for_completion') }}"
+      schema:
+        type: object
+        properties:
+          overall_status:
+            type: string
+            enum: [success, partial_success, failed]
+          errors_count:
+            type: number
+          warnings_count:
+            type: number
+          summary:
+            type: string
+          follow_up_required:
+            type: boolean
+        required: [overall_status, summary]
+      temperature: 0.1
+      max_tokens: 768
+
+    - id: generate_report
+      type: ai.generate
+      instruction: |
+        Generate an executive summary report of the runbook execution.
+        Include: what was executed, targets affected, results, and any actions needed.
+        Format for Slack or email notification.
+      params:
+        data:
+          runbook: "{{ $form.runbook_type }}"
+          targets: "{{ $form.target_hosts }}"
+          analysis: "{{ $step('analyze_results') }}"
+      word_cap: 300
+      temperature: 0.3
+      max_tokens: 1024
+
+    - id: send_notification
+      type: tool.call
+      tool: http_request
+      description: Send completion report
+      params:
+        method: POST
+        url: "https://hooks.slack.com/services/{{ $secret('slack_ops_webhook') }}"
+        body:
+          text: "{{ $step('generate_report') }}"
+          blocks:
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "{{ $step('generate_report') }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "Runbook: `{{ $form.runbook_type }}` | Status: {{ $step('analyze_results').overall_status }}"
+      expect:
+        type: object
+
+    - id: store_execution_record
+      type: artifact.store
+      description: Store runbook execution results and analysis
+      params:
+        name: "runbook_{{ $form.runbook_type }}_{{ $env('TIMESTAMP') }}"
+        content:
+          runbook_type: "{{ $form.runbook_type }}"
+          targets: "{{ $form.target_hosts }}"
+          execution_id: "{{ $step('initiate_runbook').execution_id }}"
+          results: "{{ $step('wait_for_completion') }}"
+          analysis: "{{ $step('analyze_results') }}"
+
+policies:
+  budget_usd: 0.40
+  defaults:
+    timeout_ms: 7200000
+    continue_on_fail: false
+  pii:
+    allow: false
+
+credentials:
+  uses: [orchestrator_api_key, slack_ops_webhook]

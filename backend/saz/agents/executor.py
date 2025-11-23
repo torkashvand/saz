@@ -46,7 +46,7 @@ class ExecutorAgent:
             "grounding_step",
             step_id=step.step_id,
             tool_name=step.tool_name,
-            action=step.action.value,
+            step_type=step.step_type,
         )
 
         # Validate tool exists

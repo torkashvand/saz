@@ -47,7 +47,6 @@ def categorize_error(error_dict: dict[str, Any] | None) -> ErrorCategory:
 
     error_type = error_dict.get("type", "")
     error_message = error_dict.get("message", "").lower()
-    traceback = error_dict.get("traceback", "").lower()
 
     # Missing credential
     if "credential" in error_message and (

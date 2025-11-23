@@ -20,7 +20,7 @@ was met.
 
 ## Step Details
 Step ID: {step_id}
-Action: {action}
+Step Type: {step_type}
 Tool: {tool_name}
 Reasoning: {step_reasoning}
 
@@ -111,7 +111,7 @@ class CriticAgent:
         # Format prompt
         prompt = CRITIC_SYSTEM_PROMPT.format(
             step_id=step.step_id,
-            action=step.action.value,
+            step_type=step.step_type,
             tool_name=step.tool_name or "N/A",
             step_reasoning=step.reasoning,
             expected_output_schema=json.dumps(step.expected_output_schema, indent=2),

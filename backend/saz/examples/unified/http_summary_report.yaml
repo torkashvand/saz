@@ -1,0 +1,174 @@
+meta:
+  id: http_summary_report
+  title: "HTTP API Summary Report"
+  description: "Fetch data from multiple HTTP endpoints, analyze trends, and generate executive summary report"
+  tags: ["reporting", "analytics", "deterministic"]
+  complexity: "beginner"
+  recommended: false
+
+schema_version: 1
+
+flow:
+  name: http_summary_report
+  version: "1.0"
+  description: Multi-source data aggregation and AI-powered summary
+
+form:
+  fields:
+    - name: report_period
+      type: string
+      required: true
+      description: Period for the report (e.g., "last_24h", "last_week")
+    - name: recipient_email
+      type: string
+      required: true
+      description: Email address to send report
+      format: email
+
+triggers:
+  manual: true
+  schedule:
+    cron: "0 9 * * 1"
+    timezone: "America/New_York"
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: fetch_metrics
+      type: tool.call
+      tool: http_request
+      description: Fetch metrics from monitoring API
+      params:
+        method: GET
+        url: "https://metrics.example.com/api/v1/query"
+        headers:
+          Authorization: "Bearer {{ $secret('metrics_api_token') }}"
+        params:
+          period: "{{ $form.report_period }}"
+      expect:
+        type: object
+
+    - id: fetch_incidents
+      type: tool.call
+      tool: http_request
+      description: Fetch recent incidents
+      params:
+        method: GET
+        url: "https://incidents.example.com/api/incidents"
+        headers:
+          X-API-Key: "{{ $secret('incidents_api_key') }}"
+        params:
+          since: "{{ $form.report_period }}"
+          status: "all"
+      expect:
+        type: object
+
+    - id: fetch_deployments
+      type: tool.call
+      tool: http_request
+      description: Fetch deployment activity
+      params:
+        method: GET
+        url: "https://ci.example.com/api/deployments"
+        headers:
+          Authorization: "token {{ $secret('ci_api_token') }}"
+        params:
+          period: "{{ $form.report_period }}"
+      expect:
+        type: object
+
+    - id: analyze_trends
+      type: ai.extract
+      instruction: |
+        Analyze the metrics, incidents, and deployment data.
+        Identify key trends, anomalies, and correlations.
+        Extract: overall health score, top issues, deployment frequency, incident rate.
+      params:
+        data:
+          metrics: "{{ $step('fetch_metrics') }}"
+          incidents: "{{ $step('fetch_incidents') }}"
+          deployments: "{{ $step('fetch_deployments') }}"
+      schema:
+        type: object
+        properties:
+          health_score:
+            type: number
+          top_issues:
+            type: array
+            items:
+              type: string
+          deployment_count:
+            type: number
+          incident_count:
+            type: number
+          trends:
+            type: string
+        required: [health_score, trends]
+      temperature: 0.2
+      max_tokens: 768
+
+    - id: generate_executive_summary
+      type: ai.generate
+      instruction: |
+        Write an executive summary report for engineering leadership.
+        Include: period overview, key metrics, major incidents, deployment activity,
+        trends, and recommendations. Professional tone, max 400 words.
+        Format with sections and bullet points for readability.
+      params:
+        data:
+          period: "{{ $form.report_period }}"
+          analysis: "{{ $step('analyze_trends') }}"
+          metrics: "{{ $step('fetch_metrics') }}"
+          incidents: "{{ $step('fetch_incidents') }}"
+          deployments: "{{ $step('fetch_deployments') }}"
+      word_cap: 400
+      temperature: 0.4
+      max_tokens: 1536
+
+    - id: send_report
+      type: tool.call
+      tool: http_request
+      description: Email the report
+      params:
+        method: POST
+        url: "https://api.sendgrid.com/v3/mail/send"
+        headers:
+          Authorization: "Bearer {{ $secret('sendgrid_api_key') }}"
+        body:
+          personalizations:
+            - to:
+                - email: "{{ $form.recipient_email }}"
+          from:
+            email: "reports@example.com"
+            name: "Engineering Reports"
+          subject: "Engineering Summary - {{ $form.report_period }}"
+          content:
+            - type: "text/html"
+              value: "<pre>{{ $step('generate_executive_summary') }}</pre>"
+      expect:
+        type: object
+
+    - id: store_report
+      type: artifact.store
+      description: Store executive summary report and analysis
+      params:
+        name: "report_{{ $form.report_period }}_{{ $env('TIMESTAMP') }}"
+        content:
+          period: "{{ $form.report_period }}"
+          health_score: "{{ $step('analyze_trends').health_score }}"
+          summary: "{{ $step('generate_executive_summary') }}"
+          raw_metrics: "{{ $step('fetch_metrics') }}"
+
+policies:
+  budget_usd: 0.25
+  defaults:
+    timeout_ms: 90000
+    continue_on_fail: false
+  rate_limits:
+    http_request:
+      rpm: 100
+  pii:
+    allow: false
+
+credentials:
+  uses: [metrics_api_token, incidents_api_key, ci_api_token, sendgrid_api_key]

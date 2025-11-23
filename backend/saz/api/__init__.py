@@ -77,12 +77,14 @@ def create_app() -> FastAPI:
     from saz.api.routes.health import router as health_router
     from saz.api.routes.runs import router as runs_router
     from saz.api.routes.stream import router as stream_router
+    from saz.api.routes.templates import router as templates_router
     from saz.api.routes.webhooks import router as webhooks_router
 
     app.include_router(health_router)
     app.include_router(flows_router)
     app.include_router(runs_router)
     app.include_router(credentials_router)
+    app.include_router(templates_router)
     app.include_router(webhooks_router)
     app.include_router(stream_router)
 

@@ -5,16 +5,6 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class StepAction(str, Enum):
-    """Type of action an agent can take"""
-
-    TOOL_CALL = "tool_call"
-    HUMAN_APPROVAL = "human_approval"
-    WEBHOOK_WAIT = "webhook_wait"
-    CONDITION = "condition"
-    AI_ASSESS = "ai_assess"
-
-
 class ErrorHandling(str, Enum):
     """How to handle step errors"""
 
@@ -29,7 +19,6 @@ class PlanStep(BaseModel):
 
     step_id: str = Field(..., description="Unique step identifier matching workflow")
     step_type: str = Field(..., description="Step type from workflow DSL")
-    action: StepAction
     tool_name: str | None = None
     input_template: dict = Field(
         default_factory=dict, description="Tool input with {{variable}} placeholders"

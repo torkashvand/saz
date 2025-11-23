@@ -1,0 +1,73 @@
+meta:
+  id: minimal_ai_step
+  title: "Minimal AI Extraction"
+  description: "Simple single-step AI extraction workflow - perfect starting point for new users"
+  tags: ["simple", "starter", "ai", "recommended"]
+  complexity: "beginner"
+  recommended: true
+
+schema_version: 1
+
+flow:
+  name: minimal_ai_extraction
+  version: "1.0"
+  description: Single-step AI data extraction example
+
+form:
+  fields:
+    - name: input_text
+      type: string
+      required: true
+      description: Text to analyze
+
+triggers:
+  manual: true
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: extract_entities
+      type: ai.extract
+      instruction: |
+        Extract key entities from the provided text.
+        Identify: people, organizations, locations, dates, and topics.
+      params:
+        data:
+          text: "{{ $form.input_text }}"
+      schema:
+        type: object
+        properties:
+          people:
+            type: array
+            items:
+              type: string
+          organizations:
+            type: array
+            items:
+              type: string
+          locations:
+            type: array
+            items:
+              type: string
+          dates:
+            type: array
+            items:
+              type: string
+          topics:
+            type: array
+            items:
+              type: string
+        required: []
+      temperature: 0.1
+      max_tokens: 512
+
+policies:
+  budget_usd: 0.05
+  defaults:
+    timeout_ms: 30000
+    continue_on_fail: false
+  pii:
+    allow: false
+
+credentials:
+  uses: []

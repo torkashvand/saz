@@ -170,7 +170,7 @@ Return **exactly this JSON structure**:
   "steps": [
     {{
       "step_id": "step_name_here",
-      "action": "tool_call",
+      "step_type": "tool_call",
       "tool_name": "exact_tool_from_registry",
       "input_template": {{
         "key": "value or {{{{ template }}}}"
@@ -218,7 +218,7 @@ workflow:
   "steps": [
     {{
       "step_id": "assess_incident",
-      "action": "tool_call",
+      "step_type": "ai.assess",
       "tool_name": "ai.assess",
       "input_template": {{
         "instruction": "Assess incident severity: low/medium/high/critical",
@@ -241,7 +241,7 @@ workflow:
     }},
     {{
       "step_id": "route_to_team",
-      "action": "tool_call",
+      "step_type": "ai.route",
       "tool_name": "ai.route",
       "input_template": {{
         "instruction": "Route to appropriate team: ops, security, or development",

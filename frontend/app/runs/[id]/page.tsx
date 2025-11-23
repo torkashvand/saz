@@ -206,6 +206,7 @@ export default function RunDetailPageRedesign() {
           <StepProgressTimeline
             plannedSteps={run.planned_steps}
             executedSteps={run.steps}
+            runStatus={run.status}
             selectedStepIndex={selectedStepIndex}
             onSelectStep={handleSelectStep}
           />

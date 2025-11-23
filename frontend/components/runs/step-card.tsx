@@ -33,7 +33,14 @@ export function CompactStepCard({ step, isSelected, onViewLogs, onCardClick }: C
   // Get step type icon
   const { Icon: StepIcon, color: iconColor, bg: iconBg } = getStepTypeIcon(step.step_type);
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Only toggle if clicking the card header area, not inner content
+    const target = e.target as HTMLElement;
+    // Ignore clicks on buttons or interactive elements
+    if (target.closest('button') && !target.closest('[data-card-header]')) {
+      return;
+    }
+
     // Toggle expand state
     setIsExpanded(!isExpanded);
     // Notify parent about card click (for wizard sync)
@@ -74,25 +81,26 @@ export function CompactStepCard({ step, isSelected, onViewLogs, onCardClick }: C
   return (
     <div
       data-step-id={step.id}
-      role="button"
-      tabIndex={0}
-      onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleCardClick();
-        }
-      }}
       className={cn(
-        'border rounded-lg bg-white transition-all duration-200 cursor-pointer shadow-sm',
-        'hover:shadow-md hover:-translate-y-0.5',
-        'focus-visible:shadow-md focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
+        'border rounded-lg bg-white transition-all duration-200 shadow-sm',
         isSelected && 'ring-2 ring-blue-400 shadow-md',
         !isSelected && 'border-slate-200'
       )}
     >
       {/* Compact header */}
-      <div className="p-4">
+      <div
+        data-card-header
+        role="button"
+        tabIndex={0}
+        onClick={handleCardClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleCardClick(e as any);
+          }
+        }}
+        className="p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+      >
         <div className="flex items-start justify-between gap-3">
           {/* Left: Step info */}
           <div className="flex-1 min-w-0">
@@ -154,6 +162,13 @@ export function CompactStepCard({ step, isSelected, onViewLogs, onCardClick }: C
                 onClick={(e) => {
                   e.stopPropagation();
                   onViewLogs();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onViewLogs();
+                  }
                 }}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors"
               >

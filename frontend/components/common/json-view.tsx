@@ -25,10 +25,24 @@ interface CollapsibleJsonProps {
 export function CollapsibleJson({ label, data, defaultOpen = false }: CollapsibleJsonProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsOpen(!isOpen);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsOpen(!isOpen);
+    }
+  };
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
+        onKeyDown={handleKeyDown}
         className="w-full flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 transition-colors text-sm font-medium"
       >
         {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}

@@ -370,6 +370,9 @@ export function FlowBuilder({
                 yaml={yaml}
                 onChange={handleYamlChange}
                 validationResult={validationResult}
+                baselineYaml={lastSavedYaml}
+                lastSavedAt={lastSavedAt}
+                hasUnsavedChanges={dirty}
               />
             )}
           </div>

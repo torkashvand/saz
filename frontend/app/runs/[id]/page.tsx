@@ -83,21 +83,35 @@ export default function RunDetailPageRedesign() {
   };
 
   const handleSelectStep = (index: number) => {
-    setSelectedStepIndex(index);
-    scrollToStep(index);
+    // Toggle behavior: clicking the same step clears the filter
+    if (selectedStepIndex === index) {
+      setSelectedStepIndex(null);
+    } else {
+      setSelectedStepIndex(index);
+      scrollToStep(index);
+    }
   };
 
   const handleStepCardClick = (stepNumber: number) => {
-    setSelectedStepIndex(stepNumber);
-    // Optionally scroll wizard into view if needed
-    const wizardElement = document.querySelector('[data-step-wizard]');
-    if (wizardElement) {
-      const rect = wizardElement.getBoundingClientRect();
-      // Only scroll if wizard is out of view
-      if (rect.top < 0 || rect.bottom > window.innerHeight) {
-        wizardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Toggle behavior: clicking the same step clears the filter
+    if (selectedStepIndex === stepNumber) {
+      setSelectedStepIndex(null);
+    } else {
+      setSelectedStepIndex(stepNumber);
+      // Optionally scroll wizard into view if needed
+      const wizardElement = document.querySelector('[data-step-wizard]');
+      if (wizardElement) {
+        const rect = wizardElement.getBoundingClientRect();
+        // Only scroll if wizard is out of view
+        if (rect.top < 0 || rect.bottom > window.innerHeight) {
+          wizardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
       }
     }
+  };
+
+  const handleClearStepFilter = () => {
+    setSelectedStepIndex(null);
   };
 
   const handleReplay = () => {
@@ -264,11 +278,9 @@ export default function RunDetailPageRedesign() {
               <EnhancedConsolePanel
                 events={events}
                 steps={run.steps}
-                selectedStepId={selectedStepIndex !== null ? run.steps.find(s => s.number === selectedStepIndex)?.id || null : null}
-                onSelectStep={(stepId) => {
-                  const step = run.steps.find(s => s.id === stepId);
-                  if (step) setSelectedStepIndex(step.number);
-                }}
+                selectedStepIndex={selectedStepIndex}
+                onSelectStep={handleSelectStep}
+                onClearStepFilter={handleClearStepFilter}
               />
             }
             defaultLeftWidth={45}
@@ -298,8 +310,9 @@ export default function RunDetailPageRedesign() {
           <EnhancedConsolePanel
             events={events}
             steps={run.steps}
-            selectedStepId={drawerStepId}
+            selectedStepIndex={drawerStep?.number ?? null}
             onSelectStep={() => {}}
+            onClearStepFilter={() => setDrawerStepId(null)}
           />
         </BottomDrawer>
       )}

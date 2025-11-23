@@ -8,9 +8,10 @@ import type { Event, RunStep } from '@/lib/types';
 
 interface EnhancedConsolePanelProps {
   events: Event[];
-  steps: RunStep[]; // Pass steps to map IDs to numbers/names
-  selectedStepId: string | null;
-  onSelectStep: (stepId: string | null) => void;
+  steps: RunStep[];
+  selectedStepIndex: number | null; // Use step number as the filter
+  onSelectStep: (stepIndex: number) => void;
+  onClearStepFilter: () => void;
 }
 
 type LevelFilter = 'all' | 'info' | 'warning' | 'error';
@@ -127,8 +128,9 @@ function LogLine({
 export function EnhancedConsolePanel({
   events,
   steps,
-  selectedStepId,
+  selectedStepIndex,
   onSelectStep,
+  onClearStepFilter,
 }: EnhancedConsolePanelProps) {
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
@@ -139,13 +141,22 @@ export function EnhancedConsolePanel({
   // Build step lookup table (memoized)
   const stepLookup = useMemo(() => buildStepLookup(steps), [steps]);
 
+  // Get the selected step info for display
+  const selectedStep = useMemo(() => {
+    if (selectedStepIndex === null) return null;
+    return steps.find(s => s.number === selectedStepIndex);
+  }, [steps, selectedStepIndex]);
+
   // Filter events
   const filteredEvents = useMemo(() => {
     let result = events;
 
-    // Filter by selected step
-    if (selectedStepId) {
-      result = result.filter((e) => e.step_id === selectedStepId);
+    // Filter by selected step (use step number)
+    if (selectedStepIndex !== null) {
+      const selectedStepId = steps.find(s => s.number === selectedStepIndex)?.id;
+      if (selectedStepId) {
+        result = result.filter((e) => e.step_id === selectedStepId);
+      }
     }
 
     // Filter by level
@@ -169,7 +180,7 @@ export function EnhancedConsolePanel({
     }
 
     return result;
-  }, [events, selectedStepId, levelFilter, search]);
+  }, [events, selectedStepIndex, steps, levelFilter, search]);
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -274,19 +285,6 @@ export function EnhancedConsolePanel({
             Error ({stats.errorCount})
           </button>
 
-          {selectedStepId && (
-            <>
-              <span className="text-slate-600">|</span>
-              <button
-                onClick={() => onSelectStep(null)}
-                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-full text-xs font-medium flex items-center gap-1 transition-colors"
-              >
-                Clear step filter
-                <X className="h-3 w-3" />
-              </button>
-            </>
-          )}
-
           <div className="ml-auto flex items-center gap-2">
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
               <input
@@ -300,8 +298,31 @@ export function EnhancedConsolePanel({
           </div>
         </div>
 
+        {/* Step filter indicator */}
+        {selectedStep && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700/50 rounded text-xs">
+            <span className="text-blue-300 font-medium">
+              Showing logs for Step {selectedStep.number + 1}: {selectedStep.name}
+            </span>
+            <button
+              onClick={onClearStepFilter}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onClearStepFilter();
+                }
+              }}
+              className="ml-auto px-2 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded flex items-center gap-1 transition-colors font-medium"
+              aria-label="Clear step filter"
+            >
+              Show all logs
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
         {/* Filter results info */}
-        {(search || selectedStepId || levelFilter !== 'all') && (
+        {(search || selectedStepIndex !== null || levelFilter !== 'all') && (
           <div className="text-xs text-slate-400">
             Showing {filteredEvents.length} of {events.length} events
           </div>
@@ -317,14 +338,14 @@ export function EnhancedConsolePanel({
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-slate-500">
               <p className="text-sm">No logs match the current filters</p>
-              {(search || selectedStepId || levelFilter !== 'all') && (
+              {(search || selectedStepIndex !== null || levelFilter !== 'all') && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => {
                     setSearch('');
                     setLevelFilter('all');
-                    onSelectStep(null);
+                    onClearStepFilter();
                   }}
                   className="mt-2 text-xs text-slate-400 hover:text-slate-200"
                 >
@@ -335,15 +356,18 @@ export function EnhancedConsolePanel({
           </div>
         ) : (
           <>
-            {filteredEvents.map((event) => (
-              <LogLine
-                key={event.id}
-                event={event}
-                stepInfo={event.step_id ? stepLookup[event.step_id] : undefined}
-                highlight={search}
-                onClickStep={() => event.step_id && onSelectStep(event.step_id)}
-              />
-            ))}
+            {filteredEvents.map((event) => {
+              const stepInfo = event.step_id ? stepLookup[event.step_id] : undefined;
+              return (
+                <LogLine
+                  key={event.id}
+                  event={event}
+                  stepInfo={stepInfo}
+                  highlight={search}
+                  onClickStep={() => stepInfo && onSelectStep(stepInfo.number)}
+                />
+              );
+            })}
             <div ref={logEndRef} className="h-4" />
           </>
         )}

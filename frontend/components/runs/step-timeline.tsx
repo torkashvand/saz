@@ -109,6 +109,7 @@ export function StepProgressTimeline({
               <button
                 onClick={() => {
                   if (executed) {
+                    // Toggle behavior: clicking same step clears selection
                     onSelectStep(index);
                     setExpandedStepIndex(isExpanded ? null : index);
                   }

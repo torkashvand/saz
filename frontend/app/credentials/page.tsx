@@ -33,11 +33,37 @@ export default function CredentialsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingCredential, setEditingCredential] = useState<string | null>(null);
 
+  // Form mode: simple (guided) or json (raw)
+  const [mode, setMode] = useState<'simple' | 'json'>('simple');
+
   // Form state
   const [name, setName] = useState('');
   const [credentialType, setCredentialType] = useState('api_token');
   const [description, setDescription] = useState('');
   const [dataJson, setDataJson] = useState('{}');
+
+  // Simple mode field states (type-specific)
+  const [simpleFields, setSimpleFields] = useState<Record<string, string>>({
+    // api_token
+    token: '',
+    endpoint: '',
+    // password
+    username: '',
+    password: '',
+    // ssh_key
+    private_key: '',
+    host: '',
+    port: '',
+    // oauth
+    access_token: '',
+    refresh_token: '',
+    client_id: '',
+    client_secret: '',
+    // certificate
+    cert_pem: '',
+    key_pem: '',
+    ca_bundle: '',
+  });
 
   // Track mutation error for field-level validation
   const [mutationError, setMutationError] = useState<AppError | null>(null);
@@ -101,12 +127,120 @@ export default function CredentialsPage() {
   const resetForm = () => {
     setIsCreating(false);
     setEditingCredential(null);
+    setMode('simple');
     setName('');
     setCredentialType('api_token');
     setDescription('');
     setDataJson('{}');
+    setSimpleFields({
+      token: '',
+      endpoint: '',
+      username: '',
+      password: '',
+      private_key: '',
+      host: '',
+      port: '',
+      access_token: '',
+      refresh_token: '',
+      client_id: '',
+      client_secret: '',
+      cert_pem: '',
+      key_pem: '',
+      ca_bundle: '',
+    });
     setMutationError(null);
     setJsonError(null);
+  };
+
+  // Build data object from simple fields based on credential type
+  const buildDataFromSimpleFields = (): Record<string, any> => {
+    const data: Record<string, any> = {};
+
+    switch (credentialType) {
+      case 'api_token':
+        if (simpleFields.token) data.token = simpleFields.token;
+        if (simpleFields.endpoint) data.endpoint = simpleFields.endpoint;
+        break;
+      case 'password':
+        if (simpleFields.username) data.username = simpleFields.username;
+        if (simpleFields.password) data.password = simpleFields.password;
+        break;
+      case 'ssh_key':
+        if (simpleFields.username) data.username = simpleFields.username;
+        if (simpleFields.private_key) data.private_key = simpleFields.private_key;
+        if (simpleFields.host) data.host = simpleFields.host;
+        if (simpleFields.port) data.port = simpleFields.port;
+        break;
+      case 'oauth':
+        if (simpleFields.access_token) data.access_token = simpleFields.access_token;
+        if (simpleFields.refresh_token) data.refresh_token = simpleFields.refresh_token;
+        if (simpleFields.client_id) data.client_id = simpleFields.client_id;
+        if (simpleFields.client_secret) data.client_secret = simpleFields.client_secret;
+        break;
+      case 'certificate':
+        if (simpleFields.cert_pem) data.cert_pem = simpleFields.cert_pem;
+        if (simpleFields.key_pem) data.key_pem = simpleFields.key_pem;
+        if (simpleFields.ca_bundle) data.ca_bundle = simpleFields.ca_bundle;
+        break;
+    }
+
+    return data;
+  };
+
+  // Validate simple mode fields
+  const validateSimpleFields = (): boolean => {
+    const requiredFields: Record<string, string[]> = {
+      api_token: ['token'],
+      password: ['password'],
+      ssh_key: ['private_key'],
+      oauth: ['access_token'],
+      certificate: ['cert_pem'],
+    };
+
+    const required = requiredFields[credentialType] || [];
+    for (const field of required) {
+      if (!simpleFields[field]?.trim()) {
+        showError(`${field.replace('_', ' ')} is required`);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Fill with example data
+  const fillWithExample = () => {
+    const examples: Record<string, Record<string, string>> = {
+      api_token: {
+        token: 'sk-1234567890abcdef',
+        endpoint: 'https://api.example.com',
+      },
+      password: {
+        username: 'admin',
+        password: 'secure-password-123',
+      },
+      ssh_key: {
+        username: 'deploy',
+        private_key: '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----',
+        host: 'example.com',
+        port: '22',
+      },
+      oauth: {
+        access_token: 'ya29.a0AfH6SMBx...',
+        refresh_token: '1//0gK3Z9X...',
+        client_id: '1234567890-abcdefg.apps.googleusercontent.com',
+        client_secret: 'GOCSPX-abcdefghijklmnop',
+      },
+      certificate: {
+        cert_pem: '-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIJAKZ...\n-----END CERTIFICATE-----',
+        key_pem: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0...\n-----END PRIVATE KEY-----',
+        ca_bundle: '-----BEGIN CERTIFICATE-----\nMIIEkjCCA3qgAwIBAgIQCgFB...\n-----END CERTIFICATE-----',
+      },
+    };
+
+    const example = examples[credentialType];
+    if (example) {
+      setSimpleFields({ ...simpleFields, ...example });
+    }
   };
 
   const validateJson = (value: string): boolean => {
@@ -132,18 +266,26 @@ export default function CredentialsPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate JSON before submitting
-    if (!validateJson(dataJson)) {
-      showError('Please fix the JSON format error');
-      return;
-    }
-
     let data: Record<string, any>;
-    try {
-      data = JSON.parse(dataJson);
-    } catch {
-      showError('Invalid JSON in data field');
-      return;
+
+    if (mode === 'simple') {
+      // Validate simple fields
+      if (!validateSimpleFields()) {
+        return;
+      }
+      data = buildDataFromSimpleFields();
+    } else {
+      // Validate JSON
+      if (!validateJson(dataJson)) {
+        showError('Please fix the JSON format error');
+        return;
+      }
+      try {
+        data = JSON.parse(dataJson);
+      } catch {
+        showError('Invalid JSON in data field');
+        return;
+      }
     }
 
     if (editingCredential) {
@@ -259,28 +401,258 @@ export default function CredentialsPage() {
               <FieldError message={getFieldError(mutationError, 'description')} />
             </div>
 
+            {/* Mode toggle and data entry */}
             <div>
-              <Label htmlFor="data">Data (JSON)</Label>
+              <div className="flex items-center justify-between mb-3">
+                <Label>Credential Data</Label>
+                {/* Mode toggle */}
+                <div className="flex items-center gap-2 border rounded-lg p-1 bg-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => setMode('simple')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      mode === 'simple'
+                        ? 'bg-white text-gray-900 shadow-sm font-medium'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Simple
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('json')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      mode === 'json'
+                        ? 'bg-white text-gray-900 shadow-sm font-medium'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                </div>
+              </div>
+
               {editingCredential && (
-                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
                   ⓘ For security, existing credential data cannot be displayed. Enter new credential data to update.
                 </div>
               )}
-              <textarea
-                id="data"
-                className={`w-full border rounded-md p-2 font-mono text-sm ${
-                  jsonError ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                }`}
-                value={dataJson}
-                onChange={(e) => handleJsonChange(e.target.value)}
-                placeholder='{"token": "sk-..."}'
-                rows={6}
-                required
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                Example: {`{"token": "sk-...", "endpoint": "https://..."}`}
-              </p>
-              {jsonError && <FieldError message={jsonError} />}
+
+              {mode === 'simple' ? (
+                <>
+                  {/* Type-specific simple fields */}
+                  {credentialType === 'api_token' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="token">Token *</Label>
+                        <Input
+                          id="token"
+                          type="password"
+                          value={simpleFields.token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, token: e.target.value })}
+                          placeholder="sk-1234567890abcdef"
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="endpoint">Endpoint (optional)</Label>
+                        <Input
+                          id="endpoint"
+                          value={simpleFields.endpoint}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, endpoint: e.target.value })}
+                          placeholder="https://api.example.com"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'password' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="username">Username (optional)</Label>
+                        <Input
+                          id="username"
+                          value={simpleFields.username}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          placeholder="admin"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="password">Password *</Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          value={simpleFields.password}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, password: e.target.value })}
+                          placeholder="secure-password-123"
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'ssh_key' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="username">Username (optional)</Label>
+                        <Input
+                          id="username"
+                          value={simpleFields.username}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          placeholder="deploy"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="private_key">Private Key *</Label>
+                        <textarea
+                          id="private_key"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.private_key}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, private_key: e.target.value })}
+                          placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+                          rows={4}
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="host">Host (optional)</Label>
+                          <Input
+                            id="host"
+                            value={simpleFields.host}
+                            onChange={(e) => setSimpleFields({ ...simpleFields, host: e.target.value })}
+                            placeholder="example.com"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="port">Port (optional)</Label>
+                          <Input
+                            id="port"
+                            value={simpleFields.port}
+                            onChange={(e) => setSimpleFields({ ...simpleFields, port: e.target.value })}
+                            placeholder="22"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'oauth' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="access_token">Access Token *</Label>
+                        <Input
+                          id="access_token"
+                          type="password"
+                          value={simpleFields.access_token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, access_token: e.target.value })}
+                          placeholder="ya29.a0AfH6SMBx..."
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="refresh_token">Refresh Token (optional)</Label>
+                        <Input
+                          id="refresh_token"
+                          type="password"
+                          value={simpleFields.refresh_token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, refresh_token: e.target.value })}
+                          placeholder="1//0gK3Z9X..."
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="client_id">Client ID (optional)</Label>
+                        <Input
+                          id="client_id"
+                          value={simpleFields.client_id}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, client_id: e.target.value })}
+                          placeholder="1234567890-abcdefg.apps.googleusercontent.com"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="client_secret">Client Secret (optional)</Label>
+                        <Input
+                          id="client_secret"
+                          type="password"
+                          value={simpleFields.client_secret}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, client_secret: e.target.value })}
+                          placeholder="GOCSPX-abcdefghijklmnop"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'certificate' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="cert_pem">Certificate PEM *</Label>
+                        <textarea
+                          id="cert_pem"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.cert_pem}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, cert_pem: e.target.value })}
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                          rows={3}
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="key_pem">Private Key PEM (optional)</Label>
+                        <textarea
+                          id="key_pem"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.key_pem}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, key_pem: e.target.value })}
+                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                          rows={3}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ca_bundle">CA Bundle (optional)</Label>
+                        <textarea
+                          id="ca_bundle"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.ca_bundle}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })}
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fill with example button */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fillWithExample}
+                    className="mt-2"
+                  >
+                    Fill with example
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* JSON mode */}
+                  <textarea
+                    id="data"
+                    className={`w-full border rounded-md p-2 font-mono text-sm ${
+                      jsonError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                    }`}
+                    value={dataJson}
+                    onChange={(e) => handleJsonChange(e.target.value)}
+                    placeholder='{"token": "sk-..."}'
+                    rows={8}
+                    required={mode === 'json'}
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Example: {`{"token": "sk-...", "endpoint": "https://..."}`}
+                  </p>
+                  {jsonError && <FieldError message={jsonError} />}
+                </>
+              )}
+
               <FieldError message={getFieldError(mutationError, 'data')} />
             </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, CheckCircle2, Play, Settings, Zap, Globe, X, Loader2, Info } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, Check, Play, Settings, Zap, Globe, X, Loader2, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { CollapsibleJson } from '@/components/common/json-view';
@@ -127,35 +127,44 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
             <div className="flex items-center gap-3 mb-1">
               {/* Step type icon with status badge */}
               <div className="relative flex-shrink-0">
-                <div className={cn('p-1.5 rounded-full', iconBg, isPlanned && 'opacity-60')}>
-                  <StepIcon className={cn('h-3.5 w-3.5', iconColor)} />
+                <div
+                  className={cn(
+                    'h-10 w-10 rounded-full flex items-center justify-center',
+                    iconBg,
+                    isPlanned && 'opacity-60'
+                  )}
+                >
+                  <StepIcon className={cn('h-5 w-5', iconColor)} />
                 </div>
-                {/* Status badge overlay */}
+
+                {/* Status badge overlay – positioned outside the gear circle */}
                 {!isPlanned && (
-                  <div className="absolute -bottom-0.5 -right-0.5">
+                  <>
                     {isCompleted && (
-                      <div className="bg-white rounded-full p-0.5">
-                        <CheckCircle2 className="h-2.5 w-2.5 text-green-600" />
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-white bg-green-500 shadow-sm">
+                        <Check className="h-2.5 w-2.5 text-white stroke-[3]" />
                       </div>
                     )}
+
                     {isFailed && (
-                      <div className="bg-white rounded-full p-0.5">
-                        <X className="h-2.5 w-2.5 text-red-600" />
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-white bg-red-500 shadow-sm">
+                        <X className="h-2.5 w-2.5 text-white stroke-[3]" />
                       </div>
                     )}
+
                     {isRunning && (
-                      <div className="bg-white rounded-full p-0.5">
-                        <Loader2 className="h-2.5 w-2.5 text-blue-600 animate-spin" />
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white bg-blue-500 shadow-sm">
+                        <Loader2 className="h-3 w-3 text-white animate-spin" />
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
               </div>
 
-              {/* Step name */}
+              {/* Step name - increased from text-sm to text-base for better visual hierarchy */}
               <div className="flex-1 min-w-0">
                 <h3 className={cn(
-                  'font-medium text-sm truncate',
+                  'font-medium text-base truncate',
                   isPlanned ? 'text-slate-600' : 'text-slate-900'
                 )}>
                   Step {stepNumber + 1}: {stepName}
@@ -170,9 +179,9 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
               )}
             </div>
 
-            {/* Timing info */}
+            {/* Timing info - adjusted margin to align with 40px icon + 12px gap */}
             <p className={cn(
-              'text-xs ml-10',
+              'text-xs ml-[52px]',
               isPlanned ? 'text-slate-400' : 'text-slate-500'
             )}>
               {timingInfo}
@@ -181,24 +190,24 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
 
           {/* Right: Chips */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Cost chip */}
+            {/* Cost chip - increased icon from 12px to 16px for better legibility */}
             {step?.cost_usd && step.cost_usd > 0 ? (
-              <div className="flex items-center gap-1 px-2 py-1 rounded bg-amber-50 border border-amber-200">
-                <DollarSign className="h-3 w-3 text-amber-700" />
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-50 border border-amber-200">
+                <DollarSign className="h-4 w-4 text-amber-700" />
                 <span className="text-xs font-medium text-amber-900">
                   {step.tokens?.toLocaleString()} tokens • {formatCost(step.cost_usd)}
                 </span>
               </div>
             ) : isPlanned ? (
-              <div className="flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-100">
-                <DollarSign className="h-3 w-3 text-slate-400" />
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-slate-50 border border-slate-100">
+                <DollarSign className="h-4 w-4 text-slate-400" />
                 <span className="text-xs font-medium text-slate-400">
                   –
                 </span>
               </div>
             ) : null}
 
-            {/* Logs chip */}
+            {/* Logs chip - increased icon from 12px to 16px, added min-h for tappable area */}
             {!isPlanned && onViewLogs ? (
               <button
                 onClick={(e) => {
@@ -212,9 +221,9 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
                     onViewLogs();
                   }
                 }}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors min-h-[32px]"
               >
-                <FileText className="h-3 w-3 text-slate-600" />
+                <FileText className="h-4 w-4 text-slate-600" />
                 <span className="text-xs font-medium text-slate-700">
                   Logs: {logCounts.info + logCounts.warning + logCounts.error}
                   {logCounts.error > 0 && (
@@ -224,24 +233,28 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
               </button>
             ) : isPlanned ? (
               <div
-                className="flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-100 cursor-default"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-slate-50 border border-slate-100 cursor-default"
                 title="No logs yet"
               >
-                <FileText className="h-3 w-3 text-slate-400" />
+                <FileText className="h-4 w-4 text-slate-400" />
                 <span className="text-xs font-medium text-slate-400">
                   Logs: 0
                 </span>
               </div>
             ) : null}
 
-            {/* Expand toggle */}
-            <div className="h-7 w-7 flex items-center justify-center">
+            {/* Expand toggle - increased to meet 32px tappable target */}
+            <button
+              className="h-8 w-8 flex items-center justify-center hover:bg-slate-100 rounded transition-colors"
+              onClick={handleCardClick}
+              aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
+            >
               {isExpanded ? (
                 <ChevronUp className="h-4 w-4 text-slate-600" />
               ) : (
                 <ChevronDown className="h-4 w-4 text-slate-600" />
               )}
-            </div>
+            </button>
           </div>
         </div>
 

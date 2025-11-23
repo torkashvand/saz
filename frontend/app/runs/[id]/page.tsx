@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useRunDetails } from '@/lib/hooks';
@@ -18,6 +18,7 @@ import { BottomDrawer } from '@/components/common/bottom-drawer';
 import { CostMetricsView } from '@/components/metrics/cost-view';
 import { EnhancedConsolePanel } from '@/components/runs/console-panel';
 import { ResizableSplit } from '@/components/ui/resizable-split';
+import { buildDisplaySteps } from '@/lib/runs/display-steps';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
 
@@ -35,6 +36,12 @@ export default function RunDetailPageRedesign() {
   const [drawerStepId, setDrawerStepId] = useState<string | null>(null);
 
   const isRunning = run?.status === 'running' || run?.status === 'pending';
+
+  // Build display steps based on planner mode
+  const displaySteps = useMemo(() => {
+    if (!run) return [];
+    return buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
+  }, [run]);
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -56,13 +63,14 @@ export default function RunDetailPageRedesign() {
     onError: showError,
   });
 
-  // Scroll to step
+  // Scroll to step (handles both planned and executed)
   const scrollToStep = (index: number) => {
-    const step = run?.steps.find(s => s.number === index);
-    if (!step) return;
-
     setTimeout(() => {
-      const element = document.querySelector(`[data-step-id="${step.id}"]`);
+      // Try to find the executed step first
+      const executedStep = run?.steps.find(s => s.number === index);
+      const stepId = executedStep?.id || `planned-${index}`;
+
+      const element = document.querySelector(`[data-step-id="${stepId}"]`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         // Brief highlight
@@ -216,13 +224,17 @@ export default function RunDetailPageRedesign() {
       {/* Content area */}
       {viewMode === 'steps' && (
         <div className="space-y-3">
-          {run.steps.map((step) => (
+          {displaySteps.map((displayStep) => (
             <CompactStepCard
-              key={step.id}
-              step={step}
-              isSelected={selectedStepIndex === step.number}
-              onViewLogs={() => setDrawerStepId(step.id)}
-              onCardClick={() => handleStepCardClick(step.number)}
+              key={displayStep.kind === 'executed' ? displayStep.step.id : `planned-${displayStep.index}`}
+              displayStep={displayStep}
+              isSelected={selectedStepIndex === displayStep.index}
+              onViewLogs={
+                displayStep.kind === 'executed'
+                  ? () => setDrawerStepId(displayStep.step.id)
+                  : undefined
+              }
+              onCardClick={() => handleStepCardClick(displayStep.index)}
             />
           ))}
         </div>
@@ -233,13 +245,17 @@ export default function RunDetailPageRedesign() {
           <ResizableSplit
             left={
               <div className="h-full overflow-y-auto p-4 space-y-3 bg-slate-50">
-                {run.steps.map((step) => (
+                {displaySteps.map((displayStep) => (
                   <CompactStepCard
-                    key={step.id}
-                    step={step}
-                    isSelected={selectedStepIndex === step.number}
-                    onViewLogs={() => setSelectedStepIndex(step.number)}
-                    onCardClick={() => handleStepCardClick(step.number)}
+                    key={displayStep.kind === 'executed' ? displayStep.step.id : `planned-${displayStep.index}`}
+                    displayStep={displayStep}
+                    isSelected={selectedStepIndex === displayStep.index}
+                    onViewLogs={
+                      displayStep.kind === 'executed'
+                        ? () => setSelectedStepIndex(displayStep.index)
+                        : undefined
+                    }
+                    onCardClick={() => handleStepCardClick(displayStep.index)}
                   />
                 ))}
               </div>

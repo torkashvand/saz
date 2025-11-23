@@ -170,7 +170,7 @@ Return **exactly this JSON structure**:
   "steps": [
     {{
       "step_id": "step_name_here",
-      "step_type": "tool_call",
+      "step_type": "tool.call",
       "tool_name": "exact_tool_from_registry",
       "input_template": {{
         "key": "value or {{{{ template }}}}"

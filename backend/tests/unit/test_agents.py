@@ -133,7 +133,7 @@ def test_executor_agent_grounds_step():
 
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="http_request",
         input_template={
             "url": "https://api.example.com/users/{{ $form.user_id }}",
@@ -178,7 +178,7 @@ def test_executor_agent_tool_not_found():
 
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="non_existent_tool",
         input_template={},
         reasoning="Test",
@@ -194,7 +194,7 @@ def test_executor_agent_missing_required_params():
 
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="http_request",
         input_template={"method": "GET"},  # Missing required 'url'
         reasoning="Test",
@@ -214,7 +214,7 @@ def test_executor_agent_nested_variable_substitution():
 
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="test_tool",
         input_template={"email": "{{ $form.user.email }}", "city": "{{ $form.user.address.city }}"},
         reasoning="Test nested",
@@ -244,7 +244,7 @@ async def test_critic_agent_evaluates_success(mock_llm_with_critique):
 
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="http_request",
         input_template={"url": "https://example.com"},
         expected_output_schema={"type": "object"},
@@ -281,7 +281,7 @@ async def test_critic_agent_prompt_includes_context(mock_llm_with_critique):
 
     step = PlanStep(
         step_id="critical_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="test_tool",
         input_template={},
         expected_output_schema={"type": "object", "required": ["result"]},
@@ -320,7 +320,7 @@ async def test_critic_agent_error_returns_escalate(mock_llm_port):
 
     step = PlanStep(
         step_id="test",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="test",
         input_template={},
         reasoning="test",
@@ -341,14 +341,14 @@ def test_plan_step_schema_validation():
     # Valid plan step
     step = PlanStep(
         step_id="test_step",
-        step_type="tool_call",
+        step_type="tool.call",
         tool_name="http_request",
         input_template={"url": "https://example.com"},
         reasoning="Test step",
     )
 
     assert step.step_id == "test_step"
-    assert step.step_type == "tool_call"
+    assert step.step_type == "tool.call"
     assert step.error_handling == ErrorHandling.RETRY  # Default
     assert step.max_retries == 3  # Default
 
@@ -360,8 +360,7 @@ def test_execution_plan_validation():
         "steps": [
             {
                 "step_id": "step1",
-                "step_type": "tool_call",
-                "action": "tool_call",
+                "step_type": "tool.call",
                 "tool_name": "tool1",
                 "reasoning": "Step 1",
             }

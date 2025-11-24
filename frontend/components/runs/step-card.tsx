@@ -18,11 +18,47 @@ interface CompactStepCardProps {
 
 // Step type icon mapping
 function getStepTypeIcon(stepType: string | null | undefined) {
-  if (!stepType) return { Icon: Settings, color: 'text-slate-600', bg: 'bg-slate-100' }; // Fallback for null/undefined
-  if (stepType.startsWith('ai.')) return { Icon: Zap, color: 'text-purple-600', bg: 'bg-purple-100' };
-  if (stepType.startsWith('tool.') || stepType.startsWith('http')) return { Icon: Settings, color: 'text-blue-600', bg: 'bg-blue-100' };
-  if (stepType === 'webhook.wait' || stepType === 'human.approval') return { Icon: Globe, color: 'text-green-600', bg: 'bg-green-100' };
-  return { Icon: Play, color: 'text-slate-600', bg: 'bg-slate-100' }; // Default
+  if (!stepType) {
+    return { Icon: Settings, color: 'text-slate-600', bg: 'bg-slate-100' };
+  }
+
+  // Normalize: replace underscores with dots for consistent matching
+  const normalized = stepType.toLowerCase().replace(/_/g, '.');
+
+  // Extract base category (first part before dot)
+  const category = normalized.split('.')[0];
+
+  let result;
+  let iconName = '';
+
+  switch (category) {
+    case 'ai':
+      result = { Icon: Zap, color: 'text-purple-600', bg: 'bg-purple-100' };
+      iconName = '⚡ Zap (purple)';
+      break;
+
+    case 'tool':
+    case 'http':
+      result = { Icon: Settings, color: 'text-blue-600', bg: 'bg-blue-100' };
+      break;
+
+    case 'webhook':
+    case 'human':
+      result = { Icon: Globe, color: 'text-green-600', bg: 'bg-green-100' };
+      break;
+
+    case 'condition':
+    case 'artifact':
+    case 'group':
+      result = { Icon: Play, color: 'text-slate-600', bg: 'bg-slate-100' };
+      break;
+
+    default:
+      result = { Icon: Play, color: 'text-slate-600', bg: 'bg-slate-100' };
+      break;
+  }
+
+  return result;
 }
 
 export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardClick }: CompactStepCardProps) {
@@ -42,6 +78,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
   const isRunning = step?.status === 'running';
 
   // Get step type icon
+  console.log(`📋 Step ${stepNumber + 1}: "${stepName}" | type: "${stepType}"`);
   const { Icon: StepIcon, color: iconColor, bg: iconBg } = getStepTypeIcon(stepType);
 
   const handleCardClick = (e: React.MouseEvent) => {

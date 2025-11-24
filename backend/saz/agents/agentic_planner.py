@@ -170,7 +170,7 @@ Return **exactly this JSON structure**:
   "steps": [
     {{
       "step_id": "step_name_here",
-      "step_type": "tool.call",
+      "step_type": "<MUST_MATCH_TOOL_NAME>",
       "tool_name": "exact_tool_from_registry",
       "input_template": {{
         "key": "value or {{{{ template }}}}"
@@ -191,6 +191,18 @@ Return **exactly this JSON structure**:
   "reasoning": "Overall plan strategy and justification"
 }}
 ```
+
+**CRITICAL RULE: step_type must match tool_name for proper UI rendering**
+
+- If tool_name is `ai.extract` → set step_type to `ai.extract`
+- If tool_name is `ai.route` → set step_type to `ai.route`
+- If tool_name is `ai.generate` → set step_type to `ai.generate`
+- If tool_name is `ai.assess` → set step_type to `ai.assess`
+- For any tool starting with `ai.` → set step_type to the same value
+- If tool_name is `http_request` or other non-AI tool → set step_type to `tool.call`
+- If tool_name is `webhook_wait` → set step_type to `webhook.wait`
+
+**Why:** The step_type field determines the icon shown in the UI. AI steps must have ai.* types.
 
 ---
 

@@ -37,11 +37,92 @@ export default function RunDetailPageRedesign() {
 
   const isRunning = run?.status === 'running' || run?.status === 'pending';
 
+  // Track running steps from WebSocket events
+  const runningStepNumbers = useMemo(() => {
+    const running = new Set<number>();
+
+    events.forEach(event => {
+      if (event.event_type === 'step.started') {
+        // Try to get step number from payload first, then from step_id correlation
+        let stepNumber = event.payload?.step_number;
+
+        // If not in payload, try to match step_id with existing steps
+        if (stepNumber === undefined && event.step_id && run?.steps) {
+          const matchingStep = run.steps.find(s => s.id === event.step_id);
+          if (matchingStep) {
+            stepNumber = matchingStep.number;
+          }
+        }
+
+        // Fallback: try to extract from summary (format: "Step X" where X is 1-based)
+        if (stepNumber === undefined) {
+          const match = event.summary.match(/Step (\d+)/);
+          if (match) {
+            // Summary uses 1-based indexing, convert to 0-based
+            stepNumber = parseInt(match[1]) - 1;
+          }
+        }
+
+        if (stepNumber !== undefined && stepNumber >= 0) {
+          console.log(`[RunDetails] Step ${stepNumber} started (event_id: ${event.id})`);
+          running.add(stepNumber);
+        }
+      }
+
+      if (event.event_type === 'step.completed' || event.event_type === 'step.failed') {
+        // Same logic for removing from running set
+        let stepNumber = event.payload?.step_number;
+
+        if (stepNumber === undefined && event.step_id && run?.steps) {
+          const matchingStep = run.steps.find(s => s.id === event.step_id);
+          if (matchingStep) {
+            stepNumber = matchingStep.number;
+          }
+        }
+
+        if (stepNumber === undefined) {
+          const match = event.summary.match(/Step (\d+)/);
+          if (match) {
+            stepNumber = parseInt(match[1]) - 1;
+          }
+        }
+
+        if (stepNumber !== undefined && stepNumber >= 0) {
+          console.log(`[RunDetails] Step ${stepNumber} ${event.event_type.split('.')[1]} (event_id: ${event.id})`);
+          running.delete(stepNumber);
+        }
+      }
+    });
+
+    console.log(`[RunDetails] Currently running steps:`, Array.from(running));
+    return running;
+  }, [events, run?.steps]);
+
   // Build display steps based on planner mode
   const displaySteps = useMemo(() => {
     if (!run) return [];
-    return buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
-  }, [run]);
+    const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
+
+    // Enhance with real-time running status from WebSocket
+    return steps.map(displayStep => {
+      if (displayStep.kind === 'planned' && runningStepNumbers.has(displayStep.index)) {
+        // Create a synthetic "running" step for better UX
+        return {
+          ...displayStep,
+          kind: 'executed' as const,
+          step: {
+            id: `ws-running-${displayStep.index}`,
+            number: displayStep.index,
+            name: displayStep.planned.name,
+            step_type: displayStep.planned.step_type || 'unknown',
+            status: 'running' as const,
+            retry_count: 0,
+          },
+        };
+      }
+      return displayStep;
+    });
+  }, [run, runningStepNumbers]);
 
   // Retry mutation
   const retryMutation = useMutation({

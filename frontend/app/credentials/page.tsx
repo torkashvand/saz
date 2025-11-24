@@ -17,6 +17,7 @@ import type {
   CreateCredentialRequest,
   UpdateCredentialRequest,
 } from '@/lib/types';
+import { ArrowLeft } from 'lucide-react';
 
 // Valid credential types (synced with backend)
 const CREDENTIAL_TYPES = [
@@ -27,11 +28,15 @@ const CREDENTIAL_TYPES = [
   { value: 'certificate', label: 'Certificate', description: 'TLS/SSL certificates' },
 ] as const;
 
+type ViewMode = 'list' | 'create' | 'edit';
+
 export default function CredentialsPage() {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useErrorToast();
-  const [isCreating, setIsCreating] = useState(false);
-  const [editingCredential, setEditingCredential] = useState<string | null>(null);
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [selectedCredential, setSelectedCredential] = useState<CredentialResponse | null>(null);
 
   // Form mode: simple (guided) or json (raw)
   const [mode, setMode] = useState<'simple' | 'json'>('simple');
@@ -125,8 +130,8 @@ export default function CredentialsPage() {
   });
 
   const resetForm = () => {
-    setIsCreating(false);
-    setEditingCredential(null);
+    setViewMode('list');
+    setSelectedCredential(null);
     setMode('simple');
     setName('');
     setCredentialType('api_token');
@@ -288,9 +293,9 @@ export default function CredentialsPage() {
       }
     }
 
-    if (editingCredential) {
+    if (viewMode === 'edit' && selectedCredential) {
       updateMutation.mutate({
-        name: editingCredential,
+        name: selectedCredential.name,
         data: { data, description },
       });
     } else {
@@ -304,14 +309,15 @@ export default function CredentialsPage() {
   };
 
   const handleEdit = (credential: CredentialResponse) => {
-    setEditingCredential(credential.name);
+    setSelectedCredential(credential);
+    setViewMode('edit');
     setName(credential.name);
     setCredentialType(credential.type);
     setDescription(credential.description || '');
     setDataJson('{}'); // Can't show actual data
     setJsonError(null); // Clear any JSON validation errors
     setMutationError(null); // Clear any mutation errors
-    setIsCreating(true);
+    setMode('simple'); // Reset to simple mode for editing
   };
 
   const handleDelete = (name: string) => {
@@ -320,31 +326,34 @@ export default function CredentialsPage() {
     }
   };
 
-  return (
-    <div className="container mx-auto py-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Credentials</h1>
-          <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
-        </div>
-        <Button onClick={() => {
-          resetForm();
-          setIsCreating(true);
-        }}>+ New Credential</Button>
-      </div>
+  const handleStartCreate = () => {
+    resetForm();
+    setViewMode('create');
+  };
 
-      {/* Create/Edit Form */}
-      {isCreating && (
-        <Card className="mb-8 p-6">
+  // EDIT MODE: Show only the form with back button
+  if (viewMode === 'edit') {
+    return (
+      <div className="container mx-auto py-8">
+        {/* Back button */}
+        <button
+          onClick={resetForm}
+          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-6 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to credentials
+        </button>
+
+        <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">
-            {editingCredential ? 'Update Credential' : 'Create Credential'}
+            Update Credential: {selectedCredential?.name}
           </h2>
 
           {/* Show general error banner if not a validation error */}
           {mutationError && !mutationError.validationErrors && (
             <ErrorBanner
               error={mutationError}
-              title={editingCredential ? 'Failed to Update Credential' : 'Failed to Create Credential'}
+              title="Failed to Update Credential"
               onDismiss={() => setMutationError(null)}
             />
           )}
@@ -357,7 +366,7 @@ export default function CredentialsPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="my-api-key"
-                disabled={!!editingCredential}
+                disabled
                 required
               />
               <FieldError message={getFieldError(mutationError, 'name')} />
@@ -370,7 +379,7 @@ export default function CredentialsPage() {
                 className="w-full border rounded-md p-2 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                 value={credentialType}
                 onChange={(e) => setCredentialType(e.target.value)}
-                disabled={!!editingCredential}
+                disabled
                 required
               >
                 {CREDENTIAL_TYPES.map((type) => (
@@ -379,14 +388,7 @@ export default function CredentialsPage() {
                   </option>
                 ))}
               </select>
-              {!editingCredential && (
-                <p className="text-sm text-gray-500 mt-1">
-                  {CREDENTIAL_TYPES.find((t) => t.value === credentialType)?.description}
-                </p>
-              )}
-              {editingCredential && (
-                <p className="text-sm text-gray-500 mt-1">Type cannot be changed when editing</p>
-              )}
+              <p className="text-sm text-gray-500 mt-1">Type cannot be changed when editing</p>
               <FieldError message={getFieldError(mutationError, 'type')} />
             </div>
 
@@ -432,11 +434,9 @@ export default function CredentialsPage() {
                 </div>
               </div>
 
-              {editingCredential && (
-                <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                  ⓘ For security, existing credential data cannot be displayed. Enter new credential data to update.
-                </div>
-              )}
+              <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                ⓘ For security, existing credential data cannot be displayed. Enter new credential data to update.
+              </div>
 
               {mode === 'simple' ? (
                 <>
@@ -659,27 +659,382 @@ export default function CredentialsPage() {
             <div className="flex gap-2">
               <Button
                 type="submit"
-                disabled={createMutation.isPending || updateMutation.isPending || !!jsonError}
+                disabled={updateMutation.isPending || !!jsonError}
               >
-                {createMutation.isPending || updateMutation.isPending ? (
+                {updateMutation.isPending ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">⏳</span>
-                    {editingCredential ? 'Updating...' : 'Creating...'}
+                    Updating...
                   </span>
                 ) : (
-                  editingCredential ? 'Update' : 'Create'
+                  'Update'
                 )}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={resetForm}
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={updateMutation.isPending}
               >
                 Cancel
               </Button>
             </div>
-            {(createMutation.isPending || updateMutation.isPending) && (
+            {updateMutation.isPending && (
+              <p className="text-sm text-blue-600">
+                Submitting credential... This may take a few seconds.
+              </p>
+            )}
+          </form>
+        </Card>
+      </div>
+    );
+  }
+
+  // LIST/CREATE MODE: Show header + optional create form + credential list
+  return (
+    <div className="container mx-auto py-8">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Credentials</h1>
+          <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
+        </div>
+        {viewMode === 'list' && (
+          <Button onClick={handleStartCreate}>+ New Credential</Button>
+        )}
+      </div>
+
+      {/* Create Form (only in create mode) */}
+      {viewMode === 'create' && (
+        <Card className="mb-8 p-6">
+          <h2 className="text-xl font-semibold mb-4">Create Credential</h2>
+
+          {/* Show general error banner if not a validation error */}
+          {mutationError && !mutationError.validationErrors && (
+            <ErrorBanner
+              error={mutationError}
+              title="Failed to Create Credential"
+              onDismiss={() => setMutationError(null)}
+            />
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="my-api-key"
+                required
+              />
+              <FieldError message={getFieldError(mutationError, 'name')} />
+            </div>
+
+            <div>
+              <Label htmlFor="type">Type</Label>
+              <select
+                id="type"
+                className="w-full border rounded-md p-2 bg-white"
+                value={credentialType}
+                onChange={(e) => setCredentialType(e.target.value)}
+                required
+              >
+                {CREDENTIAL_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-sm text-gray-500 mt-1">
+                {CREDENTIAL_TYPES.find((t) => t.value === credentialType)?.description}
+              </p>
+              <FieldError message={getFieldError(mutationError, 'type')} />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Description (optional)</Label>
+              <Input
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="OpenAI API key for production"
+              />
+              <FieldError message={getFieldError(mutationError, 'description')} />
+            </div>
+
+            {/* Mode toggle and data entry */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <Label>Credential Data</Label>
+                {/* Mode toggle */}
+                <div className="flex items-center gap-2 border rounded-lg p-1 bg-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => setMode('simple')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      mode === 'simple'
+                        ? 'bg-white text-gray-900 shadow-sm font-medium'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Simple
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('json')}
+                    className={`px-3 py-1 text-sm rounded transition-colors ${
+                      mode === 'json'
+                        ? 'bg-white text-gray-900 shadow-sm font-medium'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                </div>
+              </div>
+
+              {mode === 'simple' ? (
+                <>
+                  {/* Type-specific simple fields */}
+                  {credentialType === 'api_token' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="token">Token *</Label>
+                        <Input
+                          id="token"
+                          type="password"
+                          value={simpleFields.token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, token: e.target.value })}
+                          placeholder="sk-1234567890abcdef"
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="endpoint">Endpoint (optional)</Label>
+                        <Input
+                          id="endpoint"
+                          value={simpleFields.endpoint}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, endpoint: e.target.value })}
+                          placeholder="https://api.example.com"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'password' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="username">Username (optional)</Label>
+                        <Input
+                          id="username"
+                          value={simpleFields.username}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          placeholder="admin"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="password">Password *</Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          value={simpleFields.password}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, password: e.target.value })}
+                          placeholder="secure-password-123"
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'ssh_key' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="username">Username (optional)</Label>
+                        <Input
+                          id="username"
+                          value={simpleFields.username}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          placeholder="deploy"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="private_key">Private Key *</Label>
+                        <textarea
+                          id="private_key"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.private_key}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, private_key: e.target.value })}
+                          placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+                          rows={4}
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="host">Host (optional)</Label>
+                          <Input
+                            id="host"
+                            value={simpleFields.host}
+                            onChange={(e) => setSimpleFields({ ...simpleFields, host: e.target.value })}
+                            placeholder="example.com"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="port">Port (optional)</Label>
+                          <Input
+                            id="port"
+                            value={simpleFields.port}
+                            onChange={(e) => setSimpleFields({ ...simpleFields, port: e.target.value })}
+                            placeholder="22"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'oauth' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="access_token">Access Token *</Label>
+                        <Input
+                          id="access_token"
+                          type="password"
+                          value={simpleFields.access_token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, access_token: e.target.value })}
+                          placeholder="ya29.a0AfH6SMBx..."
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="refresh_token">Refresh Token (optional)</Label>
+                        <Input
+                          id="refresh_token"
+                          type="password"
+                          value={simpleFields.refresh_token}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, refresh_token: e.target.value })}
+                          placeholder="1//0gK3Z9X..."
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="client_id">Client ID (optional)</Label>
+                        <Input
+                          id="client_id"
+                          value={simpleFields.client_id}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, client_id: e.target.value })}
+                          placeholder="1234567890-abcdefg.apps.googleusercontent.com"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="client_secret">Client Secret (optional)</Label>
+                        <Input
+                          id="client_secret"
+                          type="password"
+                          value={simpleFields.client_secret}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, client_secret: e.target.value })}
+                          placeholder="GOCSPX-abcdefghijklmnop"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {credentialType === 'certificate' && (
+                    <div className="space-y-3 p-4 border rounded-lg bg-gray-50">
+                      <div>
+                        <Label htmlFor="cert_pem">Certificate PEM *</Label>
+                        <textarea
+                          id="cert_pem"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.cert_pem}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, cert_pem: e.target.value })}
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                          rows={3}
+                          required={mode === 'simple'}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="key_pem">Private Key PEM (optional)</Label>
+                        <textarea
+                          id="key_pem"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.key_pem}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, key_pem: e.target.value })}
+                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                          rows={3}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ca_bundle">CA Bundle (optional)</Label>
+                        <textarea
+                          id="ca_bundle"
+                          className="w-full border rounded-md p-2 font-mono text-sm"
+                          value={simpleFields.ca_bundle}
+                          onChange={(e) => setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })}
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fill with example button */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fillWithExample}
+                    className="mt-2"
+                  >
+                    Fill with example
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* JSON mode */}
+                  <textarea
+                    id="data"
+                    className={`w-full border rounded-md p-2 font-mono text-sm ${
+                      jsonError ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                    }`}
+                    value={dataJson}
+                    onChange={(e) => handleJsonChange(e.target.value)}
+                    placeholder='{"token": "sk-..."}'
+                    rows={8}
+                    required={mode === 'json'}
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Example: {`{"token": "sk-...", "endpoint": "https://..."}`}
+                  </p>
+                  {jsonError && <FieldError message={jsonError} />}
+                </>
+              )}
+
+              <FieldError message={getFieldError(mutationError, 'data')} />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                disabled={createMutation.isPending || !!jsonError}
+              >
+                {createMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin">⏳</span>
+                    Creating...
+                  </span>
+                ) : (
+                  'Create'
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetForm}
+                disabled={createMutation.isPending}
+              >
+                Cancel
+              </Button>
+            </div>
+            {createMutation.isPending && (
               <p className="text-sm text-blue-600">
                 Submitting credential... This may take a few seconds.
               </p>
@@ -737,7 +1092,7 @@ export default function CredentialsPage() {
       ) : (
         <Card className="p-12 text-center">
           <p className="text-gray-500 mb-4">No credentials yet</p>
-          <Button onClick={() => setIsCreating(true)}>Create Your First Credential</Button>
+          <Button onClick={handleStartCreate}>Create Your First Credential</Button>
         </Card>
       )}
     </div>

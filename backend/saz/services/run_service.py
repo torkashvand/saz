@@ -121,3 +121,60 @@ class RunService:
         new_run_id = self.create(run_detail.flow_id, new_payload)
 
         return new_run_id
+
+    def resume_run(
+        self,
+        run_id: str,
+        resume_data: dict | None = None,
+        override_payload: dict | None = None,
+    ) -> None:
+        """
+        Resume a suspended run.
+
+        Args:
+            run_id: Run identifier
+            resume_data: Data from approval/callback (stored in suspended step's output)
+            override_payload: Optional payload overrides for resumption
+
+        Raises:
+            ValueError: If run not found or not suspended
+        """
+        assert self.uow.runs is not None
+        assert self.uow.steps is not None
+        assert self.uow.run_reads is not None
+
+        # Get run detail
+        run_detail = self.uow.run_reads.detail(run_id)
+        if not run_detail:
+            raise ValueError(f"Run not found: {run_id}")
+
+        if run_detail.status != "suspended":
+            raise ValueError(f"Run {run_id} is not suspended (status: {run_detail.status})")
+
+        # Find the suspended step
+        suspended_step = None
+        for step in run_detail.steps:
+            if step.status == "suspended":
+                suspended_step = step
+                break
+
+        # Store resume data in the suspended step's output
+        if suspended_step and resume_data:
+            step_entity = self.uow.steps.get(suspended_step.id)
+            if step_entity:
+                step_entity.output = resume_data
+                # Mark step as completed
+                self.uow.steps.mark_completed(suspended_step.id)
+
+        # Update run payload if override provided and mark as queued
+        run = self.uow.runs.get(run_id)
+        if run:
+            if override_payload:
+                # Create new dict to trigger SQLAlchemy update detection
+                updated_payload = {**run.payload, **override_payload}
+                run.payload = updated_payload
+
+            run.status = "queued"
+            run.error = None  # Clear suspension error
+
+        self.uow.commit()

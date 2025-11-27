@@ -186,6 +186,16 @@ class WorkflowExecutor:
                 "emitter": emitter,  # Pass emitter in context for nested calls
             }
 
+            # If resuming from suspended state, restore context from completed steps
+            if run.steps:
+                for step in run.steps:
+                    if step.status == "completed" and step.output:
+                        context["step_results"][step.name] = step.output
+                        context["completed_steps"].append(step.name)
+                        logger.info(
+                            f"Restored step result for '{step.name}' from previous execution"
+                        )
+
             # Check if workflow exists
             if not workflow_spec:
                 logger.warning(f"No workflow defined for flow {flow.id}")

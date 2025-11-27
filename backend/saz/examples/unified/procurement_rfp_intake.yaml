@@ -1,0 +1,189 @@
+meta:
+  id: procurement_rfp_intake
+  title: "Procurement RFP Intake and Approval"
+  description: "
+    Deterministic workflow for RFP intake and approval using AI-assisted
+    requirement extraction and RFP drafting."
+  tags: ["procurement", "rfp", "deterministic", "approval"]
+  complexity: "advanced"
+  recommended: true
+
+
+schema_version: 1
+
+flow:
+  name: procurement_rfp_intake
+  version: "1.0"
+  description: >
+    Deterministic RFP intake and approval. Uses AI to extract requirements and
+    draft RFP text, but the sequence of steps is fixed and auditable.
+
+form:
+  fields:
+    - name: requester_name
+      type: string
+      required: true
+      description: "Your name"
+
+    - name: business_need
+      type: string
+      required: true
+      description: "Describe what you want to buy and why (free text)."
+
+    - name: estimated_budget_eur
+      type: number
+      required: true
+      description: "Rough budget in EUR."
+
+    - name: needed_by
+      type: string
+      required: true
+      description: "When do you need the solution live?"
+
+    - name: cost_centre
+      type: string
+      required: true
+      description: "Cost centre / project code."
+
+triggers:
+  manual: true
+  webhook:
+    path: "/procurement/rfp-intake"
+
+workflow:
+  planner_mode: deterministic
+
+  steps:
+    # 1) Extract structured procurement requirements
+    - id: extract_requirements
+      type: ai.extract
+      description: >
+        Turn the free-text business need into structured procurement fields
+        we can validate against policy.
+      instruction: |
+        From this request, extract procurement-relevant details:
+
+        - category (software, hardware, consulting, cloud, other)
+        - business_objective (short)
+        - key_requirements (list)
+        - estimated_users
+        - criticality (low/medium/high)
+        - data_sensitivity (none/internal/confidential/highly_confidential)
+        - vendor_constraints (named vendors, preferred, blacklisted, etc.)
+      params:
+        data:
+          text: "{{ $form.business_need }}"
+      expect:
+        type: object
+        properties:
+          category: { type: string }
+          business_objective: { type: string }
+          key_requirements:
+            type: array
+            items: { type: string }
+          estimated_users: { type: integer }
+          criticality: { type: string }
+          data_sensitivity: { type: string }
+          vendor_constraints: { type: string }
+
+    # 2) Sanity-check budget vs. criticality (pure deterministic logic)
+    - id: validate_budget
+      type: condition
+      description: "Flag if budget looks inconsistent with criticality."
+      if: |
+        {{ $form.estimated_budget_eur > 0 && $form.estimated_budget_eur < 5000 && $step('extract_requirements').criticality == "high" }}
+
+    # 3) Draft RFP text using templates + extracted requirements
+    - id: draft_rfp
+      type: ai.generate
+      description: "Generate an RFP draft for the procurement team."
+      instruction: |
+        Write a clear, structured Request for Proposal suitable for external vendors.
+        Use the organisation's tone and include sections:
+        - Background and objectives
+        - Scope and key requirements
+        - Non-functional requirements (security, support, SLAs)
+        - Timeline and milestones
+        - Evaluation criteria
+        - Commercial terms (leave numbers as TBD)
+        Highlight any risk areas or missing information at the end.
+      params:
+        data:
+          requester_name: "{{ $form.requester_name }}"
+          business_objective: "{{ $step('extract_requirements').business_objective }}"
+          key_requirements: "{{ $step('extract_requirements').key_requirements }}"
+          criticality: "{{ $step('extract_requirements').criticality }}"
+          budget_eur: "{{ $form.estimated_budget_eur }}"
+          needed_by: "{{ $form.needed_by }}"
+          cost_centre: "{{ $form.cost_centre }}"
+          vendor_constraints: "{{ $step('extract_requirements').vendor_constraints }}"
+
+    # 4) Human approval from procurement lead
+    - id: approve_rfp
+      type: human.approval
+      description: "Procurement lead reviews and approves the RFP draft."
+      params:
+        approver_role: "procurement_lead"
+        message: |
+          Please review this RFP draft. Approve to create an RFQ in ERP.
+        payload:
+          rfp_draft: "{{ $step('draft_rfp') }}"
+          extracted_requirements: "{{ $step('extract_requirements') }}"
+          requester: "{{ $form.requester_name }}"
+          budget_eur: "{{ $form.estimated_budget_eur }}"
+
+    # 5) Create RFQ / RFP record in ERP (tool call)
+    - id: create_rfp_record
+      type: tool.call
+      tool: http_request
+      description: "Create an RFP/RFQ record in the ERP / sourcing tool."
+      params:
+        method: POST
+        url: "http://localhost:8001/api/rfp"
+        headers:
+          Authorization: "Bearer {{ $secret('erp_api_token') }}"
+          Content-Type: "application/json"
+        body:
+          requester: "{{ $form.requester_name }}"
+          cost_centre: "{{ $form.cost_centre }}"
+          budget_eur: "{{ $form.estimated_budget_eur }}"
+          needed_by: "{{ $form.needed_by }}"
+          category: "{{ $step('extract_requirements').category }}"
+          criticality: "{{ $step('extract_requirements').criticality }}"
+          rfp_text: "{{ $step('draft_rfp') }}"
+          validation_flags:
+            budget_sanity_warning: "{{ $step('validate_budget') }}"
+
+    # 6) Notify requester with summary + link
+    - id: notify_requester
+      type: tool.call
+      tool: http_request
+      description: "Send confirmation (email/Slack) to the requester."
+      params:
+        method: POST
+        url: "http://localhost:8001/send"
+        headers:
+          Authorization: "Bearer {{ $secret('notification_api_token') }}"
+          Content-Type: "application/json"
+        body:
+          channel: "email"
+          to: "{{ $form.requester_name }}"
+          template: "rfp_intake_confirmation"
+          data:
+            rfp_id: "{{ $step('create_rfp_record').id }}"
+            category: "{{ $step('extract_requirements').category }}"
+            budget_eur: "{{ $form.estimated_budget_eur }}"
+            needed_by: "{{ $form.needed_by }}"
+
+policies:
+  budget_usd: 0.80
+  defaults:
+    timeout_ms: 180000
+    continue_on_fail: false
+  pii:
+    allow: false
+
+credentials:
+  uses:
+    - erp_api_token
+    - notification_api_token

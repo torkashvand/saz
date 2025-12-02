@@ -3,13 +3,7 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useGlobalEvents } from '@/lib/use-events';
 import type { AppError } from '@/lib/errors';
-
-function EventsProvider() {
-  useGlobalEvents();
-  return null;
-}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -91,7 +85,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <EventsProvider />
       {children}
     </QueryClientProvider>
   );

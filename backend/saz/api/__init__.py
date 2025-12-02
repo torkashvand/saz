@@ -88,11 +88,6 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_router)
     app.include_router(stream_router)
 
-    # Register global WebSocket endpoint for event broadcasting
-    from saz.api.websocket import websocket_endpoint
-
-    app.add_websocket_route("/ws/events", websocket_endpoint)
-
     return app
 
 

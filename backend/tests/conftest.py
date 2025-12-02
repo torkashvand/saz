@@ -21,7 +21,6 @@ from saz.api import app
 from saz.db.dependencies import get_uow
 from saz.db.models import Base
 from saz.db.unit_of_work import UnitOfWork
-from saz.domain.events import DomainEvent
 
 
 @pytest.fixture(scope="function")
@@ -44,19 +43,6 @@ def db_engine():
         # Clean up the temporary file
         if os.path.exists(db_path):
             os.unlink(db_path)
-
-
-@pytest.fixture(scope="function")
-def event_collector():
-    """Collect broadcasted events for assertions."""
-    events = []
-
-    async def capture_events(event_list: list[DomainEvent]):
-        """Capture events instead of broadcasting."""
-        events.extend(event_list)
-
-    with patch("saz.api.websocket.broadcast_events", side_effect=capture_events):
-        yield events
 
 
 @pytest.fixture(scope="function")
@@ -105,7 +91,7 @@ def sync_executor(db_engine):
 
 
 @pytest.fixture(scope="function")
-def app_client(db_engine, sync_executor, event_collector):
+def app_client(db_engine, sync_executor):
     """Create FastAPI test client with UnitOfWork override."""
     # Create a session factory bound to the test engine
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)

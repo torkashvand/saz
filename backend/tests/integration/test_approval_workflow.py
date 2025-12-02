@@ -54,9 +54,7 @@ def approval_workflow(db_engine):
     return "approval_flow_1"
 
 
-def test_approval_workflow_suspend_and_resume(
-    app_client, approval_workflow, db_engine, event_collector
-):
+def test_approval_workflow_suspend_and_resume(app_client, approval_workflow, db_engine):
     """Test full approval workflow: create, suspend, resume, complete."""
 
     # Step 1: Create run directly in database (API endpoint for creating runs tested elsewhere)

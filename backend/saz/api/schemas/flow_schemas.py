@@ -63,6 +63,7 @@ class FlowDetail(BaseModel):
     version: str | None = None
     description: str | None = None
     definition: dict[str, Any]
+    original_yaml: str | None = None
     planner_mode: str
     policies: WorkflowPolicies
     step_count: int

@@ -112,6 +112,7 @@ async def get_flow(
         version=flow.version,
         description=flow.description,
         definition=flow.definition,
+        original_yaml=flow.source_yaml,
         planner_mode=workflow_def.get("planner_mode", "deterministic"),
         policies=WorkflowPolicies(
             max_steps=policies_def.get("max_steps", 50),

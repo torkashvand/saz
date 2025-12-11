@@ -22,6 +22,7 @@ class FlowRepository(BaseRepository[Flow]):
         definition: dict,
         version: str | None = None,
         description: str | None = None,
+        source_yaml: str | None = None,
     ) -> Flow:
         """Create new flow."""
         flow = Flow(
@@ -30,6 +31,7 @@ class FlowRepository(BaseRepository[Flow]):
             version=version,
             description=description,
             definition=definition,
+            source_yaml=source_yaml,
             created_at=datetime.now(UTC),
         )
         return self.add(flow)
@@ -45,6 +47,7 @@ class FlowRepository(BaseRepository[Flow]):
         definition: dict,
         version: str | None = None,
         description: str | None = None,
+        source_yaml: str | None = None,
     ) -> Flow | None:
         """Update existing flow definition."""
         flow = self.get_by_name(name)
@@ -54,4 +57,6 @@ class FlowRepository(BaseRepository[Flow]):
                 flow.version = version
             if description is not None:
                 flow.description = description
+            if source_yaml is not None:
+                flow.source_yaml = source_yaml
         return flow

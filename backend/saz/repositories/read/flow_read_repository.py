@@ -51,6 +51,7 @@ class FlowReadRepository:
             version=flow.version,
             description=flow.description,
             definition=flow.definition,
+            source_yaml=flow.source_yaml,
             created_at=flow.created_at,
         )
 
@@ -68,5 +69,6 @@ class FlowReadRepository:
             version=flow.version,
             description=flow.description,
             definition=flow.definition,
+            source_yaml=flow.source_yaml,
             created_at=flow.created_at,
         )

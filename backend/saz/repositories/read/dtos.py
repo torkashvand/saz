@@ -24,6 +24,7 @@ class FlowDetailDTO:
     version: str | None
     description: str | None
     definition: dict
+    source_yaml: str | None
     created_at: datetime
 
 

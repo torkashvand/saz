@@ -16,9 +16,7 @@ export default function FlowEditPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     if (flow && !initialYaml) {
-      const flowDef = flow.definition;
-      const reconstructedYaml = JSON.stringify(flowDef, null, 2);
-      setInitialYaml(reconstructedYaml);
+      setInitialYaml(flow.original_yaml || '');
     }
   }, [flow, initialYaml]);
 

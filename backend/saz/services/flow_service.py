@@ -35,13 +35,13 @@ class FlowService:
 
         if existing:
             # Update existing flow
-            flow = self.uow.flows.update_definition(name, dsl, version, description)
+            flow = self.uow.flows.update_definition(name, dsl, version, description, yaml_content)
             assert flow is not None
             self.uow.commit()
             return flow.id
         else:
             # Create new flow
-            flow = self.uow.flows.create(name, dsl, version, description)
+            flow = self.uow.flows.create(name, dsl, version, description, yaml_content)
             self.uow.commit()
             return flow.id
 

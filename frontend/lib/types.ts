@@ -54,9 +54,15 @@ export interface FlowDetailResponse {
   version?: string;
   description?: string;
   definition: Record<string, any>;
-  triggers?: Record<string, any>;
+  original_yaml: string | null;
+  planner_mode: string;
+  policies: {
+    max_steps: number;
+    max_cost_usd: number;
+    max_tokens: number;
+  };
+  step_count: number;
   created_at: string;
-  updated_at: string;
 }
 
 // --- Runs ---

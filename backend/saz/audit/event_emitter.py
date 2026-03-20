@@ -263,3 +263,198 @@ class EventEmitter:
                 **kwargs,
             },
         )
+
+    # --- Verifier events (pre-execution) ---
+
+    def verifier_approved(self, step_id: str, tool_name: str, confidence: float, **kwargs) -> None:
+        """Emit verifier.approved event."""
+        self.emit(
+            EventType.VERIFIER_APPROVED,
+            f"Verifier approved: {tool_name}",
+            payload={"tool": tool_name, "confidence": confidence, **kwargs},
+            step_id=step_id,
+            actor="llm",
+        )
+
+    def verifier_rejected(self, step_id: str, tool_name: str, reasoning: str, **kwargs) -> None:
+        """Emit verifier.rejected event."""
+        self.emit(
+            EventType.VERIFIER_REJECTED,
+            f"Verifier rejected: {tool_name} - {reasoning}",
+            payload={"tool": tool_name, "reasoning": reasoning, **kwargs},
+            step_id=step_id,
+            severity="error",
+            actor="llm",
+        )
+
+    def verifier_replan_requested(
+        self, step_id: str, tool_name: str, reasoning: str, attempt: int, **kwargs
+    ) -> None:
+        """Emit verifier.replan_requested event."""
+        self.emit(
+            EventType.VERIFIER_REPLAN_REQUESTED,
+            f"Verifier requested replan for {tool_name} (attempt {attempt})",
+            payload={
+                "tool": tool_name,
+                "reasoning": reasoning,
+                "attempt": attempt,
+                **kwargs,
+            },
+            step_id=step_id,
+            severity="warn",
+            actor="llm",
+        )
+
+    def verifier_escalated(self, step_id: str, tool_name: str, reasoning: str, **kwargs) -> None:
+        """Emit verifier.escalated event."""
+        self.emit(
+            EventType.VERIFIER_ESCALATED,
+            f"Verifier escalated: {tool_name} - {reasoning}",
+            payload={"tool": tool_name, "reasoning": reasoning, **kwargs},
+            step_id=step_id,
+            severity="warn",
+            actor="llm",
+        )
+
+    # --- Replanning events ---
+
+    def replan_attempted(
+        self, step_id: str, attempt: int, max_attempts: int, feedback: str, **kwargs
+    ) -> None:
+        """Emit replan.attempted event."""
+        self.emit(
+            EventType.REPLAN_ATTEMPTED,
+            f"Replan attempt {attempt}/{max_attempts}",
+            payload={
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "feedback": feedback,
+                **kwargs,
+            },
+            step_id=step_id,
+            actor="llm",
+        )
+
+    def replan_succeeded(self, step_id: str, attempt: int, **kwargs) -> None:
+        """Emit replan.succeeded event."""
+        self.emit(
+            EventType.REPLAN_SUCCEEDED,
+            f"Replan succeeded on attempt {attempt}",
+            payload={"attempt": attempt, **kwargs},
+            step_id=step_id,
+            actor="llm",
+        )
+
+    def replan_exhausted(
+        self, step_id: str, max_attempts: int, final_verdict: str, **kwargs
+    ) -> None:
+        """Emit replan.exhausted event."""
+        self.emit(
+            EventType.REPLAN_EXHAUSTED,
+            f"Replan exhausted after {max_attempts} attempts (final: {final_verdict})",
+            payload={
+                "max_attempts": max_attempts,
+                "final_verdict": final_verdict,
+                **kwargs,
+            },
+            step_id=step_id,
+            severity="error",
+            actor="llm",
+        )
+
+    # --- Approval events ---
+
+    def approval_requested(
+        self,
+        step_id: str,
+        step_name: str,
+        reasoning: str,
+        callback_id: str | None = None,
+        **kwargs,
+    ) -> None:
+        """Emit approval.requested event."""
+        self.emit(
+            EventType.APPROVAL_REQUESTED,
+            f"Approval requested for step: {step_name}",
+            payload={
+                "step_name": step_name,
+                "reasoning": reasoning,
+                "callback_id": callback_id,
+                **kwargs,
+            },
+            step_id=step_id,
+        )
+
+    def approval_granted(self, step_id: str, step_name: str, **kwargs) -> None:
+        """Emit approval.granted event."""
+        self.emit(
+            EventType.APPROVAL_GRANTED,
+            f"Approval granted for step: {step_name}",
+            payload={"step_name": step_name, **kwargs},
+            step_id=step_id,
+            actor="user",
+        )
+
+    def approval_denied(self, step_id: str, step_name: str, reason: str = "", **kwargs) -> None:
+        """Emit approval.denied event."""
+        self.emit(
+            EventType.APPROVAL_DENIED,
+            f"Approval denied for step: {step_name}",
+            payload={"step_name": step_name, "reason": reason, **kwargs},
+            step_id=step_id,
+            severity="warn",
+            actor="user",
+        )
+
+    # --- Webhook events ---
+
+    def webhook_callback_received(self, callback_id: str, action: str, **kwargs) -> None:
+        """Emit webhook.callback_received event."""
+        self.emit(
+            EventType.WEBHOOK_CALLBACK_RECEIVED,
+            f"Webhook callback received: {action}",
+            payload={"callback_id": callback_id, "action": action, **kwargs},
+            actor="user",
+        )
+
+    # --- Run suspension/resumption ---
+
+    def run_suspended(self, reason: str, step_id: str | None = None, **kwargs) -> None:
+        """Emit run.suspended event."""
+        self.emit(
+            EventType.RUN_SUSPENDED,
+            f"Run suspended: {reason}",
+            payload={"reason": reason, **kwargs},
+            step_id=step_id,
+            severity="warn",
+        )
+
+    def run_resumed(self, resume_source: str = "api", **kwargs) -> None:
+        """Emit run.resumed event."""
+        self.emit(
+            EventType.RUN_RESUMED,
+            f"Run resumed via {resume_source}",
+            payload={"resume_source": resume_source, **kwargs},
+            actor="user",
+        )
+
+    # --- Critique events (post-execution) ---
+
+    def critique_completed(
+        self, step_id: str, verdict: str, confidence: float, reasoning: str, **kwargs
+    ) -> None:
+        """Emit a post-execution critique result as part of the step trace."""
+        # Use STEP_COMPLETED with critique data in tags for queryability
+        self.emit(
+            EventType.STEP_COMPLETED,
+            f"Post-execution critique: {verdict} (confidence: {confidence:.2f})",
+            payload={
+                "critique_verdict": verdict,
+                "critique_confidence": confidence,
+                "critique_reasoning": reasoning,
+                **kwargs,
+            },
+            step_id=step_id,
+            actor="llm",
+            tags={"critique_verdict": verdict},
+        )

@@ -822,6 +822,7 @@ def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
         },
         "pii": {"allow": bool(p.get("pii", {}).get("allow", False))},
         "rate_limits": p.get("rate_limits", {}),
+        "max_replan_attempts": int(p.get("max_replan_attempts", 3)),
     }
 
 

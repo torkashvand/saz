@@ -14,7 +14,9 @@ from saz.api.schemas.flow_schemas import (
     RegisterFlowRequest,
     RegisterFlowResponse,
     WorkflowPolicies,
+    WorkflowSummary,
 )
+from saz.compiler import compile_dsl
 
 router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
 
@@ -68,9 +70,6 @@ async def compile_flow(
     service: FlowServiceDep,
 ) -> CompileFlowResponse:
     """Compile and validate a flow YAML without persisting."""
-    from saz.api.schemas.flow_schemas import WorkflowSummary
-    from saz.compiler import compile_dsl
-
     compiled = compile_dsl(req.yaml)
 
     # Extract workflow info

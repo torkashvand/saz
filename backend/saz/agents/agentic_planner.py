@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import structlog
+import yaml
 
 from .llm_port import LLMPort, get_llm_port
 from .schemas import ExecutionPlan
@@ -366,8 +367,6 @@ class AgenticPlanner:
         Returns:
             ExecutionPlan with validated structure
         """
-        import yaml
-
         self.logger.info(
             "planning_workflow",
             workflow=workflow_spec.get('name'),

@@ -1,6 +1,7 @@
 """WebSocket streaming endpoint for per-run events."""
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -99,8 +100,6 @@ async def stream_run_events(
         pass
     except Exception as e:
         # Log error but don't crash
-        import logging
-
         logging.error(f"WebSocket error for run {run_id}: {e}")
     finally:
         # Unsubscribe from event bus

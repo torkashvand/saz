@@ -73,3 +73,17 @@ class RunRepository(BaseRepository[Run]):
         if run:
             run.cost_cents += additional_cents
         return run
+
+    def find_by_callback_id(self, callback_id: str) -> Run | None:
+        """Find a run by its callback_id (stored in the error JSON).
+
+        Searches all runs with an error dict containing the callback_id,
+        not just suspended ones, so callers can detect already-processed
+        callbacks and handle them idempotently.
+        """
+        runs_with_error = self.session.query(Run).filter(Run.error.isnot(None)).all()
+        for run in runs_with_error:
+            if isinstance(run.error, dict):
+                if run.error.get("callback_id") == callback_id:
+                    return run
+        return None

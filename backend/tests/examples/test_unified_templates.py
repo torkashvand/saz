@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from saz.compiler import compile_dsl
+from saz.examples import get_template_manager
 
 
 def discover_templates():
@@ -88,8 +89,6 @@ def test_all_templates_discovered():
 
 def test_template_manager_loads_all():
     """Test that TemplateManager loads all templates successfully."""
-    from saz.examples import get_template_manager
-
     manager = get_template_manager()
     templates = manager.list_templates()
 
@@ -107,8 +106,6 @@ def test_template_manager_loads_all():
 
 def test_recommended_templates():
     """Test that recommended templates are properly flagged."""
-    from saz.examples import get_template_manager
-
     manager = get_template_manager()
     recommended = manager.list_recommended()
 

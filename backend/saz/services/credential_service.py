@@ -2,7 +2,9 @@
 
 import yaml
 from cryptography.fernet import Fernet
+from sqlalchemy import select
 
+from saz.db.models import Credential
 from saz.db.unit_of_work import UnitOfWork
 from saz.repositories.read.dtos import CredentialListItemDTO
 from saz.settings import settings
@@ -56,10 +58,6 @@ class CredentialService:
     def list(self) -> list[CredentialListItemDTO]:
         """List credentials (metadata only, no secrets)."""
         # Query credentials directly
-        from sqlalchemy import select
-
-        from saz.db.models import Credential
-
         stmt = select(Credential).order_by(Credential.created_at.desc())
         credentials = self.uow._session.scalars(stmt).all()
 

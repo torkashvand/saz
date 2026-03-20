@@ -1,4 +1,9 @@
-"""Critic Agent - Validates step execution results and decides next action using LLM."""
+"""Critic Agent - Pre-execution verifier and post-execution validator using LLM.
+
+Provides two evaluation modes:
+1. verify_proposal() - Pre-execution: evaluates a proposed tool call BEFORE execution
+2. critique() - Post-execution: evaluates actual results AFTER execution
+"""
 
 import json
 from typing import Any
@@ -9,6 +14,64 @@ from .llm_port import LLMPort, get_llm_port
 from .schemas import Critique, PlanStep, Verdict
 
 logger = structlog.get_logger(__name__)
+
+
+VERIFIER_SYSTEM_PROMPT = """You are a pre-execution safety verifier for an agentic workflow engine.
+
+## Your Role
+Evaluate a PROPOSED tool call BEFORE it executes. Your job is to determine whether
+it is safe, correct, and aligned with the workflow intent. The tool has NOT run yet.
+You are the last gate before execution.
+
+## Step Details
+Step ID: {step_id}
+Step Type: {step_type}
+Tool: {tool_name}
+Step Intent: {step_reasoning}
+
+## Proposed Tool Call
+```json
+{proposed_tool_call}
+```
+
+## Workflow Constraints
+- Allowed tools: {allowed_tools}
+- Planner mode: {planner_mode}
+
+## Context
+- Run ID: {run_id}
+- Previous steps completed: {completed_steps}
+- Current workflow state: {current_state}
+
+## Evaluation Criteria
+1. Is the proposed tool call aligned with the step's stated intent?
+2. Are the arguments reasonable and non-destructive?
+3. Is the tool in the allowed tool set?
+4. Could this call cause unintended side effects (data loss, unauthorized access)?
+5. Are there missing or obviously wrong arguments?
+6. Does this call violate any safety principles (e.g., destructive ops without safeguards)?
+
+## Output Format
+Generate a JSON verdict with this EXACT structure:
+{{
+  "verdict": "pass|fail|replan|escalate_to_human",
+  "reasoning": "<detailed analysis of why this verdict>",
+  "issues": ["<list of problems found, empty array if none>"],
+  "safety_flags": ["<security/policy concerns, empty array if none>"],
+  "suggestions": {{
+    "next_action": "<what should happen next>",
+    "modifications": "<if replan, what should change>"
+  }},
+  "confidence": 0.0-1.0
+}}
+
+## Verdict Guidelines
+- **pass**: Proposal is safe, aligned with intent, arguments are reasonable
+- **fail**: Proposal is unsafe, uses wrong tool, or would cause harm
+- **replan**: Proposal has issues that could be fixed with a different approach
+- **escalate_to_human**: Proposal involves high-risk operations needing human review
+
+Generate the verdict now."""
 
 
 CRITIC_SYSTEM_PROMPT = """You are an autonomous workflow critic and validator.
@@ -74,12 +137,108 @@ Generate the critique now."""
 
 
 class CriticAgent:
-    """LLM-powered step result validator"""
+    """LLM-powered pre-execution verifier and post-execution validator."""
 
     def __init__(self, model: str = "gpt-4o", llm_port: LLMPort | None = None):
         self.model = model
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="critic")
+
+    async def verify_proposal(
+        self,
+        step: PlanStep,
+        proposed_tool_call: dict[str, Any],
+        run_id: str,
+        completed_steps: list[str],
+        current_state: dict[str, Any],
+        allowed_tools: list[str] | None = None,
+        planner_mode: str = "deterministic",
+    ) -> Critique:
+        """
+        Pre-execution verification: evaluate a proposed tool call BEFORE execution.
+
+        This is the safety gate that ensures only approved actions execute.
+
+        Args:
+            step: Plan step being verified
+            proposed_tool_call: Tool call that would be executed
+            run_id: Current run identifier
+            completed_steps: List of completed step IDs
+            current_state: Current workflow state
+            allowed_tools: List of allowed tool names
+            planner_mode: Current planning mode
+
+        Returns:
+            Critique with verdict (pass/fail/replan/escalate)
+        """
+        self.logger.info(
+            "verifying_proposal",
+            step_id=step.step_id,
+            tool=proposed_tool_call.get("tool"),
+            run_id=run_id,
+        )
+
+        prompt = VERIFIER_SYSTEM_PROMPT.format(
+            step_id=step.step_id,
+            step_type=step.step_type,
+            tool_name=step.tool_name or "N/A",
+            step_reasoning=step.reasoning,
+            proposed_tool_call=json.dumps(proposed_tool_call, indent=2),
+            allowed_tools=json.dumps(allowed_tools or []),
+            planner_mode=planner_mode,
+            run_id=run_id,
+            completed_steps=json.dumps(completed_steps),
+            current_state=json.dumps(current_state, default=str),
+        )
+
+        try:
+            response = await self.llm_port.complete(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": "Evaluate whether this proposed tool call is safe to execute.",
+                    },
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+            )
+
+            verdict_json = json.loads(response.content)
+            critique = Critique.model_validate(verdict_json)
+
+            self.logger.info(
+                "verification_complete",
+                step_id=step.step_id,
+                verdict=critique.verdict.value,
+                confidence=critique.confidence,
+                safety_flags_count=len(critique.safety_flags),
+                tokens_used=response.total_tokens,
+            )
+
+            if critique.safety_flags:
+                self.logger.warning(
+                    "pre_execution_safety_flags",
+                    step_id=step.step_id,
+                    flags=critique.safety_flags,
+                )
+
+            return critique
+
+        except Exception as e:
+            self.logger.error("verification_failed", error=str(e), step_id=step.step_id)
+            return Critique(
+                verdict=Verdict.ESCALATE,
+                reasoning=f"Pre-execution verification failed: {str(e)}",
+                issues=[f"Verifier error: {str(e)}"],
+                safety_flags=["verifier_failure"],
+                suggestions={
+                    "next_action": "escalate_to_human",
+                    "reason": "Automatic verification failed",
+                },
+                confidence=0.0,
+            )
 
     async def critique(
         self,

@@ -11,7 +11,7 @@ Designed for minimal LLM usage with deterministic fallbacks.
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import structlog
 
@@ -485,8 +485,6 @@ class AIOperationsRunner:
 
     async def _repair_json(self, broken_json: str, target_schema: dict[str, Any]) -> dict[str, Any]:
         """Attempt to repair broken JSON using ai.fix_json."""
-        from typing import cast
-
         self.logger.info("attempting_json_repair")
 
         repair_result = await self.run_ai_op(

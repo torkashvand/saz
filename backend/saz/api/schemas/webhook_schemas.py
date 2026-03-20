@@ -34,3 +34,19 @@ class ResumeRunResponse(BaseModel):
 
     run_id: str
     status: str
+
+
+class WebhookCallbackRequest(BaseModel):
+    """Inbound webhook callback payload for resuming suspended runs."""
+
+    action: str = "approve"  # approve | reject
+    data: dict[str, Any] | None = None
+    reason: str | None = None
+
+
+class WebhookCallbackResponse(BaseModel):
+    """Response after processing a webhook callback."""
+
+    status: str  # resumed | rejected | error
+    run_id: str
+    message: str

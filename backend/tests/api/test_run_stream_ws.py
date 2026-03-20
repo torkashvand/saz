@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.audit.event_bus import event_bus
+from saz.db.models import Flow, Run
 from saz.domain.event_schema import Event, EventType
 
 
@@ -13,8 +14,6 @@ from saz.domain.event_schema import Event, EventType
 def run_for_stream(db_engine):
     """Create a run for WebSocket testing."""
     with Session(db_engine) as session:
-        from saz.db.models import Flow, Run
-
         flow = Flow(
             id="flow_ws",
             name="WS Test Flow",
@@ -147,8 +146,6 @@ def test_websocket_only_receives_own_run_events(app_client, db_engine):
     """WebSocket only receives events for its run_id."""
     # Create two runs
     with Session(db_engine) as session:
-        from saz.db.models import Flow, Run
-
         flow = Flow(id="flow_iso", name="Isolation Test", definition={})
         session.add(flow)
 

@@ -40,6 +40,20 @@ class EventType(str, Enum):
     PLAN_UPDATED = "plan.updated"
     BRANCH_CHOSEN = "branch.chosen"
 
+    # Verifier (pre-execution)
+    VERIFIER_APPROVED = "verifier.approved"
+    VERIFIER_REJECTED = "verifier.rejected"
+    VERIFIER_REPLAN_REQUESTED = "verifier.replan_requested"
+    VERIFIER_ESCALATED = "verifier.escalated"
+
+    # Replanning
+    REPLAN_ATTEMPTED = "replan.attempted"
+    REPLAN_SUCCEEDED = "replan.succeeded"
+    REPLAN_EXHAUSTED = "replan.exhausted"
+
+    # Webhook
+    WEBHOOK_CALLBACK_RECEIVED = "webhook.callback_received"
+
     # Policy & safety
     POLICY_PII_REDACTED = "policy.pii.redacted"
     POLICY_BUDGET_UPDATED = "policy.budget.updated"

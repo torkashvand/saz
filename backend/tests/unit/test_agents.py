@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from saz.agents.agentic_planner import AgenticPlanner
 from saz.agents.critic import CriticAgent
@@ -397,8 +398,6 @@ def test_critique_validation():
 
 def test_critique_confidence_validation():
     """Test Critique confidence must be 0-1."""
-    from pydantic import ValidationError
-
     # Invalid confidence > 1
     with pytest.raises(ValidationError):  # Pydantic validation error
         Critique(

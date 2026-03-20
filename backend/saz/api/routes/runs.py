@@ -1,16 +1,18 @@
 """Run management and execution endpoints."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Query
 
 from saz.api.dependencies import RunServiceDep
 from saz.api.errors import NotFoundError
-from saz.api.schemas.event_schemas import EventListResponse
+from saz.api.schemas.event_schemas import EventListResponse, EventResponse
 from saz.api.schemas.run_schemas import (
     ComplianceReportResponse,
     CreateRunRequest,
     CreateRunResponse,
+    ErrorSummarySchema,
     ExecutionGraphResponse,
     PlannedStepSchema,
     ReplayRunRequest,
@@ -20,10 +22,15 @@ from saz.api.schemas.run_schemas import (
     RunDetailResponse,
     RunListItem,
     RunListResponse,
+    RunMetadataSchema,
     RunStepsResponse,
     RunSummary,
+    StepSummary,
+    TriggeredBySchema,
 )
+from saz.domain.error_enrichment import ErrorEnrichmentService
 from saz.engine.scheduler import get_scheduler
+from saz.settings import settings
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 logger = logging.getLogger(__name__)
@@ -193,8 +200,6 @@ async def get_run_events(
         raise NotFoundError(f"Run not found: {run_id}")
 
     # Parse datetime filters if provided
-    from datetime import datetime
-
     since_dt = datetime.fromisoformat(since) if since else None
     until_dt = datetime.fromisoformat(until) if until else None
 
@@ -209,8 +214,6 @@ async def get_run_events(
         limit=limit,
         cursor=cursor,
     )
-
-    from saz.api.schemas.event_schemas import EventResponse
 
     return EventListResponse(
         events=[EventResponse.model_validate(e) for e in events],
@@ -233,8 +236,6 @@ async def get_run_detail(
     The include_sensitive parameter only works if ALLOW_SENSITIVE_DATA=true in environment.
     This prevents accidental exposure in production even if the parameter is set.
     """
-    from saz.settings import settings
-
     # Override include_sensitive based on environment variable
     # Even if client requests sensitive data, deny if env var is False
     include_sensitive = include_sensitive and settings.ALLOW_SENSITIVE_DATA
@@ -257,12 +258,8 @@ async def get_run_detail(
 
     # Import enrichment service
     from saz.api.schemas.run_schemas import (
-        ErrorSummarySchema,
-        RunMetadataSchema,
         StepSummary,
-        TriggeredBySchema,
     )
-    from saz.domain.error_enrichment import ErrorEnrichmentService
 
     # Build error summary if run failed
     error_summary_obj = None
@@ -376,7 +373,6 @@ async def get_run_steps(
         raise NotFoundError(f"Run not found: {run_id}")
 
     # Convert steps to StepSummary
-    from saz.api.schemas.run_schemas import StepSummary
 
     return RunStepsResponse(
         run_id=run.id,

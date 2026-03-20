@@ -25,6 +25,7 @@ import logging
 import traceback
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from saz.agents.critic import CriticAgent
 from saz.agents.executor import ExecutorAgent
@@ -39,6 +40,7 @@ from saz.agents.schemas import (
 from saz.audit.event_emitter import EventEmitter
 from saz.db.models import Step
 from saz.db.unit_of_work import UnitOfWork
+from saz.engine.expressions import evaluate_expression
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
 from saz.settings import settings
@@ -185,7 +187,8 @@ class WorkflowExecutor:
                 "step_results": {},
                 "artifacts": {},
                 "completed_steps": [],
-                "emitter": emitter,  # Pass emitter in context for nested calls
+                "emitter": emitter,
+                "planner_mode": planner_mode,
             }
 
             # If resuming from suspended state, restore context from completed steps
@@ -309,16 +312,22 @@ class WorkflowExecutor:
 
                 except EscalationRequired as step_error:
                     # Escalation required - suspend run
+                    callback_id = uuid4().hex
                     error_dict = {
                         "message": str(step_error),
                         "type": "EscalationRequired",
                         "step": plan_step.step_id,
                         "step_number": step_number,
                         "critique": step_error.critique.model_dump(),
+                        "callback_id": callback_id,
                     }
                     logger.warning(f"Step {plan_step.step_id} requires escalation: {step_error}")
                     self.uow.runs.mark_suspended(run_id, error_dict)
-                    self.uow.commit()
+                    emitter.run_suspended(
+                        reason=str(step_error),
+                        step_id=plan_step.step_id,
+                    )
+                    await emitter.commit_and_broadcast()
                     return
 
                 except ReplanRequired as step_error:
@@ -626,13 +635,17 @@ class WorkflowExecutor:
 
     async def _execute_tool_call(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
-        Execute tool call with full agentic cycle:
+        Execute tool call with dual-agent safety model:
         1. Ground step (ExecutorAgent)
         2. Policy check (PolicyEngine)
-        3. Execute tool (ToolRegistry)
-        4. Redact output (PolicyEngine)
-        5. Critique result (CriticAgent)
-        6. Handle verdict
+        3. Pre-execution verification (CriticAgent.verify_proposal)
+           - If REPLAN: enter replanning loop (bounded by max_replan_attempts)
+           - If REJECT/ESCALATE: block before execution
+           - If APPROVE: proceed
+        4. Execute tool (ToolRegistry)
+        5. Redact output (PolicyEngine)
+        6. Post-execution critique (CriticAgent.critique)
+        7. Handle post-execution verdict
 
         Args:
             plan_step: Plan step with tool_name and input_template
@@ -644,62 +657,27 @@ class WorkflowExecutor:
 
         Raises:
             PolicyViolation: If policy check fails
-            CritiqueFailure: If critic returns FAIL verdict
-            EscalationRequired: If critic returns ESCALATE verdict
-            ReplanRequired: If critic returns REPLAN verdict
+            CritiqueFailure: If verifier/critic returns FAIL verdict
+            EscalationRequired: If verifier/critic returns ESCALATE verdict
+            ReplanRequired: If replan attempts exhausted
         """
-        # Get emitter from context
         emitter: EventEmitter = context["emitter"]
-
-        # 1. Ground step
+        planner_mode = context.get("planner_mode", "deterministic")
         tool_specs_dict = self.tool_registry.get_tool_specs_dict()
-        tool_call = self.executor_agent.ground(
-            step=plan_step,
-            tool_registry=tool_specs_dict,
-            current_data=context,
+        allowed_tool_names = list(tool_specs_dict.keys())
+
+        # --- Phase 1: Ground and verify with replan loop ---
+        tool_call, step = await self._ground_and_verify(
+            plan_step=plan_step,
+            context=context,
             run_id=run_id,
+            emitter=emitter,
+            planner_mode=planner_mode,
+            allowed_tool_names=allowed_tool_names,
+            tool_specs_dict=tool_specs_dict,
         )
 
-        logger.info(
-            "grounding_step",
-            extra={
-                "run_id": run_id,
-                "step_id": plan_step.step_id,
-                "tool": tool_call.tool,
-                "idempotency_key": tool_call.idempotency_key,
-            },
-        )
-
-        # Store grounded input in step record
-        step = self._get_current_step(run_id, plan_step.step_id)
-        step.input = {"tool": tool_call.tool, "arguments": tool_call.arguments}
-        self.uow.commit()
-
-        # 2. Policy check (before tokenization, to detect raw PII)
-        allowed, reason = self.policy_engine.check_tool_call(
-            tool_name=tool_call.tool,
-            arguments=tool_call.arguments,
-            run_id=run_id,
-        )
-
-        if not allowed:
-            # Record policy violation
-            step.policy_flags = {"blocked": True, "reason": reason}
-            self.uow.commit()
-            logger.warning(
-                "policy_violation",
-                extra={
-                    "run_id": run_id,
-                    "step_id": plan_step.step_id,
-                    "tool": tool_call.tool,
-                    "reason": reason,
-                },
-            )
-            raise PolicyViolation(f"Tool call blocked: {reason}")
-
-        # 2a. Apply PII transformations based on tool type
-        # - Model tools: tokenize inputs (LLMs never see raw PII)
-        # - Outbound tools: selectively detokenize based on allow-list
+        # --- Phase 2: Apply PII transformations ---
         if self.policy_engine._is_model_tool(tool_call.tool):
             tool_call.arguments = self.policy_engine.tokenize_arguments(
                 tool_name=tool_call.tool,
@@ -713,15 +691,9 @@ class WorkflowExecutor:
                 run_id=run_id,
             )
 
-        # 3. Execute tool
-        logger.info(
-            f"Executing tool {tool_call.tool} with idempotency key {tool_call.idempotency_key}"
-        )
-
-        # Get step UUID from context
+        # --- Phase 3: Execute tool ---
         current_step: Step = context["current_step"]
 
-        # Emit tool started event
         emitter.tool_started(step_id=current_step.id, tool_name=tool_call.tool, attempt=1)
         await emitter.commit_and_broadcast()
 
@@ -735,7 +707,6 @@ class WorkflowExecutor:
                 step_id=plan_step.step_id,
             )
 
-            # Tool succeeded
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
             emitter.tool_succeeded(
                 step_id=current_step.id,
@@ -745,7 +716,6 @@ class WorkflowExecutor:
             await emitter.commit_and_broadcast()
 
         except Exception as tool_error:
-            # Tool failed
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
             emitter.tool_failed(
                 step_id=current_step.id,
@@ -756,7 +726,7 @@ class WorkflowExecutor:
             await emitter.commit_and_broadcast()
             raise
 
-        # 4. Extract and record AI usage
+        # --- Phase 4: Record AI usage ---
         tokens = 0
         cost_usd = 0.0
         if isinstance(result, dict):
@@ -781,13 +751,13 @@ class WorkflowExecutor:
             },
         )
 
-        # 5. Redact PII from output
+        # --- Phase 5: Redact PII from output ---
         redacted_result = self.policy_engine.redact_output(
             data=result if isinstance(result, dict) else {"value": result},
             run_id=run_id,
         )
 
-        # 6. Critique result
+        # --- Phase 6: Post-execution critique ---
         critique = await self.critic.critique(
             step=plan_step,
             tool_call={"tool": tool_call.tool, "arguments": tool_call.arguments},
@@ -797,7 +767,6 @@ class WorkflowExecutor:
             current_state=context.get("step_results", {}),
         )
 
-        # Store critique in step
         step.critique = critique.model_dump()
         self.uow.commit()
 
@@ -808,44 +777,242 @@ class WorkflowExecutor:
                 "step_id": plan_step.step_id,
                 "verdict": critique.verdict.value,
                 "confidence": critique.confidence,
-                "issues_count": len(critique.issues),
             },
         )
 
-        # 7. Handle verdict
+        # --- Phase 7: Handle post-execution verdict ---
         if critique.verdict == Verdict.PASS:
-            logger.info(
-                f"Step {plan_step.step_id} passed critique",
-                extra={"confidence": critique.confidence},
-            )
             return redacted_result
 
         elif critique.verdict == Verdict.FAIL:
-            logger.error(
-                f"Step {plan_step.step_id} failed critique",
-                extra={"reasoning": critique.reasoning},
-            )
             raise CritiqueFailure(f"Critique failed: {critique.reasoning}", critique=critique)
 
         elif critique.verdict == Verdict.ESCALATE:
-            logger.warning(
-                f"Step {plan_step.step_id} requires human escalation",
-                extra={"reasoning": critique.reasoning},
-            )
             raise EscalationRequired(
                 f"Human approval required: {critique.reasoning}", critique=critique
             )
 
         elif critique.verdict == Verdict.REPLAN:
-            logger.warning(
-                f"Step {plan_step.step_id} requires replanning",
-                extra={"reasoning": critique.reasoning},
+            # Post-execution replan: tool already ran but result is unsatisfactory.
+            # This is a quality issue, not a safety issue. Fail the step.
+            raise CritiqueFailure(
+                f"Post-execution replan requested: {critique.reasoning}", critique=critique
             )
-            # Replanning is not implemented; raising ReplanRequired causes the run
-            # to fail in the caller (execute_run catches it and marks run as failed).
-            raise ReplanRequired(f"Replanning required: {critique.reasoning}", critique=critique)
 
         return redacted_result
+
+    async def _ground_and_verify(
+        self,
+        plan_step: PlanStep,
+        context: dict,
+        run_id: str,
+        emitter: EventEmitter,
+        planner_mode: str,
+        allowed_tool_names: list[str],
+        tool_specs_dict: dict,
+    ) -> tuple[Any, Step]:
+        """
+        Ground a step and run pre-execution verification with replan loop.
+
+        Returns the verified tool_call and the step DB record.
+
+        Raises:
+            PolicyViolation: If policy check fails
+            CritiqueFailure: If verifier rejects the proposal
+            EscalationRequired: If verifier escalates to human
+            ReplanRequired: If replan attempts exhausted
+        """
+        max_replan = self.policy_engine.max_replan_attempts
+        replan_feedback: str | None = None
+
+        for attempt in range(max_replan + 1):  # attempt 0 = original, 1..N = replans
+            # Ground step
+            tool_call = self.executor_agent.ground(
+                step=plan_step,
+                tool_registry=tool_specs_dict,
+                current_data=context,
+                run_id=run_id,
+            )
+
+            logger.info(
+                "grounding_step",
+                extra={
+                    "run_id": run_id,
+                    "step_id": plan_step.step_id,
+                    "tool": tool_call.tool,
+                    "attempt": attempt,
+                },
+            )
+
+            # Store grounded input in step record
+            step = self._get_current_step(run_id, plan_step.step_id)
+            step.input = {"tool": tool_call.tool, "arguments": tool_call.arguments}
+            self.uow.commit()
+
+            # Policy check (before tokenization, to detect raw PII)
+            allowed, reason = self.policy_engine.check_tool_call(
+                tool_name=tool_call.tool,
+                arguments=tool_call.arguments,
+                run_id=run_id,
+            )
+
+            if not allowed:
+                step.policy_flags = {"blocked": True, "reason": reason}
+                self.uow.commit()
+                raise PolicyViolation(f"Tool call blocked: {reason}")
+
+            # Pre-execution verification
+            verification = await self.critic.verify_proposal(
+                step=plan_step,
+                proposed_tool_call={"tool": tool_call.tool, "arguments": tool_call.arguments},
+                run_id=run_id,
+                completed_steps=context.get("completed_steps", []),
+                current_state=context.get("step_results", {}),
+                allowed_tools=allowed_tool_names,
+                planner_mode=planner_mode,
+            )
+
+            current_step: Step = context["current_step"]
+
+            if verification.verdict == Verdict.PASS:
+                # Approved — emit event and proceed to execution
+                emitter.verifier_approved(
+                    step_id=current_step.id,
+                    tool_name=tool_call.tool,
+                    confidence=verification.confidence,
+                )
+                await emitter.commit_and_broadcast()
+                return tool_call, step
+
+            elif verification.verdict == Verdict.FAIL:
+                # Rejected — block before execution
+                emitter.verifier_rejected(
+                    step_id=current_step.id,
+                    tool_name=tool_call.tool,
+                    reasoning=verification.reasoning,
+                )
+                await emitter.commit_and_broadcast()
+                raise CritiqueFailure(
+                    f"Pre-execution verification failed: {verification.reasoning}",
+                    critique=verification,
+                )
+
+            elif verification.verdict == Verdict.ESCALATE:
+                # Escalate — block and suspend for human review
+                emitter.verifier_escalated(
+                    step_id=current_step.id,
+                    tool_name=tool_call.tool,
+                    reasoning=verification.reasoning,
+                )
+                await emitter.commit_and_broadcast()
+                raise EscalationRequired(
+                    f"Pre-execution escalation: {verification.reasoning}",
+                    critique=verification,
+                )
+
+            elif verification.verdict == Verdict.REPLAN:
+                # Replan requested — check if we have attempts remaining
+                if attempt >= max_replan:
+                    # Exhausted all replan attempts
+                    emitter.replan_exhausted(
+                        step_id=current_step.id,
+                        max_attempts=max_replan,
+                        final_verdict="replan",
+                    )
+                    await emitter.commit_and_broadcast()
+                    raise ReplanRequired(
+                        f"Replan attempts exhausted ({max_replan}): {verification.reasoning}",
+                        critique=verification,
+                    )
+
+                # Emit replan events
+                emitter.verifier_replan_requested(
+                    step_id=current_step.id,
+                    tool_name=tool_call.tool,
+                    reasoning=verification.reasoning,
+                    attempt=attempt + 1,
+                )
+
+                replan_feedback = verification.reasoning
+                modifications = verification.suggestions.get("modifications", "")
+                if modifications:
+                    replan_feedback += f" Suggested modifications: {modifications}"
+
+                emitter.replan_attempted(
+                    step_id=current_step.id,
+                    attempt=attempt + 1,
+                    max_attempts=max_replan,
+                    feedback=replan_feedback,
+                )
+                await emitter.commit_and_broadcast()
+
+                # In agentic mode: ask planner to revise the step
+                # In deterministic mode: can't change the plan, so treat as failure
+                if planner_mode == "deterministic":
+                    raise ReplanRequired(
+                        f"Verifier requested replan but mode is deterministic: "
+                        f"{verification.reasoning}",
+                        critique=verification,
+                    )
+
+                # Ask planner to produce a revised step
+                logger.info(
+                    f"Replanning step {plan_step.step_id} (attempt {attempt + 1}/{max_replan})"
+                )
+
+                # Re-plan: give the planner the feedback and ask for a revised approach
+                revised_plan = await self.planner.plan(
+                    workflow_spec={
+                        "name": "replan",
+                        "planner_mode": "agentic",
+                        "steps": [
+                            {
+                                "id": plan_step.step_id,
+                                "type": plan_step.step_type,
+                                "instruction": plan_step.reasoning,
+                                "description": f"REPLAN: {replan_feedback}",
+                            }
+                        ],
+                    },
+                    tool_registry=self.tool_registry.get_tool_specs(),
+                    run_id=run_id,
+                    completed_steps=context.get("completed_steps", []),
+                    current_data=context.get("form_data", {}),
+                    budget=self.policy_engine.get_budget_status(run_id),
+                )
+
+                if revised_plan.steps:
+                    # Use the revised step for the next iteration
+                    plan_step = revised_plan.steps[0]
+
+                    emitter.replan_succeeded(
+                        step_id=current_step.id,
+                        attempt=attempt + 1,
+                    )
+                    await emitter.commit_and_broadcast()
+                else:
+                    raise ReplanRequired(
+                        f"Planner produced empty replan: {replan_feedback}",
+                        critique=verification,
+                    )
+
+                # Budget check after replan (replanning uses tokens)
+                within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
+                if not within_budget:
+                    raise PolicyViolation(f"Budget exceeded during replanning: {budget_error}")
+
+        # Should not reach here
+        raise ReplanRequired(
+            "Replan loop exited without resolution",
+            critique=Critique(
+                verdict=Verdict.REPLAN,
+                reasoning="Internal error: replan loop exited unexpectedly",
+                issues=[],
+                safety_flags=[],
+                suggestions={},
+                confidence=0.0,
+            ),
+        )
 
     async def _execute_condition(self, plan_step: PlanStep, context: dict) -> Any:
         """
@@ -858,8 +1025,6 @@ class WorkflowExecutor:
         Returns:
             Boolean result
         """
-        from saz.engine.expressions import evaluate_expression
-
         condition_expr = plan_step.input_template.get("condition", "true")
 
         # Resolve variables in condition
@@ -884,6 +1049,9 @@ class WorkflowExecutor:
         """
         Suspend run for human approval.
 
+        Generates a callback_id for webhook-based resumption and emits
+        APPROVAL_REQUESTED and RUN_SUSPENDED events.
+
         Args:
             plan_step: Plan step
             context: Execution context
@@ -894,7 +1062,22 @@ class WorkflowExecutor:
         """
         logger.info(f"Step {plan_step.step_id} requires human approval")
 
-        # Suspend run
+        emitter: EventEmitter = context["emitter"]
+        current_step: Step | None = context.get("current_step")
+        step_db_id = current_step.id if current_step else None
+
+        # Generate callback_id for webhook-based resumption
+        callback_id = uuid4().hex
+
+        # Emit approval requested event
+        emitter.approval_requested(
+            step_id=step_db_id or plan_step.step_id,
+            step_name=plan_step.step_id,
+            reasoning=plan_step.reasoning,
+            callback_id=callback_id,
+        )
+
+        # Suspend run with callback_id for webhook lookup
         assert self.uow.runs is not None
         self.uow.runs.mark_suspended(
             run_id,
@@ -903,14 +1086,22 @@ class WorkflowExecutor:
                 "type": "HumanApprovalRequired",
                 "step_id": plan_step.step_id,
                 "reasoning": plan_step.reasoning,
+                "callback_id": callback_id,
             },
         )
-        self.uow.commit()
+
+        # Emit run suspended event
+        emitter.run_suspended(
+            reason=f"Awaiting human approval for step {plan_step.step_id}",
+            step_id=step_db_id,
+        )
+        await emitter.commit_and_broadcast()
 
         return {
             "status": "awaiting_approval",
             "step_id": plan_step.step_id,
             "reasoning": plan_step.reasoning,
+            "callback_id": callback_id,
         }
 
     async def _execute_webhook_wait(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:

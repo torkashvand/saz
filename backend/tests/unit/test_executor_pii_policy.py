@@ -3,6 +3,7 @@
 import pytest
 
 from saz.audit.sanitizer import AuditSanitizer
+from saz.policies.policy_engine import PolicyEngine
 
 # --- AuditSanitizer modes ---
 
@@ -68,32 +69,24 @@ def test_missing_allow_key_gives_redact_mode():
 
 
 def test_policy_engine_pii_allow_true():
-    from saz.policies.policy_engine import PolicyEngine
-
     engine = PolicyEngine()
     engine.initialize_from_dsl("run-1", {"pii": {"allow": True}})
     assert engine.enforce_pii_redaction is False
 
 
 def test_policy_engine_pii_allow_false():
-    from saz.policies.policy_engine import PolicyEngine
-
     engine = PolicyEngine()
     engine.initialize_from_dsl("run-1", {"pii": {"allow": False}})
     assert engine.enforce_pii_redaction is True
 
 
 def test_policy_engine_pii_missing():
-    from saz.policies.policy_engine import PolicyEngine
-
     engine = PolicyEngine()
     engine.initialize_from_dsl("run-1", {})
     assert engine.enforce_pii_redaction is True
 
 
 def test_policy_engine_budget_usd_set():
-    from saz.policies.policy_engine import PolicyEngine
-
     engine = PolicyEngine()
     engine.initialize_from_dsl("run-1", {"budget_usd": 0.50})
     assert engine.budget_tracker.max_cost_usd == 0.50

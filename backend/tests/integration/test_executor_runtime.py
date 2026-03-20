@@ -80,6 +80,18 @@ def _setup_flow_and_run(session, flow_id, run_id, pii_allow=False):
     session.commit()
 
 
+def _make_pass_verification():
+    """Create a Critique with PASS verdict for pre-execution verification."""
+    return Critique(
+        verdict=Verdict.PASS,
+        reasoning="Proposal verified safe",
+        issues=[],
+        safety_flags=[],
+        suggestions={},
+        confidence=0.95,
+    )
+
+
 def _build_executor(uow, planner, critic, tool_result=None):
     """Build a WorkflowExecutor with mocked agents."""
     executor_agent = MagicMock(spec=ExecutorAgent)
@@ -96,6 +108,10 @@ def _build_executor(uow, planner, critic, tool_result=None):
     tool_registry.execute_tool = AsyncMock(
         return_value=tool_result or {"result": "ok", "usage": {"tokens": 10, "cost_usd": 0.001}}
     )
+
+    # Ensure verify_proposal is an AsyncMock (pre-execution verification)
+    if not hasattr(critic, 'verify_proposal') or not isinstance(critic.verify_proposal, AsyncMock):
+        critic.verify_proposal = AsyncMock(return_value=_make_pass_verification())
 
     policy_engine = PolicyEngine()
 
@@ -190,8 +206,8 @@ def test_pii_allow_true_gives_allow(db_engine):
 # ---------------------------------------------------------------------------
 
 
-def test_replan_verdict_fails_run(db_engine):
-    """Critic REPLAN verdict -> run marked as failed with ReplanRequired error."""
+def test_post_execution_replan_verdict_fails_run(db_engine):
+    """Post-execution REPLAN verdict -> run marked as failed (tool already ran)."""
     flow_id = "flow-replan"
     run_id = "run-replan"
 
@@ -216,6 +232,8 @@ def test_replan_verdict_fails_run(db_engine):
     replan_critique.reasoning = "Output format does not match expected schema"
     critic = MagicMock()
     critic.critique = AsyncMock(return_value=replan_critique)
+    # Pre-execution verification passes
+    critic.verify_proposal = AsyncMock(return_value=_make_pass_verification())
 
     TestSession = sessionmaker(bind=db_engine)
     session = TestSession()
@@ -225,17 +243,14 @@ def test_replan_verdict_fails_run(db_engine):
             executor = _build_executor(uow, planner, critic)
             asyncio.run(executor.execute_run(run_id))
 
-        # Verify run is marked as failed
+        # Verify run is marked as failed (post-execution replan → CritiqueFailure)
         session2 = TestSession()
         try:
             run = session2.query(Run).filter_by(id=run_id).one()
             assert run.status == "failed", f"Expected 'failed', got '{run.status}'"
             assert run.error is not None
-            assert run.error["type"] == "ReplanRequired"
-            assert (
-                "replanning" in run.error["message"].lower()
-                or "replan" in run.error["message"].lower()
-            )
+            assert run.error["type"] == "CritiqueFailure"
+            assert "replan" in run.error["message"].lower()
         finally:
             session2.close()
     finally:

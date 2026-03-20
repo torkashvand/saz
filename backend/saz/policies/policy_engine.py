@@ -60,12 +60,14 @@ class PolicyEngine:
         enforce_pii_redaction: bool = True,
         tokenize_model_inputs: bool = True,
         pii_allow_lists: dict[str, list[str]] | None = None,
+        max_replan_attempts: int = 3,
     ):
         self.rate_limiter = rate_limiter or RateLimiter()
         self.pii_detector = pii_detector or PIIDetector()
         self.budget_tracker = budget_tracker or BudgetTracker()
         self.enforce_pii_redaction = enforce_pii_redaction
         self.tokenize_model_inputs = tokenize_model_inputs
+        self.max_replan_attempts = max_replan_attempts
 
         # Per-tool PII allow-lists (dotted paths where PII is allowed)
         # Example: {"email_send": ["to", "from", "subject"],
@@ -377,6 +379,9 @@ class PolicyEngine:
 
         # Extract PII tokenization config
         self.tokenize_model_inputs = pii_config.get("tokenize_model_inputs", True)
+
+        # Extract replan policy
+        self.max_replan_attempts = int(policies_dict.get("max_replan_attempts", 3))
 
         # Extract PII exceptions (allow-lists per tool)
         exceptions = pii_config.get("exceptions", {})

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
+from saz.db.models import Flow, Run
 from saz.domain.event_schema import Event, EventType
 from saz.repositories.write.event_repository import EventRepository
 
@@ -14,8 +15,6 @@ def run_with_events(db_engine, app_client):
     """Create a run with events for testing."""
     with Session(db_engine) as session:
         # Create flow
-        from saz.db.models import Flow, Run
-
         flow = Flow(
             id="flow_1",
             name="Test Flow",

@@ -153,9 +153,11 @@ class WorkflowExecutor:
             workflow_spec = flow.definition.get("workflow", {})
             planner_mode = workflow_spec.get("planner_mode", "deterministic")
 
-            # Get PII policy from DSL
+            # Get PII policy from DSL (policies at root level in stored YAML)
             policies_dict = flow.definition.get("policies", {})
-            pii_policy = policies_dict.get("pii", {}).get("mode", "redact")
+            # DSL uses pii.allow (boolean); convert to sanitizer mode string
+            pii_allow = policies_dict.get("pii", {}).get("allow", False)
+            pii_policy = "allow" if pii_allow else "redact"
 
             # Initialize event emitter
             emitter = EventEmitter(
@@ -839,7 +841,8 @@ class WorkflowExecutor:
                 f"Step {plan_step.step_id} requires replanning",
                 extra={"reasoning": critique.reasoning},
             )
-            # For now, treat as failure (full replanning not implemented in this phase)
+            # Replanning is not implemented; raising ReplanRequired causes the run
+            # to fail in the caller (execute_run catches it and marks run as failed).
             raise ReplanRequired(f"Replanning required: {critique.reasoning}", critique=critique)
 
         return redacted_result

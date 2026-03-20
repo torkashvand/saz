@@ -62,127 +62,121 @@ def sample_tool_registry():
     ]
 
 
-class TestPlannerAgent:
-    """Test suite for AgenticPlanner (agentic LLM planner)."""
+@pytest.mark.asyncio
+async def test_plan_with_empty_steps(
+    planner, sample_agentic_workflow, sample_tool_registry, mock_llm_response
+):
+    """Test agentic planning with empty workflow.steps."""
+    with patch.object(planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)):
+        plan = await planner.plan(
+            workflow_spec=sample_agentic_workflow,
+            tool_registry=sample_tool_registry,
+            run_id="test_run",
+            completed_steps=[],
+            current_data={"incident": "test"},
+            budget={
+                "remaining_tokens": 10000,
+                "max_tokens": 100000,
+                "remaining_cost": 1.0,
+                "max_cost_usd": 2.0,
+                "remaining_steps": 10,
+                "max_steps": 20,
+            },
+        )
 
-    @pytest.mark.asyncio
-    async def test_plan_with_empty_steps(
-        self, planner, sample_agentic_workflow, sample_tool_registry, mock_llm_response
+        assert isinstance(plan, ExecutionPlan)
+        assert plan.plan_id == "550e8400-e29b-41d4-a716-446655440000"
+        assert len(plan.steps) == 1
+        assert plan.steps[0].step_id == "analyze"
+        assert plan.steps[0].tool_name == "ai.extract"
+
+
+@pytest.mark.asyncio
+async def test_prompt_formatting_works(
+    planner, sample_agentic_workflow, sample_tool_registry, mock_llm_response
+):
+    """Test that prompt formatting doesn't raise KeyError."""
+    with patch.object(
+        planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)
+    ) as mock_complete:
+        await planner.plan(
+            workflow_spec=sample_agentic_workflow,
+            tool_registry=sample_tool_registry,
+            run_id="test_run",
+            completed_steps=[],
+            current_data={},
+            budget={
+                "remaining_tokens": 10000,
+                "max_tokens": 100000,
+                "remaining_cost": 1.0,
+                "max_cost_usd": 2.0,
+                "remaining_steps": 10,
+                "max_steps": 20,
+            },
+        )
+
+        # Verify LLM was called
+        assert mock_complete.called
+        call_args = mock_complete.call_args
+        messages = call_args.kwargs["messages"]
+
+        # Verify prompt was formatted successfully (no KeyError)
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert "agentic workflow planner" in messages[0]["content"]
+        assert "test_run" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_plan_with_hint_steps(planner, sample_tool_registry, mock_llm_response):
+    """Test agentic planning with workflow.steps as hints."""
+    workflow_with_hints = {
+        "name": "guided_flow",
+        "planner_mode": "agentic",
+        "steps": [
+            {"id": "hint1", "type": "ai.extract", "instruction": "Extract data"},
+            {
+                "id": "hint2",
+                "type": "tool.call",
+                "tool": "http_request",
+                "description": "Call API",
+            },
+        ],
+    }
+
+    with patch.object(planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)):
+        plan = await planner.plan(
+            workflow_spec=workflow_with_hints,
+            tool_registry=sample_tool_registry,
+            run_id="test_run",
+            completed_steps=[],
+            current_data={},
+            budget={
+                "remaining_tokens": 10000,
+                "max_tokens": 100000,
+                "remaining_cost": 1.0,
+                "max_cost_usd": 2.0,
+                "remaining_steps": 10,
+                "max_steps": 20,
+            },
+        )
+
+        # Should still generate a plan (LLM may adapt hints)
+        assert isinstance(plan, ExecutionPlan)
+
+
+@pytest.mark.asyncio
+async def test_planning_failure_handling(planner, sample_agentic_workflow, sample_tool_registry):
+    """Test that planning failures are logged and re-raised."""
+    with patch.object(
+        planner.llm_port, 'complete', new=AsyncMock(side_effect=Exception("LLM timeout"))
     ):
-        """Test agentic planning with empty workflow.steps."""
-        with patch.object(
-            planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)
-        ):
-            plan = await planner.plan(
-                workflow_spec=sample_agentic_workflow,
-                tool_registry=sample_tool_registry,
-                run_id="test_run",
-                completed_steps=[],
-                current_data={"incident": "test"},
-                budget={
-                    "remaining_tokens": 10000,
-                    "max_tokens": 100000,
-                    "remaining_cost": 1.0,
-                    "max_cost_usd": 2.0,
-                    "remaining_steps": 10,
-                    "max_steps": 20,
-                },
-            )
-
-            assert isinstance(plan, ExecutionPlan)
-            assert plan.plan_id == "550e8400-e29b-41d4-a716-446655440000"
-            assert len(plan.steps) == 1
-            assert plan.steps[0].step_id == "analyze"
-            assert plan.steps[0].tool_name == "ai.extract"
-
-    @pytest.mark.asyncio
-    async def test_prompt_formatting_works(
-        self, planner, sample_agentic_workflow, sample_tool_registry, mock_llm_response
-    ):
-        """Test that prompt formatting doesn't raise KeyError."""
-        with patch.object(
-            planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)
-        ) as mock_complete:
+        with pytest.raises(Exception, match="LLM timeout"):
             await planner.plan(
                 workflow_spec=sample_agentic_workflow,
                 tool_registry=sample_tool_registry,
                 run_id="test_run",
                 completed_steps=[],
                 current_data={},
-                budget={
-                    "remaining_tokens": 10000,
-                    "max_tokens": 100000,
-                    "remaining_cost": 1.0,
-                    "max_cost_usd": 2.0,
-                    "remaining_steps": 10,
-                    "max_steps": 20,
-                },
+                budget={},
             )
-
-            # Verify LLM was called
-            assert mock_complete.called
-            call_args = mock_complete.call_args
-            messages = call_args.kwargs["messages"]
-
-            # Verify prompt was formatted successfully (no KeyError)
-            assert len(messages) == 2
-            assert messages[0]["role"] == "system"
-            assert "agentic workflow planner" in messages[0]["content"]
-            assert "test_run" in messages[0]["content"]
-
-    @pytest.mark.asyncio
-    async def test_plan_with_hint_steps(self, planner, sample_tool_registry, mock_llm_response):
-        """Test agentic planning with workflow.steps as hints."""
-        workflow_with_hints = {
-            "name": "guided_flow",
-            "planner_mode": "agentic",
-            "steps": [
-                {"id": "hint1", "type": "ai.extract", "instruction": "Extract data"},
-                {
-                    "id": "hint2",
-                    "type": "tool.call",
-                    "tool": "http_request",
-                    "description": "Call API",
-                },
-            ],
-        }
-
-        with patch.object(
-            planner.llm_port, 'complete', new=AsyncMock(return_value=mock_llm_response)
-        ):
-            plan = await planner.plan(
-                workflow_spec=workflow_with_hints,
-                tool_registry=sample_tool_registry,
-                run_id="test_run",
-                completed_steps=[],
-                current_data={},
-                budget={
-                    "remaining_tokens": 10000,
-                    "max_tokens": 100000,
-                    "remaining_cost": 1.0,
-                    "max_cost_usd": 2.0,
-                    "remaining_steps": 10,
-                    "max_steps": 20,
-                },
-            )
-
-            # Should still generate a plan (LLM may adapt hints)
-            assert isinstance(plan, ExecutionPlan)
-
-    @pytest.mark.asyncio
-    async def test_planning_failure_handling(
-        self, planner, sample_agentic_workflow, sample_tool_registry
-    ):
-        """Test that planning failures are logged and re-raised."""
-        with patch.object(
-            planner.llm_port, 'complete', new=AsyncMock(side_effect=Exception("LLM timeout"))
-        ):
-            with pytest.raises(Exception, match="LLM timeout"):
-                await planner.plan(
-                    workflow_spec=sample_agentic_workflow,
-                    tool_registry=sample_tool_registry,
-                    run_id="test_run",
-                    completed_steps=[],
-                    current_data={},
-                    budget={},
-                )

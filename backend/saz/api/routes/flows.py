@@ -104,7 +104,8 @@ async def get_flow(
         raise NotFoundError(f"Flow not found: {flow_id}")
 
     workflow_def = flow.definition.get("workflow", {})
-    policies_def = workflow_def.get("policies", {})
+    # Policies are at root level in the stored YAML definition, not under workflow
+    policies_def = flow.definition.get("policies", {})
 
     return FlowDetail(
         id=flow.id,
@@ -116,10 +117,12 @@ async def get_flow(
         planner_mode=workflow_def.get("planner_mode", "deterministic"),
         policies=WorkflowPolicies(
             max_steps=policies_def.get("max_steps", 50),
-            max_cost_usd=policies_def.get("max_cost_usd", 10.0),
+            # DSL uses budget_usd, map to max_cost_usd for API response
+            max_cost_usd=policies_def.get("budget_usd", 10.0),
             max_tokens=policies_def.get("max_tokens", 100000),
         ),
-        step_count=len(flow.definition.get("steps", [])),
+        # Steps are under workflow.steps, not at root
+        step_count=len(workflow_def.get("steps", [])),
         created_at=flow.created_at,
     )
 
@@ -142,22 +145,33 @@ async def get_flow_graph(
     for idx, step in enumerate(workflow_steps):
         step_id = step.get("id", f"step_{idx}")
         step_type = step.get("type", "unknown")
-        step_instruction = step.get("instruction", step.get("description", step_id))
+        step_label = step.get("instruction", step.get("description", step_id))
 
         nodes.append(
             {
                 "id": step_id,
-                "label": step_instruction[:50] + "..."
-                if len(step_instruction) > 50
-                else step_instruction,
+                "label": step_label[:50] + "..." if len(step_label) > 50 else step_label,
                 "type": step_type,
             }
         )
 
-        # Create linear edges (each step to next)
+        # Create linear edges (each step connects to the next)
         if idx > 0:
-            prev_step_id = workflow_steps[idx - 1].get("id", f"step_{idx - 1}")
-            edges.append({"from": prev_step_id, "to": step_id})
+            prev_step = workflow_steps[idx - 1]
+            prev_step_id = prev_step.get("id", f"step_{idx - 1}")
+            prev_type = prev_step.get("type", "")
+
+            # Add edge label for condition/route steps to indicate branching semantics
+            edge_label = None
+            if prev_type == "condition":
+                edge_label = "true"
+            elif prev_type == "ai.route":
+                edge_label = "routed"
+
+            edge: dict = {"from": prev_step_id, "to": step_id}
+            if edge_label:
+                edge["label"] = edge_label
+            edges.append(edge)
 
     return FlowGraphResponse(
         nodes=nodes,

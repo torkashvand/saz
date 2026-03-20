@@ -1,3 +1,4 @@
+import jsYaml from 'js-yaml';
 import type { FlowDraft, FlowFormField, WorkflowStepDraft } from './types';
 import type { CompileFlowResponse } from '../types';
 import { api } from '../api';
@@ -28,7 +29,6 @@ export async function yamlToDraft(yaml: string): Promise<FlowDraftParseResult> {
     const compileResponse = await api.compileFlow({ yaml });
 
     // Parse the YAML to extract the raw structure
-    // We need to extract fields that aren't in CompileFlowResponse
     const parsedYaml = parseYamlStructure(yaml);
 
     // Check if YAML uses advanced features we can't represent
@@ -101,254 +101,127 @@ interface ParsedYamlStructure {
 }
 
 /**
- * Simple YAML parser using native libraries or regex for basic structure extraction
- * This is NOT a full YAML parser - just extracts key-value pairs we need
+ * Parse YAML string into structured object using js-yaml.
  */
 function parseYamlStructure(yaml: string): ParsedYamlStructure {
-  const lines = yaml.split('\n');
+  const raw = jsYaml.load(yaml) as Record<string, any> | null;
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
   const result: ParsedYamlStructure = {};
 
-  // Very basic parsing - extract top-level sections
-  // For production, you'd use a YAML library, but avoiding dependencies here
+  // schema_version (may be stored as schema_version or _schema_version)
+  result.schema_version = raw.schema_version ?? raw._schema_version;
 
-  // Extract schema_version
-  const schemaMatch = yaml.match(/schema_version:\s*(\d+)/);
-  if (schemaMatch) {
-    result.schema_version = parseInt(schemaMatch[1]);
-  }
-
-  // Extract flow metadata
-  const flowSection = extractSection(yaml, 'flow:');
-  if (flowSection) {
+  // flow metadata
+  if (raw.flow && typeof raw.flow === 'object') {
     result.flow = {
-      name: extractValue(flowSection, 'name') || undefined,
-      version: extractValue(flowSection, 'version')?.replace(/"/g, '') || undefined,
-      description: extractValue(flowSection, 'description')?.replace(/"/g, '') || undefined,
-      owners: extractList(flowSection, 'owners'),
-      labels: extractList(flowSection, 'labels'),
+      name: raw.flow.name,
+      version: raw.flow.version != null ? String(raw.flow.version) : undefined,
+      description: raw.flow.description,
+      owners: Array.isArray(raw.flow.owners) ? raw.flow.owners : undefined,
+      labels: Array.isArray(raw.flow.labels) ? raw.flow.labels : undefined,
     };
   }
 
-  // Extract triggers
-  const triggersSection = extractSection(yaml, 'triggers:');
-  if (triggersSection) {
+  // triggers
+  if (raw.triggers && typeof raw.triggers === 'object') {
     result.triggers = {
-      manual: extractValue(triggersSection, 'manual') === 'true',
-      webhook: extractObject(triggersSection, 'webhook'),
-      schedule: extractObject(triggersSection, 'schedule'),
+      manual: raw.triggers.manual ?? undefined,
+      webhook: raw.triggers.webhook ?? undefined,
+      schedule: raw.triggers.schedule ?? undefined,
     };
   }
 
-  // Extract workflow metadata
-  const workflowSection = extractSection(yaml, 'workflow:');
-  if (workflowSection) {
+  // workflow
+  if (raw.workflow && typeof raw.workflow === 'object') {
+    const steps = Array.isArray(raw.workflow.steps)
+      ? raw.workflow.steps.map(normalizeStep)
+      : [];
     result.workflow = {
-      planner_mode: extractValue(workflowSection, 'planner_mode') as any,
-      steps: [], // We'll extract from backend response
+      planner_mode: raw.workflow.planner_mode,
+      steps,
     };
   }
 
-  // Extract policies
-  const policiesSection = extractSection(yaml, 'policies:');
-  if (policiesSection) {
+  // policies
+  if (raw.policies && typeof raw.policies === 'object') {
     result.policies = {
-      budget_usd: parseFloat(extractValue(policiesSection, 'budget_usd') || '0') || undefined,
-      pii: extractObject(policiesSection, 'pii'),
-      defaults: extractObject(policiesSection, 'defaults'),
-      rate_limits: extractObject(policiesSection, 'rate_limits'),
+      budget_usd: typeof raw.policies.budget_usd === 'number' ? raw.policies.budget_usd : undefined,
+      pii: raw.policies.pii ?? undefined,
+      defaults: raw.policies.defaults ?? undefined,
+      rate_limits: raw.policies.rate_limits ?? undefined,
     };
   }
 
-  // Extract credentials
-  const credentialsSection = extractSection(yaml, 'credentials:');
-  if (credentialsSection) {
+  // credentials
+  if (raw.credentials && typeof raw.credentials === 'object') {
     result.credentials = {
-      uses: extractList(credentialsSection, 'uses'),
+      uses: Array.isArray(raw.credentials.uses) ? raw.credentials.uses : undefined,
     };
   }
 
-  // Extract form fields
-  const formSection = extractSection(yaml, 'form:');
-  if (formSection) {
+  // form fields
+  if (raw.form && typeof raw.form === 'object') {
     result.form = {
-      fields: extractFormFields(formSection),
-    };
-  }
-
-  // Extract workflow steps
-  if (workflowSection) {
-    result.workflow = {
-      ...result.workflow,
-      steps: extractWorkflowSteps(workflowSection),
+      fields: Array.isArray(raw.form.fields) ? raw.form.fields : [],
     };
   }
 
   return result;
 }
 
-function extractSection(yaml: string, sectionName: string): string | null {
-  const lines = yaml.split('\n');
-  const startIdx = lines.findIndex(l => l.trim() === sectionName);
-  if (startIdx === -1) return null;
-
-  const indent = lines[startIdx].search(/\S/);
-  let endIdx = startIdx + 1;
-
-  while (endIdx < lines.length) {
-    const line = lines[endIdx];
-    if (line.trim() === '') {
-      endIdx++;
-      continue;
-    }
-    const lineIndent = line.search(/\S/);
-    if (lineIndent <= indent && line.trim() !== '') break;
-    endIdx++;
-  }
-
-  return lines.slice(startIdx + 1, endIdx).join('\n');
-}
-
-function extractValue(section: string, key: string): string | null {
-  const match = section.match(new RegExp(`${key}:\\s*(.+)`));
-  return match ? match[1].trim() : null;
-}
-
-function extractList(section: string, key: string): string[] {
-  const lines = section.split('\n');
-  const keyIdx = lines.findIndex(l => l.includes(`${key}:`));
-  if (keyIdx === -1) return [];
-
-  const items: string[] = [];
-  for (let i = keyIdx + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('-')) {
-      items.push(line.substring(1).trim());
-    } else if (line && !line.startsWith('#')) {
-      break;
-    }
-  }
-
-  return items;
-}
-
-function extractObject(section: string, key: string): any {
-  const subSection = extractSection(section, `${key}:`);
-  if (!subSection) return null;
-
-  const obj: any = {};
-  const lines = subSection.split('\n');
-
-  for (const line of lines) {
-    const match = line.match(/(\w+):\s*(.+)/);
-    if (match) {
-      const [, k, v] = match;
-      obj[k] = v.replace(/"/g, '').trim();
-    }
-  }
-
-  return Object.keys(obj).length > 0 ? obj : null;
-}
-
-function extractFormFields(formSection: string): any[] {
-  // This is complex - for now return empty, we'll use the backend response
-  return [];
-}
-
-function extractWorkflowSteps(workflowSection: string): WorkflowStepDraft[] {
-  const steps: WorkflowStepDraft[] = [];
-  const stepsSection = extractSection(workflowSection, 'steps:');
-  if (!stepsSection) return steps;
-
-  // Parse each step (starts with "- id:")
-  const lines = stepsSection.split('\n');
-  let currentStep: any = null;
-  let currentKey = '';
-  let collectingMultiline = false;
-  let multilineContent: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // New step starts
-    if (trimmed.startsWith('- id:')) {
-      if (currentStep) {
-        steps.push(normalizeStep(currentStep));
-      }
-      currentStep = { id: trimmed.substring(5).trim() };
-      collectingMultiline = false;
-      continue;
-    }
-
-    if (!currentStep) continue;
-
-    // Handle multiline (|)
-    if (trimmed.includes('|') && trimmed.endsWith(':')) {
-      currentKey = trimmed.substring(0, trimmed.indexOf(':')).trim();
-      collectingMultiline = true;
-      multilineContent = [];
-      continue;
-    }
-
-    if (collectingMultiline) {
-      if (line.match(/^\s{6,}/)) {
-        // Part of multiline content
-        multilineContent.push(line.trim());
-      } else {
-        // End of multiline
-        currentStep[currentKey] = multilineContent.join('\n');
-        collectingMultiline = false;
-
-        // Process this line normally
-        const match = trimmed.match(/^(\w+):\s*(.+)/);
-        if (match) {
-          currentStep[match[1]] = match[2].replace(/"/g, '').trim();
-        }
-      }
-      continue;
-    }
-
-    // Regular key-value
-    const match = trimmed.match(/^(\w+):\s*(.+)/);
-    if (match) {
-      currentStep[match[1]] = match[2].replace(/"/g, '').trim();
-    }
-  }
-
-  if (currentStep) {
-    steps.push(normalizeStep(currentStep));
-  }
-
-  return steps;
-}
-
+/**
+ * Normalize a raw YAML step object into WorkflowStepDraft.
+ * Preserves all supported fields including params, schema, expect, branches_enum.
+ */
 function normalizeStep(rawStep: any): WorkflowStepDraft {
+  if (!rawStep || typeof rawStep !== 'object') {
+    return { id: 'unknown', name: 'unknown', type: 'ai.extract' };
+  }
+
   return {
-    id: rawStep.id,
-    name: rawStep.name || rawStep.id,
+    id: rawStep.id ?? 'unknown',
+    name: rawStep.name || rawStep.id || 'unknown',
     type: rawStep.type || 'ai.extract',
     description: rawStep.description,
     instruction: rawStep.instruction,
-    temperature: rawStep.temperature ? parseFloat(rawStep.temperature) : undefined,
-    max_tokens: rawStep.max_tokens ? parseInt(rawStep.max_tokens) : undefined,
+    temperature: typeof rawStep.temperature === 'number' ? rawStep.temperature : undefined,
+    max_tokens: typeof rawStep.max_tokens === 'number' ? rawStep.max_tokens : undefined,
     tool: rawStep.tool,
-    word_cap: rawStep.word_cap ? parseInt(rawStep.word_cap) : undefined,
-    // Note: params, schema, expect, branches_enum are complex nested structures
-    // For simplicity, we skip them in this basic parser
-    // User can edit YAML directly for complex configurations
+    word_cap: typeof rawStep.word_cap === 'number' ? rawStep.word_cap : undefined,
+    params: rawStep.params && typeof rawStep.params === 'object' ? rawStep.params : undefined,
+    schema: rawStep.schema ?? undefined,
+    expect: rawStep.expect ?? undefined,
+    branches_enum: Array.isArray(rawStep.branches_enum) ? rawStep.branches_enum : undefined,
   };
 }
 
+/**
+ * Check for DSL features that the Guided Builder cannot represent.
+ * Returns unsupported if any are found, so the UI can disable guided mode.
+ */
 function checkForAdvancedFeatures(parsed: ParsedYamlStructure): { supported: boolean; reasons: string[] } {
   const reasons: string[] = [];
 
-  // Check for advanced features that Guided Builder doesn't support
-  // For now, we support most common features, so this is lenient
+  if (!parsed.workflow?.steps) {
+    return { supported: true, reasons };
+  }
 
-  // Add checks here as needed, e.g.:
-  // - Complex conditional logic
-  // - Custom retry policies per step
-  // - Advanced templating
+  for (const step of parsed.workflow.steps) {
+    // group.parallel and group.map have nested sub-steps the builder can't represent
+    if (step.type === 'group.parallel') {
+      reasons.push(`step "${step.id}" uses group.parallel`);
+    }
+    if (step.type === 'group.map') {
+      reasons.push(`step "${step.id}" uses group.map`);
+    }
+    // condition steps require expression editing not supported in guided mode
+    if (step.type === 'condition') {
+      reasons.push(`step "${step.id}" uses condition`);
+    }
+  }
 
   return {
     supported: reasons.length === 0,
@@ -357,7 +230,7 @@ function checkForAdvancedFeatures(parsed: ParsedYamlStructure): { supported: boo
 }
 
 function mapToDraft(compileResponse: CompileFlowResponse, parsedYaml: ParsedYamlStructure): FlowDraft {
-  // Extract form fields from compile response
+  // Extract form fields from compile response (backend is source of truth for validation)
   const formFields: FlowFormField[] = [];
   if (compileResponse.form_schema?.properties) {
     const props = compileResponse.form_schema.properties;
@@ -376,16 +249,17 @@ function mapToDraft(compileResponse: CompileFlowResponse, parsedYaml: ParsedYaml
     }
   }
 
-  // Map workflow steps from parsed YAML
+  // Map workflow steps from parsed YAML (already normalized)
   const workflowSteps: WorkflowStepDraft[] = parsedYaml.workflow?.steps || [];
 
-  // Extract PII policy
+  // Extract PII policy from parsed YAML (js-yaml gives native types, not strings)
   let piiPolicy: 'disallow' | 'tokenize' | 'allow_with_warning' = 'disallow';
   if (parsedYaml.policies?.pii) {
-    const allow = parsedYaml.policies.pii.allow === 'true';
-    const tokenize = parsedYaml.policies.pii.tokenize === 'true';
-    if (tokenize) piiPolicy = 'tokenize';
-    else if (allow) piiPolicy = 'allow_with_warning';
+    const pii = parsedYaml.policies.pii;
+    const allow = pii.allow === true;
+    const tokenize = pii.tokenize_model_inputs === true;
+    if (allow) piiPolicy = 'allow_with_warning';
+    else if (tokenize) piiPolicy = 'tokenize';
   }
 
   const draft: FlowDraft = {
@@ -420,10 +294,10 @@ function mapToDraft(compileResponse: CompileFlowResponse, parsedYaml: ParsedYaml
     policies: {
       budget_usd: parsedYaml.policies?.budget_usd,
       pii_policy: piiPolicy,
-      timeout_ms: parsedYaml.policies?.defaults?.timeout_ms
-        ? parseInt(parsedYaml.policies.defaults.timeout_ms)
+      timeout_ms: typeof parsedYaml.policies?.defaults?.timeout_ms === 'number'
+        ? parsedYaml.policies.defaults.timeout_ms
         : undefined,
-      continue_on_fail: parsedYaml.policies?.defaults?.continue_on_fail === 'true',
+      continue_on_fail: parsedYaml.policies?.defaults?.continue_on_fail === true,
       rate_limits: parsedYaml.policies?.rate_limits,
     },
 

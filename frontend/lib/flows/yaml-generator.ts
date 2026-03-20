@@ -147,7 +147,7 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
     const allow = draft.policies.pii_policy === 'allow_with_warning';
     lines.push(`    allow: ${allow}`);
     if (draft.policies.pii_policy === 'tokenize') {
-      lines.push(`    tokenize: true`);
+      lines.push(`    tokenize_model_inputs: true`);
     }
   }
   if (draft.policies.timeout_ms || draft.policies.continue_on_fail !== undefined || draft.policies.rate_limits) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, Check, Play, Settings, Zap, Globe, X, Loader2, Info } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, Check, Play, Settings, Zap, Globe, X, Loader2, Info, PauseCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { CollapsibleJson } from '@/components/common/json-view';
@@ -76,6 +76,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
   const isCompleted = step?.status === 'completed';
   const isFailed = step?.status === 'failed';
   const isRunning = step?.status === 'running';
+  const isSuspended = step?.status === 'suspended';
 
   // Get step type icon
   console.log(`📋 Step ${stepNumber + 1}: "${stepName}" | type: "${stepType}"`);
@@ -192,6 +193,12 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
                     {isRunning && (
                       <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white bg-blue-500 shadow-sm">
                         <Loader2 className="h-3 w-3 text-white animate-spin" />
+                      </div>
+                    )}
+
+                    {isSuspended && (
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white bg-amber-500 shadow-sm">
+                        <PauseCircle className="h-3 w-3 text-white" />
                       </div>
                     )}
                   </>

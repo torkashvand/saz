@@ -46,13 +46,17 @@ export function useRunEvents(runId: string) {
           return [...prev, event];
         });
 
-        // Invalidate run details cache when steps complete or run status changes
-        // This updates the Timeline tab in real-time via WebSocket
+        // Invalidate run details cache when run state changes materially.
+        // This covers step transitions, terminal states, and suspension/resume
+        // so the UI (approval panel, status badges, timeline) updates live.
         if (
           event.event_type === 'step.completed' ||
           event.event_type === 'step.failed' ||
           event.event_type === 'run.completed' ||
-          event.event_type === 'run.failed'
+          event.event_type === 'run.failed' ||
+          event.event_type === 'run.suspended' ||
+          event.event_type === 'approval.requested' ||
+          event.event_type === 'run.resumed'
         ) {
           queryClient.invalidateQueries({ queryKey: ['run', runId] });
         }

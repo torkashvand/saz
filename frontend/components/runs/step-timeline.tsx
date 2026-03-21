@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { PlannedStep, RunStep } from '@/lib/types';
+import { findExecutedStepForPlanned } from '@/lib/runs/display-steps';
 
 interface StepProgressTimelineProps {
   plannedSteps: PlannedStep[];
@@ -12,11 +13,15 @@ interface StepProgressTimelineProps {
   onSelectStep: (index: number) => void;
 }
 
-type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed';
+type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'suspended';
 
 /**
  * Derive step states with run-started awareness.
  * When run has started but no steps executed yet, show first step as "running".
+ *
+ * Matches executed steps to planned steps by NAME (workflow step identifier),
+ * not by number.  After resume, step.number is local to the execution segment
+ * and does not correspond to the absolute workflow position.
  */
 function deriveStepStates(
   plannedSteps: PlannedStep[],
@@ -24,7 +29,7 @@ function deriveStepStates(
   runStatus: string
 ): StepVisualStatus[] {
   // Check if run has started
-  const runHasStarted = runStatus === 'running' || runStatus === 'completed' || runStatus === 'failed';
+  const runHasStarted = runStatus === 'running' || runStatus === 'completed' || runStatus === 'failed' || runStatus === 'suspended';
 
   // Check if any step has started executing
   const anyStepStarted = executedSteps.some(
@@ -32,13 +37,14 @@ function deriveStepStates(
   );
 
   return plannedSteps.map((planned, index) => {
-    const executed = executedSteps.find(s => s.number === planned.index);
+    const executed = findExecutedStepForPlanned(executedSteps, planned);
 
     // If we have an executed step, use its status
     if (executed) {
       if (executed.status === 'running') return 'running';
       if (executed.status === 'completed') return 'completed';
       if (executed.status === 'failed') return 'failed';
+      if (executed.status === 'suspended') return 'suspended';
       return 'not_started';
     }
 
@@ -63,6 +69,7 @@ function getStatusLabel(status: StepVisualStatus): string {
     running: 'Running',
     completed: 'Completed',
     failed: 'Failed',
+    suspended: 'Awaiting Approval',
   }[status];
 }
 
@@ -90,7 +97,7 @@ export function StepProgressTimeline({
           const status = stepStates[index];
           const isExpanded = expandedStepIndex === index;
           const isSelected = selectedStepIndex === index;
-          const executed = executedSteps.find(s => s.number === planned.index);
+          const executed = findExecutedStepForPlanned(executedSteps, planned);
 
           // Dot colors
           const dotColor = {
@@ -98,6 +105,7 @@ export function StepProgressTimeline({
             running: 'bg-blue-500 animate-pulse',
             completed: 'bg-green-500',
             failed: 'bg-red-500',
+            suspended: 'bg-amber-500 animate-pulse',
           }[status];
 
           return (
@@ -187,6 +195,10 @@ export function StepProgressTimeline({
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-red-500" />
           <span>Failed</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          <span>Awaiting Approval</span>
         </div>
       </div>
     </div>

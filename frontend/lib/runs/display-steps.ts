@@ -9,6 +9,23 @@ export type DisplayStep =
   | { kind: 'planned'; index: number; planned: PlannedStep };
 
 /**
+ * Find the executed step matching a planned step by workflow step name.
+ *
+ * After resume, step.number is local to the execution segment (e.g. the
+ * first resumed step gets number=0).  Matching by name is stable across
+ * execution segments because step.name is the workflow step identifier
+ * (e.g. "create_rfp_record"), which matches planned.id or planned.name.
+ */
+export function findExecutedStepForPlanned(
+  executedSteps: RunStep[],
+  planned: PlannedStep
+): RunStep | undefined {
+  return executedSteps.find(
+    s => s.name === planned.id || s.name === planned.name
+  );
+}
+
+/**
  * Build display steps based on planner mode
  * For deterministic: merge planned + executed steps
  * For agentic: show only executed steps
@@ -29,8 +46,9 @@ export function buildDisplaySteps(
 
   // For deterministic: show all planned steps, fill in with executed data
   return plannedSteps.map((planned, index) => {
-    // Match executed step by number (which should be index for deterministic)
-    const executedStep = executedSteps.find(s => s.number === index);
+    // Match by workflow step name, not by number — number is local to
+    // each execution segment and becomes wrong after resume.
+    const executedStep = findExecutedStepForPlanned(executedSteps, planned);
 
     if (executedStep) {
       return {
@@ -47,6 +65,52 @@ export function buildDisplaySteps(
       planned,
     };
   });
+}
+
+/**
+ * Map a live WebSocket event to the correct canonical planned-step index
+ * by matching the step name from the event against planned steps.
+ *
+ * This avoids using event.payload.step_number which is local to each
+ * execution segment and becomes wrong after resume.
+ */
+export function resolveCanonicalStepIndex(
+  event: { step_id: string | null; payload: Record<string, any>; summary: string },
+  executedSteps: RunStep[],
+  plannedSteps: PlannedStep[]
+): number | undefined {
+  let stepName: string | undefined;
+
+  // 1. Best source: step_name from event payload (set by backend emitter)
+  if (event.payload?.step_name) {
+    stepName = event.payload.step_name;
+  }
+
+  // 2. Match event.step_id (DB UUID) against executed steps to get workflow name
+  if (!stepName && event.step_id) {
+    const matchingStep = executedSteps.find(s => s.id === event.step_id);
+    if (matchingStep) {
+      stepName = matchingStep.name;
+    }
+  }
+
+  // 3. Extract step name from summary (format: "Step started: step_name")
+  if (!stepName) {
+    const match = event.summary.match(/:\s*(\S+)/);
+    if (match) {
+      stepName = match[1];
+    }
+  }
+
+  // Map step name to canonical planned step index
+  if (stepName) {
+    const idx = plannedSteps.findIndex(
+      p => p.id === stepName || p.name === stepName
+    );
+    if (idx >= 0) return idx;
+  }
+
+  return undefined;
 }
 
 /**

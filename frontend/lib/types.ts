@@ -183,6 +183,24 @@ export interface AdvanceRunResponse {
   message: string;
 }
 
+export interface ResumeRunRequest {
+  resume_data?: Record<string, any> | null;
+  override_payload?: Record<string, any> | null;
+}
+
+export interface ResumeRunResponse {
+  run_id: string;
+  status: string;
+}
+
+/** Shape of run.error when type === 'HumanApprovalRequired' */
+export interface HumanApprovalError {
+  message: string;
+  type: 'HumanApprovalRequired';
+  step_id: string;
+  reasoning?: string;
+}
+
 export interface RetryRunResponse {
   original_run_id: string;
   new_run_id: string;

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
-import type { RegisterFlowRequest, CompileFlowRequest, CreateRunRequest } from './types';
+import type { RegisterFlowRequest, CompileFlowRequest, CreateRunRequest, ResumeRunRequest } from './types';
 
 // ========== Unified DSL Hooks ==========
 
@@ -58,6 +58,19 @@ export function useCreateRun() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['run', data.id] });
       queryClient.invalidateQueries({ queryKey: ['runGraph', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+}
+
+export function useResumeRun(runId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: ResumeRunRequest) => api.resumeRun(runId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['run', runId] });
+      queryClient.invalidateQueries({ queryKey: ['runGraph', runId] });
       queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
   });

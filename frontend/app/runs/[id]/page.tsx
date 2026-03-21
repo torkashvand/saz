@@ -4,9 +4,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
-import { useRunDetails } from '@/lib/hooks';
+import { useRunDetails, useResumeRun } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
+import type { HumanApprovalError } from '@/lib/types';
 import { useRunEvents } from '@/lib/use-run-events';
 import { useRunMetrics } from '@/lib/use-run-metrics';
 import { ErrorBanner } from '@/components/ui/error-banner';
@@ -18,7 +19,8 @@ import { BottomDrawer } from '@/components/common/bottom-drawer';
 import { CostMetricsView } from '@/components/metrics/cost-view';
 import { EnhancedConsolePanel } from '@/components/runs/console-panel';
 import { ResizableSplit } from '@/components/ui/resizable-split';
-import { buildDisplaySteps } from '@/lib/runs/display-steps';
+import { HumanApprovalPanel } from '@/components/runs/human-approval-panel';
+import { buildDisplaySteps, resolveCanonicalStepIndex } from '@/lib/runs/display-steps';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
 
@@ -36,67 +38,49 @@ export default function RunDetailPageRedesign() {
   const [drawerStepId, setDrawerStepId] = useState<string | null>(null);
 
   const isRunning = run?.status === 'running' || run?.status === 'pending';
+  const isSuspended = run?.status === 'suspended';
 
-  // Track running steps from WebSocket events
+  // Detect human approval requirement from run.error
+  const approvalError: HumanApprovalError | null =
+    isSuspended && run?.error?.type === 'HumanApprovalRequired'
+      ? (run.error as HumanApprovalError)
+      : null;
+
+  // Resume mutation
+  const resumeMutation = useResumeRun(runId);
+
+  // Track running steps from WebSocket events.
+  // Resolves events to canonical planned-step positions by step NAME,
+  // not by the local step_number in the event payload.  After resume,
+  // step_number restarts from 0 for the remaining sub-plan, so using it
+  // directly would incorrectly light up the first workflow bullet.
   const runningStepNumbers = useMemo(() => {
     const running = new Set<number>();
+    if (!run?.planned_steps) return running;
 
     events.forEach(event => {
-      if (event.event_type === 'step.started') {
-        // Try to get step number from payload first, then from step_id correlation
-        let stepNumber = event.payload?.step_number;
-
-        // If not in payload, try to match step_id with existing steps
-        if (stepNumber === undefined && event.step_id && run?.steps) {
-          const matchingStep = run.steps.find(s => s.id === event.step_id);
-          if (matchingStep) {
-            stepNumber = matchingStep.number;
-          }
-        }
-
-        // Fallback: try to extract from summary (format: "Step X" where X is 1-based)
-        if (stepNumber === undefined) {
-          const match = event.summary.match(/Step (\d+)/);
-          if (match) {
-            // Summary uses 1-based indexing, convert to 0-based
-            stepNumber = parseInt(match[1]) - 1;
-          }
-        }
-
-        if (stepNumber !== undefined && stepNumber >= 0) {
-          console.log(`[RunDetails] Step ${stepNumber} started (event_id: ${event.id})`);
-          running.add(stepNumber);
-        }
+      if (
+        event.event_type !== 'step.started' &&
+        event.event_type !== 'step.completed' &&
+        event.event_type !== 'step.failed'
+      ) {
+        return;
       }
 
-      if (event.event_type === 'step.completed' || event.event_type === 'step.failed') {
-        // Same logic for removing from running set
-        let stepNumber = event.payload?.step_number;
+      // Resolve canonical planned-step index by step name
+      const canonicalIndex = resolveCanonicalStepIndex(event, run.steps, run.planned_steps);
 
-        if (stepNumber === undefined && event.step_id && run?.steps) {
-          const matchingStep = run.steps.find(s => s.id === event.step_id);
-          if (matchingStep) {
-            stepNumber = matchingStep.number;
-          }
-        }
-
-        if (stepNumber === undefined) {
-          const match = event.summary.match(/Step (\d+)/);
-          if (match) {
-            stepNumber = parseInt(match[1]) - 1;
-          }
-        }
-
-        if (stepNumber !== undefined && stepNumber >= 0) {
-          console.log(`[RunDetails] Step ${stepNumber} ${event.event_type.split('.')[1]} (event_id: ${event.id})`);
-          running.delete(stepNumber);
+      if (canonicalIndex !== undefined) {
+        if (event.event_type === 'step.started') {
+          running.add(canonicalIndex);
+        } else {
+          running.delete(canonicalIndex);
         }
       }
     });
 
-    console.log(`[RunDetails] Currently running steps:`, Array.from(running));
     return running;
-  }, [events, run?.steps]);
+  }, [events, run?.steps, run?.planned_steps]);
 
   // Build display steps based on planner mode
   const displaySteps = useMemo(() => {
@@ -143,6 +127,26 @@ export default function RunDetailPageRedesign() {
     },
     onError: showError,
   });
+
+  const handleApprove = (data: { approved: true; approver?: string; comments?: string }) => {
+    resumeMutation.mutate(
+      { resume_data: data },
+      {
+        onSuccess: () => showSuccess('Run approved and resumed'),
+        onError: showError,
+      }
+    );
+  };
+
+  const handleReject = (data: { approved: false; approver?: string; reason: string }) => {
+    resumeMutation.mutate(
+      { resume_data: data },
+      {
+        onSuccess: () => showSuccess('Run rejected'),
+        onError: showError,
+      }
+    );
+  };
 
   // Scroll to step (handles both planned and executed)
   const scrollToStep = (index: number) => {
@@ -261,6 +265,19 @@ export default function RunDetailPageRedesign() {
           isRetrying={retryMutation.isPending}
         />
       </div>
+
+      {/* Human Approval Panel */}
+      {approvalError && (
+        <div className="mb-6">
+          <HumanApprovalPanel
+            approvalError={approvalError}
+            run={run}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            isPending={resumeMutation.isPending}
+          />
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="mb-6">

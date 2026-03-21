@@ -14,6 +14,8 @@ import type {
   RunStepsResponse,
   AdvanceRunRequest,
   AdvanceRunResponse,
+  ResumeRunRequest,
+  ResumeRunResponse,
   RetryRunResponse,
   ReplayRunResponse,
   // Events
@@ -211,10 +213,19 @@ export const api = {
   getRunSteps: (id: string) => fetchApi<RunStepsResponse>(`/api/v1/runs/${id}/steps`),
 
   /**
-   * Advance a suspended run past a human gate
+   * Advance a suspended run past a human gate (legacy)
    */
   advanceRun: (id: string, data: AdvanceRunRequest) =>
     fetchApi<AdvanceRunResponse>(`/api/v1/runs/${id}/advance`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Resume a suspended run (human approval / webhook wait)
+   */
+  resumeRun: (id: string, data: ResumeRunRequest) =>
+    fetchApi<ResumeRunResponse>(`/api/v1/runs/${id}/resume`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

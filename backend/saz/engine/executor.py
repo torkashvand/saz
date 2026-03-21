@@ -80,6 +80,17 @@ class ReplanRequired(Exception):
         self.critique = critique
 
 
+class RunSuspended(Exception):
+    """Raised when a step suspends the run (human approval, webhook wait).
+
+    This exception is used as a control-flow signal to stop the executor loop
+    immediately after suspension is recorded. The run will only continue when
+    an explicit resume or webhook callback occurs.
+    """
+
+    pass
+
+
 class WorkflowExecutor:
     """Production-ready agentic workflow executor."""
 
@@ -235,6 +246,14 @@ class WorkflowExecutor:
 
             # Execute plan steps sequentially
             for step_number, plan_step in enumerate(plan.steps):
+                # Skip steps already completed (e.g. when resuming after suspension)
+                if plan_step.step_id in context["completed_steps"]:
+                    logger.info(
+                        f"Skipping already-completed step {plan_step.step_id} "
+                        f"(resumed execution)"
+                    )
+                    continue
+
                 # Check budget before each step
                 within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
                 if not within_budget:
@@ -328,6 +347,15 @@ class WorkflowExecutor:
                         step_id=plan_step.step_id,
                     )
                     await emitter.commit_and_broadcast()
+                    return
+
+                except RunSuspended:
+                    # Suspension step (human approval, webhook wait) has already
+                    # recorded the suspension in the DB and emitted events.
+                    # Stop the executor loop immediately.
+                    logger.info(
+                        f"Run {run_id} suspended at step {plan_step.step_id}, " "stopping executor"
+                    )
                     return
 
                 except ReplanRequired as step_error:
@@ -550,6 +578,10 @@ class WorkflowExecutor:
 
                 logger.info(f"Step {step_id} completed successfully")
                 return result
+
+            except RunSuspended:
+                # Suspension is not a failure — let it propagate to the main loop
+                raise
 
             except Exception as e:
                 last_error = e
@@ -1050,15 +1082,16 @@ class WorkflowExecutor:
         Suspend run for human approval.
 
         Generates a callback_id for webhook-based resumption and emits
-        APPROVAL_REQUESTED and RUN_SUSPENDED events.
+        APPROVAL_REQUESTED and RUN_SUSPENDED events, then raises RunSuspended
+        to stop the executor loop immediately.
 
         Args:
             plan_step: Plan step
             context: Execution context
             run_id: Run identifier
 
-        Returns:
-            Approval request details
+        Raises:
+            RunSuspended: Always raised to stop the executor loop.
         """
         logger.info(f"Step {plan_step.step_id} requires human approval")
 
@@ -1076,6 +1109,10 @@ class WorkflowExecutor:
             reasoning=plan_step.reasoning,
             callback_id=callback_id,
         )
+
+        # Mark the step as suspended (not completed — it is still waiting)
+        if current_step:
+            current_step.status = "suspended"
 
         # Suspend run with callback_id for webhook lookup
         assert self.uow.runs is not None
@@ -1097,27 +1134,56 @@ class WorkflowExecutor:
         )
         await emitter.commit_and_broadcast()
 
-        return {
-            "status": "awaiting_approval",
-            "step_id": plan_step.step_id,
-            "reasoning": plan_step.reasoning,
-            "callback_id": callback_id,
-        }
+        raise RunSuspended(f"Awaiting human approval for step {plan_step.step_id}")
 
     async def _execute_webhook_wait(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
-        Wait for webhook callback (delegates to webhook tool).
+        Suspend run while waiting for a webhook callback.
+
+        Generates a callback_id, marks the run as suspended, emits events,
+        and raises RunSuspended to stop the executor loop.
 
         Args:
             plan_step: Plan step
             context: Execution context
             run_id: Run identifier
 
-        Returns:
-            Webhook data
+        Raises:
+            RunSuspended: Always raised to stop the executor loop.
         """
-        # Execute via tool registry (webhook_wait tool)
-        return await self._execute_tool_call(plan_step, context, run_id)
+        logger.info(f"Step {plan_step.step_id} waiting for webhook callback")
+
+        emitter: EventEmitter = context["emitter"]
+        current_step: Step | None = context.get("current_step")
+        step_db_id = current_step.id if current_step else None
+
+        # Generate callback_id for webhook lookup
+        callback_id = uuid4().hex
+
+        # Mark the step as suspended
+        if current_step:
+            current_step.status = "suspended"
+
+        # Suspend run with callback_id
+        assert self.uow.runs is not None
+        self.uow.runs.mark_suspended(
+            run_id,
+            {
+                "message": f"Webhook wait for step {plan_step.step_id}",
+                "type": "WebhookWait",
+                "step_id": plan_step.step_id,
+                "callback_id": callback_id,
+            },
+        )
+
+        # Emit run suspended event
+        emitter.run_suspended(
+            reason=f"Waiting for webhook callback for step {plan_step.step_id}",
+            step_id=step_db_id,
+        )
+        await emitter.commit_and_broadcast()
+
+        raise RunSuspended(f"Waiting for webhook callback for step {plan_step.step_id}")
 
     async def _complete_run(self, run_id: str, emitter: EventEmitter) -> None:
         """

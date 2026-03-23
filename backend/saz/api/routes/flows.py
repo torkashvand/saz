@@ -92,6 +92,31 @@ async def compile_flow(
     )
 
 
+@router.get("/ai-ops")
+async def list_ai_ops() -> list[dict]:
+    """Return available AI operations with their default output schemas.
+
+    Helps workflow authors write correct `expect` fields by showing
+    what each AI operation produces and what extras it accepts.
+    """
+    from saz.agents.ai_ops import AI_OPS
+
+    ops = []
+    for name, spec in AI_OPS.items():
+        if name == "ai.fix_json":
+            continue  # internal repair tool, not user-facing
+        ops.append(
+            {
+                "name": name,
+                "description": spec.description,
+                "output_format": spec.output_format,
+                "default_output_schema": spec.default_expect_schema,
+                "extras": {k: v for k, v in spec.input_extras.items()} if spec.input_extras else {},
+            }
+        )
+    return ops
+
+
 @router.get("/{flow_id}", response_model=FlowDetail)
 async def get_flow(
     flow_id: str,

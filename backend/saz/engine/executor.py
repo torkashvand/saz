@@ -202,14 +202,24 @@ class WorkflowExecutor:
                 "planner_mode": planner_mode,
             }
 
-            # If resuming from suspended state, restore context from completed steps
+            # Restore context from the latest attempt of each completed step.
+            # When a run contains multiple attempts (from retry), only the
+            # highest-attempt completed step per name is authoritative.
             if run.steps:
+                # Group by step name, keeping only the latest attempt per name
+                latest_by_name: dict[str, Any] = {}
                 for step in run.steps:
+                    existing = latest_by_name.get(step.name)
+                    if existing is None or step.attempt > existing.attempt:
+                        latest_by_name[step.name] = step
+
+                for step in latest_by_name.values():
                     if step.status == "completed" and step.output:
                         context["step_results"][step.name] = step.output
                         context["completed_steps"].append(step.name)
                         logger.info(
-                            f"Restored step result for '{step.name}' from previous execution"
+                            f"Restored step result for '{step.name}' "
+                            f"(attempt {step.attempt}) from previous execution"
                         )
 
             # Check if workflow exists
@@ -514,14 +524,21 @@ class WorkflowExecutor:
         # Get emitter from context
         emitter: EventEmitter = context["emitter"]
 
-        # Create step record
+        # Create step record with the correct attempt number.
+        # On first execution attempt=1. On retry, the run already contains
+        # a failed step with the same name at attempt N; the new attempt
+        # must be N+1 so historical attempts remain distinguishable.
         assert self.uow.steps is not None
+        current_max_attempt = self.uow.steps.get_max_attempt(run_id, step_id)
+        next_attempt = current_max_attempt + 1
+
         step = self.uow.steps.append(
             run_id=run_id,
             number=step_number,
             name=step_id,
             step_type=plan_step.step_type,
             status="running",
+            attempt=next_attempt,
         )
         step.start_ts = datetime.now(UTC)
         self.uow.commit()

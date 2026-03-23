@@ -73,54 +73,40 @@ class RunService:
             raise ValueError(f"Run not found: {run_id}")
         self.uow.commit()
 
-    def retry(self, run_id: str) -> str:
-        """Retry a failed run by finding failing step and creating new run."""
-        assert self.uow.run_reads is not None
+    def retry(self, run_id: str) -> None:
+        """Retry a failed run from the point of failure (same-run semantics).
+
+        The same run is reused. Historical failed/completed step attempts are
+        preserved. The run is reset to 'queued' so the scheduler can pick it
+        up again. The executor will restore context from the latest completed
+        attempts and skip them, then re-execute from the failing step onward.
+        """
+        assert self.uow.runs is not None
         assert self.uow.steps is not None
-        # Get original run
+        assert self.uow.run_reads is not None
+
         run_detail = self.uow.run_reads.detail(run_id)
         if not run_detail:
             raise ValueError(f"Run not found: {run_id}")
 
-        if run_detail.status != "failed":
+        if run_detail.status not in ("failed", "error"):
             raise ValueError(f"Can only retry failed runs, got: {run_detail.status}")
 
-        # Find first failing step
+        # Find the first failing step (latest attempt)
         failing_step = self.uow.steps.get_first_failed_for_run(run_id)
         if not failing_step:
             raise ValueError("No failing step found")
 
-        # Reconstruct payload from original run
-        # In a real system, you'd reconstruct state up to the failing step
-        new_payload = run_detail.payload.copy()
-        new_payload["_retry_from_run"] = run_id
-        new_payload["_retry_from_step"] = failing_step.number
-
-        # Create new run
-        new_run_id = self.create(run_detail.flow_id, new_payload)
-
-        return new_run_id
-
-    def replay(self, run_id: str, from_step: int) -> str:
-        """Replay a run from a specific step."""
-        assert self.uow.run_reads is not None
-        # Get original run
-        run_detail = self.uow.run_reads.detail(run_id)
-        if not run_detail:
+        # Reset run to queued — same run, same id
+        run = self.uow.runs.get(run_id)
+        if not run:
             raise ValueError(f"Run not found: {run_id}")
 
-        if from_step < 0 or from_step >= len(run_detail.steps):
-            raise ValueError(f"Invalid step number: {from_step}")
+        run.status = "queued"
+        run.error = None
+        run.completed_at = None
 
-        # Reconstruct payload
-        new_payload = run_detail.payload.copy()
-        new_payload["_replay_from_run"] = run_id
-        new_payload["_replay_from_step"] = from_step
-
-        # Create new run
-        new_run_id = self.create(run_detail.flow_id, new_payload)
-
-        return new_run_id
+        self.uow.commit()
 
     def resume_run(
         self,

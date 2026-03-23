@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Query
 
@@ -15,8 +16,6 @@ from saz.api.schemas.run_schemas import (
     ErrorSummarySchema,
     ExecutionGraphResponse,
     PlannedStepSchema,
-    ReplayRunRequest,
-    ReplayRunResponse,
     RetryRunRequest,
     RetryRunResponse,
     RunDetailResponse,
@@ -264,7 +263,16 @@ async def get_run_detail(
     # Build error summary if run failed
     error_summary_obj = None
     if run.status in ("failed", "error"):
-        failed_step = next((s for s in (run.steps or []) if s.status == "failed"), None)
+        # After retry a run may have multiple failed step attempts.
+        # We must use the latest attempt per step name so the error summary
+        # reflects the most recent failure, not a stale historical one.
+        latest_by_name: dict[str, Any] = {}
+        for s in run.steps or []:
+            existing = latest_by_name.get(s.name)
+            if existing is None or s.attempt > existing.attempt:
+                latest_by_name[s.name] = s
+        latest_steps = sorted(latest_by_name.values(), key=lambda s: s.number)
+        failed_step = next((s for s in latest_steps if s.status == "failed"), None)
         error_summary = ErrorEnrichmentService.build_error_summary(run, failed_step)
         if error_summary:
             error_summary_obj = ErrorSummarySchema(**error_summary.to_dict())
@@ -292,6 +300,7 @@ async def get_run_detail(
                 id=s.id,
                 number=s.number,
                 name=s.name,
+                attempt=s.attempt,
                 step_type=s.step_type,
                 status=s.status,
                 start_ts=s.start_ts,
@@ -382,6 +391,7 @@ async def get_run_steps(
                 id=s.id,
                 number=s.number,
                 name=s.name,
+                attempt=s.attempt,
                 step_type=s.step_type,
                 status=s.status,
                 start_ts=s.start_ts,
@@ -451,11 +461,14 @@ async def get_run_graph(
 @router.post("/{run_id}/retry", response_model=RetryRunResponse)
 async def retry_run_endpoint(
     run_id: str,
-    req: RetryRunRequest,
     service: RunServiceDep,
+    req: RetryRunRequest | None = None,
 ) -> RetryRunResponse:
-    """Retry a failed run from the point of failure."""
-    # Access Run model directly
+    """Retry a failed run from the point of failure (same-run semantics).
+
+    The same run is reused — no new run is created. Historical step attempts
+    are preserved. The run is reset to 'queued' and rescheduled.
+    """
     assert service.uow.runs is not None
     run = service.uow.runs.get(run_id)
     if not run:
@@ -464,52 +477,21 @@ async def retry_run_endpoint(
     if run.status not in ["failed", "error"]:
         raise ValueError(f"Run {run_id} cannot be retried (status: {run.status})")
 
-    # RunService.retry returns new run_id string
-    new_run_id = service.retry(run_id)
-    new_run = service.uow.runs.get(new_run_id)
+    # Same-run retry: resets status, preserves history
+    service.retry(run_id)
 
-    if not new_run:
-        raise NotFoundError(f"New run not found: {new_run_id}")
-
-    # Schedule the new run for execution
-    scheduler = get_scheduler()
-    scheduler.schedule(new_run_id)
-
-    return RetryRunResponse(
-        new_run_id=new_run.id,
-        original_run_id=run_id,
-        status=new_run.status,
-    )
-
-
-@router.post("/{run_id}/replay", response_model=ReplayRunResponse)
-async def replay_run_endpoint(
-    run_id: str,
-    req: ReplayRunRequest,
-    service: RunServiceDep,
-) -> ReplayRunResponse:
-    """Replay a completed run with optional input modifications."""
-    # Access Run model directly
-    assert service.uow.runs is not None
+    # Refresh run state after service mutation
     run = service.uow.runs.get(run_id)
     if not run:
-        raise NotFoundError(f"Run not found: {run_id}")
+        raise NotFoundError(f"Run not found after retry: {run_id}")
 
-    # RunService.replay takes from_step parameter (default 0)
-    new_run_id = service.replay(run_id, from_step=0)
-    new_run = service.uow.runs.get(new_run_id)
-
-    if not new_run:
-        raise NotFoundError(f"New run not found: {new_run_id}")
-
-    # Schedule the new run for execution
+    # Schedule the same run for re-execution
     scheduler = get_scheduler()
-    scheduler.schedule(new_run_id)
+    scheduler.schedule(run_id)
 
-    return ReplayRunResponse(
-        new_run_id=new_run.id,
-        original_run_id=run_id,
-        status=new_run.status,
+    return RetryRunResponse(
+        run_id=run.id,
+        status=run.status,
     )
 
 

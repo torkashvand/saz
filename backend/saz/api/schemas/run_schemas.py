@@ -69,6 +69,7 @@ class StepSummary(BaseModel):
     id: str
     number: int
     name: str
+    attempt: int = 1
     step_type: str
     status: str
     start_ts: datetime | None = None  # ISO string in response
@@ -212,24 +213,9 @@ class RetryRunRequest(BaseModel):
 
 
 class RetryRunResponse(BaseModel):
-    """Response after retrying a run."""
+    """Response after retrying a run (same-run semantics)."""
 
-    new_run_id: str
-    original_run_id: str
-    status: str
-
-
-class ReplayRunRequest(BaseModel):
-    """Request to replay a run with optional input modifications."""
-
-    override_input: dict[str, Any] | None = Field(None, description="Optional input overrides")
-
-
-class ReplayRunResponse(BaseModel):
-    """Response after replaying a run."""
-
-    new_run_id: str
-    original_run_id: str
+    run_id: str
     status: str
 
 

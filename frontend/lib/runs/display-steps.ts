@@ -9,19 +9,23 @@ export type DisplayStep =
   | { kind: 'planned'; index: number; planned: PlannedStep };
 
 /**
- * Find the executed step matching a planned step by workflow step name.
+ * Find the latest-attempt executed step matching a planned step by name.
  *
- * After resume, step.number is local to the execution segment (e.g. the
- * first resumed step gets number=0).  Matching by name is stable across
- * execution segments because step.name is the workflow step identifier
- * (e.g. "create_rfp_record"), which matches planned.id or planned.name.
+ * A run may contain multiple attempts for the same workflow step (from
+ * retry). The latest attempt (highest attempt number) is the
+ * current effective state. Earlier attempts are historical.
  */
 export function findExecutedStepForPlanned(
   executedSteps: RunStep[],
   planned: PlannedStep
 ): RunStep | undefined {
-  return executedSteps.find(
+  const matches = executedSteps.filter(
     s => s.name === planned.id || s.name === planned.name
+  );
+  if (matches.length === 0) return undefined;
+  // Return the latest attempt
+  return matches.reduce((latest, s) =>
+    (s.attempt ?? 1) > (latest.attempt ?? 1) ? s : latest
   );
 }
 
@@ -35,13 +39,25 @@ export function buildDisplaySteps(
   plannedSteps: PlannedStep[] | undefined,
   executedSteps: RunStep[]
 ): DisplayStep[] {
-  // For agentic or when no planned steps available, show only executed
+  // For agentic or when no planned steps available, show only executed.
+  // After retry, a step name may appear multiple times (one per attempt).
+  // Only show the latest attempt per step name so the user sees effective
+  // state, not duplicated historical entries.
   if (plannerMode !== 'deterministic' || !plannedSteps || plannedSteps.length === 0) {
-    return executedSteps.map(step => ({
-      kind: 'executed' as const,
-      index: step.number,
-      step,
-    }));
+    const latestByName = new Map<string, RunStep>();
+    for (const step of executedSteps) {
+      const existing = latestByName.get(step.name);
+      if (!existing || (step.attempt ?? 1) > (existing.attempt ?? 1)) {
+        latestByName.set(step.name, step);
+      }
+    }
+    return [...latestByName.values()]
+      .sort((a, b) => a.number - b.number)
+      .map(step => ({
+        kind: 'executed' as const,
+        index: step.number,
+        step,
+      }));
   }
 
   // For deterministic: show all planned steps, fill in with executed data

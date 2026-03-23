@@ -79,7 +79,6 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
   const isSuspended = step?.status === 'suspended';
 
   // Get step type icon
-  console.log(`📋 Step ${stepNumber + 1}: "${stepName}" | type: "${stepType}"`);
   const { Icon: StepIcon, color: iconColor, bg: iconBg } = getStepTypeIcon(stepType);
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -207,12 +206,19 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
 
               {/* Step name - increased from text-sm to text-base for better visual hierarchy */}
               <div className="flex-1 min-w-0">
-                <h3 className={cn(
-                  'font-medium text-base truncate',
-                  isPlanned ? 'text-slate-600' : 'text-slate-900'
-                )}>
-                  Step {stepNumber + 1}: {stepName}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className={cn(
+                    'font-medium text-base truncate',
+                    isPlanned ? 'text-slate-600' : 'text-slate-900'
+                  )}>
+                    Step {stepNumber + 1}: {stepName}
+                  </h3>
+                  {step && step.attempt > 1 && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-200 flex-shrink-0">
+                      Attempt {step.attempt}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Status chip for planned steps */}

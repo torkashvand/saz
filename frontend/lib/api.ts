@@ -17,7 +17,6 @@ import type {
   ResumeRunRequest,
   ResumeRunResponse,
   RetryRunResponse,
-  ReplayRunResponse,
   // Events
   Event,
   EventListResponse,
@@ -236,14 +235,7 @@ export const api = {
   retryRun: (id: string) =>
     fetchApi<RetryRunResponse>(`/api/v1/runs/${id}/retry`, {
       method: 'POST',
-    }),
-
-  /**
-   * Replay a run from a specific step
-   */
-  replayRun: (id: string, fromStep: number) =>
-    fetchApi<ReplayRunResponse>(`/api/v1/runs/${id}/replay?from_step=${fromStep}`, {
-      method: 'POST',
+      body: JSON.stringify({}),
     }),
 
   /**

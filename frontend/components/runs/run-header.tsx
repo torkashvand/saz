@@ -1,19 +1,18 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { AlertCircle, CheckCircle2, Clock, RefreshCw, Rewind, Settings, PauseCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw, Settings, PauseCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RunDetailResponse } from '@/lib/types';
 
 interface RunHeaderProps {
   run: RunDetailResponse;
   onRetry?: () => void;
-  onReplay?: () => void;
   onConfigureCredential?: () => void;
   isRetrying?: boolean;
 }
 
-export function RunHeader({ run, onRetry, onReplay, onConfigureCredential, isRetrying }: RunHeaderProps) {
+export function RunHeader({ run, onRetry, onConfigureCredential, isRetrying }: RunHeaderProps) {
   const isFailed = run.status === 'failed';
   const isRunning = run.status === 'running' || run.status === 'pending';
   const isCompleted = run.status === 'completed' || run.status === 'success';
@@ -72,19 +71,12 @@ export function RunHeader({ run, onRetry, onReplay, onConfigureCredential, isRet
                     size="sm"
                     className="h-8"
                   >
-                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                    Retry from failing step
-                  </Button>
-                )}
-                {onReplay && (
-                  <Button
-                    onClick={onReplay}
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                  >
-                    <Rewind className="h-3.5 w-3.5 mr-1.5" />
-                    Replay from step...
+                    {isRetrying ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    {isRetrying ? 'Retrying...' : 'Retry from failing step'}
                   </Button>
                 )}
                 {errorSummary.remediation_actions?.includes('configure_credential') && onConfigureCredential && (

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useMemo } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useRunDetails, useResumeRun } from '@/lib/hooks';
 import { api } from '@/lib/api';
@@ -28,6 +28,7 @@ export default function RunDetailPageRedesign() {
   const params = useParams();
   const router = useRouter();
   const runId = params.id as string;
+  const queryClient = useQueryClient();
   const { showError, showSuccess } = useErrorToast();
   const { data: run, isLoading, error } = useRunDetails(runId);
   const { events } = useRunEvents(runId);
@@ -98,6 +99,7 @@ export default function RunDetailPageRedesign() {
             id: `ws-running-${displayStep.index}`,
             number: displayStep.index,
             name: displayStep.planned.name,
+            attempt: 1,
             step_type: displayStep.planned.step_type || 'unknown',
             status: 'running' as const,
             retry_count: 0,
@@ -108,22 +110,13 @@ export default function RunDetailPageRedesign() {
     });
   }, [run, runningStepNumbers]);
 
-  // Retry mutation
+  // Retry mutation (same-run semantics — stays on this page)
   const retryMutation = useMutation({
     mutationFn: () => api.retryRun(runId),
-    onSuccess: (data) => {
-      showSuccess(`New run created: ${data.new_run_id.slice(0, 8)}...`);
-      router.push(`/runs/${data.new_run_id}`);
-    },
-    onError: showError,
-  });
-
-  // Replay mutation
-  const replayMutation = useMutation({
-    mutationFn: (fromStep: number) => api.replayRun(runId, fromStep),
-    onSuccess: (data) => {
-      showSuccess(`New run created: ${data.new_run_id.slice(0, 8)}...`);
-      router.push(`/runs/${data.new_run_id}`);
+    onSuccess: () => {
+      showSuccess('Retrying from failing step...');
+      queryClient.invalidateQueries({ queryKey: ['run', runId] });
+      queryClient.invalidateQueries({ queryKey: ['runGraph', runId] });
     },
     onError: showError,
   });
@@ -199,18 +192,6 @@ export default function RunDetailPageRedesign() {
     setSelectedStepIndex(null);
   };
 
-  const handleReplay = () => {
-    const step = prompt(`Enter step number to replay from (1-${run?.steps.length || 0}):`);
-    if (step) {
-      const stepNum = parseInt(step, 10);
-      if (!isNaN(stepNum) && stepNum >= 1 && stepNum <= (run?.steps.length || 0)) {
-        replayMutation.mutate(stepNum - 1);
-      } else {
-        showError(`Please enter a number between 1 and ${run?.steps.length || 0}`);
-      }
-    }
-  };
-
   const handleCostRowClick = (stepNumber: number) => {
     setViewMode('steps');
     setTimeout(() => {
@@ -260,7 +241,6 @@ export default function RunDetailPageRedesign() {
         <RunHeader
           run={run}
           onRetry={() => retryMutation.mutate()}
-          onReplay={handleReplay}
           onConfigureCredential={() => router.push('/credentials')}
           isRetrying={retryMutation.isPending}
         />

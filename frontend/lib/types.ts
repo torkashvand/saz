@@ -150,6 +150,7 @@ export interface RunStep {
   id: string;
   number: number;
   name: string;
+  attempt: number;
   step_type: string;
   status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
   start_ts?: string;
@@ -202,16 +203,7 @@ export interface HumanApprovalError {
 }
 
 export interface RetryRunResponse {
-  original_run_id: string;
-  new_run_id: string;
-  failing_step: number;
-  status: string;
-}
-
-export interface ReplayRunResponse {
-  original_run_id: string;
-  new_run_id: string;
-  from_step: number;
+  run_id: string;
   status: string;
 }
 

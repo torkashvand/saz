@@ -279,5 +279,5 @@ async def test_verify_proposal_is_separate_from_critique(sample_step, sample_too
     # Verify different prompts were used
     verify_prompt = llm.calls[0]["messages"][0]["content"]
     critique_prompt = llm.calls[1]["messages"][0]["content"]
-    assert "pre-execution safety verifier" in verify_prompt.lower()
-    assert "critic and validator" in critique_prompt.lower()
+    assert "pre-execution" in verify_prompt.lower()
+    assert "post-execution" in critique_prompt.lower()

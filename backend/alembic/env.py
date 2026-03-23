@@ -90,10 +90,13 @@ def run_migrations_online() -> None:
     try:
         with context.begin_transaction():
             # Use PostgreSQL advisory lock to prevent concurrent migrations
-            connection.execute(text("SELECT pg_advisory_xact_lock(1000);"))
+            # (skip on SQLite which doesn't support advisory locks)
+            if "sqlite" not in str(engine.url):
+                connection.execute(text("SELECT pg_advisory_xact_lock(1000);"))
             context.run_migrations()
     finally:
-        connection.execute(text("SELECT pg_advisory_unlock(1000);"))
+        if "sqlite" not in str(engine.url):
+            connection.execute(text("SELECT pg_advisory_unlock(1000);"))
         connection.close()
 
 

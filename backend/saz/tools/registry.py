@@ -13,37 +13,82 @@ from .webhook_tool import WebhookTool
 logger = structlog.get_logger(__name__)
 
 
+_EXTRA_FIELD_SPECS: dict[str, dict[str, Any]] = {
+    "word_cap": {
+        "type": "integer",
+        "description": "Maximum word count for the output text.",
+    },
+    "branches_enum": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "List of allowed routing destinations. The model MUST choose "
+            "exactly one value from this list."
+        ),
+    },
+    "tools_allowlist": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Tool names the model may propose calls to.",
+    },
+    "target_locale": {
+        "type": "string",
+        "description": "Target language/locale code for translation (e.g. 'en', 'fr').",
+    },
+    "top_k": {
+        "type": "integer",
+        "description": "Maximum number of candidate matches to return.",
+    },
+}
+
+
 def _create_ai_tool_spec(op_name: str, op_spec: Any) -> dict[str, Any]:
     """Create MCP-style tool spec for an AI operation with output schema."""
+    # Build typed extra-parameter specs instead of generic strings
+    extra_properties = {}
+    for k in op_spec.input_extras.keys():
+        if k in _EXTRA_FIELD_SPECS:
+            extra_properties[k] = _EXTRA_FIELD_SPECS[k]
+        else:
+            extra_properties[k] = {"type": "string", "description": f"{k} parameter"}
+
     return {
         "name": op_name,
         "description": op_spec.description,
         "input_schema": {
             "type": "object",
             "properties": {
-                "instruction": {"type": "string", "description": "Task instruction or prompt"},
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "Task instruction describing what the AI should do. "
+                        "Be specific about expected output field names and format."
+                    ),
+                },
                 "data": {
                     "type": "object",
-                    "description": "Input data context",
+                    "description": "Input data to process. Passed as-is to the AI model.",
                     "additionalProperties": True,
                 },
                 "expected_schema": {
                     "type": "object",
-                    "description": "Override default output schema (for JSON ops)",
+                    "description": (
+                        "JSON Schema for the expected output. For JSON ops, the model "
+                        "is instructed to use EXACTLY the property names from this schema."
+                    ),
                     "additionalProperties": True,
                 },
                 "temperature_override": {
                     "type": "number",
-                    "description": "Override default temperature",
+                    "description": "Override default temperature (0.0-2.0).",
+                    "minimum": 0,
+                    "maximum": 2,
                 },
                 "max_tokens_override": {
                     "type": "integer",
-                    "description": "Override default max tokens",
+                    "description": "Override default max output tokens.",
                 },
-                **{
-                    k: {"type": "string", "description": f"{k} parameter"}
-                    for k in op_spec.input_extras.keys()
-                },
+                **extra_properties,
             },
             "required": ["instruction"],
         },

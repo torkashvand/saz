@@ -385,10 +385,24 @@ class AIOperationsRunner:
     ) -> str:
         """Build system prompt for AI op."""
         lines = [
-            f"You are an AI assistant performing: {spec.name}",
+            f"You are an AI assistant performing the operation: {spec.name}",
             f"Task: {spec.description}",
-            f"\nUser instruction: {instruction}",
         ]
+
+        # Grounding rules — reduces hallucination and schema drift
+        lines.append(
+            "\n## Rules"
+            "\n- Use ONLY information provided in the input data and instruction."
+            "\n- Do NOT invent, assume, or fabricate data not present in the input."
+            "\n- For optional fields where information is unavailable, omit the field."
+            "\n- For required fields, extract the value from the input."
+            " If the input genuinely does not contain the information needed"
+            " for a required field, do NOT fabricate a plausible-sounding"
+            " value. Instead, produce your best-effort extraction from the"
+            " available evidence and let validation catch any gaps."
+        )
+
+        lines.append(f"\n## Instruction\n{instruction}")
 
         # Add constraints from extras
         if "word_cap" in extras or "word_cap" in spec.input_extras:
@@ -397,19 +411,53 @@ class AIOperationsRunner:
 
         if "branches_enum" in extras:
             branches = extras["branches_enum"]
-            lines.append(f"\nValid routes: {', '.join(branches)}")
-            lines.append("You must choose exactly one route from this list.")
+            lines.append(f"\nValid routes: {json.dumps(branches)}")
+            lines.append(
+                "You MUST choose exactly one route from this list."
+                " Do not invent routes outside this list."
+            )
 
         if "tools_allowlist" in extras:
             tools = extras["tools_allowlist"]
-            lines.append(f"\nAvailable tools: {', '.join(tools)}")
-            lines.append("You may only propose calls to these tools.")
+            lines.append(f"\nAvailable tools: {json.dumps(tools)}")
+            lines.append("You may ONLY propose calls to these tools.")
 
-        # Add schema if JSON output
+        if "target_locale" in extras:
+            lines.append(f"\nTarget language/locale: {extras['target_locale']}")
+
+        # Schema enforcement — the most critical section for JSON ops
         if spec.output_format == "json" and expect_schema:
-            lines.append("\nOutput format: JSON matching this schema:")
-            lines.append(json.dumps(expect_schema, indent=2))
-            lines.append("\nIMPORTANT: Respond with ONLY valid JSON. No extra text.")
+            schema_str = json.dumps(expect_schema, indent=2)
+            properties = expect_schema.get("properties", {})
+            required = expect_schema.get("required", [])
+            field_names = list(properties.keys())
+
+            lines.append("\n## Output Schema (STRICT)")
+            lines.append(f"```json\n{schema_str}\n```")
+            lines.append("\nCRITICAL — You MUST follow this schema exactly:")
+            if field_names:
+                lines.append(f"- Use EXACTLY these JSON keys: {', '.join(field_names)}")
+            if required:
+                lines.append(f"- Required fields: {', '.join(required)}")
+
+            # Surface enum constraints explicitly
+            for fname, fschema in properties.items():
+                if "enum" in fschema:
+                    lines.append(
+                        f"- Field '{fname}' must be one of: " f"{json.dumps(fschema['enum'])}"
+                    )
+                if "minimum" in fschema or "maximum" in fschema:
+                    lo = fschema.get("minimum", "")
+                    hi = fschema.get("maximum", "")
+                    lines.append(f"- Field '{fname}' must be a number" f" in range [{lo}, {hi}]")
+
+            lines.append(
+                "- Do NOT rename keys, add extra keys, or use"
+                " human-readable labels instead of the schema keys."
+            )
+            lines.append(
+                "- Respond with ONLY valid JSON. No markdown, no explanation," " no wrapping."
+            )
 
         return "\n".join(lines)
 
@@ -436,52 +484,100 @@ class AIOperationsRunner:
         return "\n".join(lines)
 
     def _validate_json(self, data: Any, schema: dict[str, Any]) -> None:
-        """Validate JSON against schema (basic check with enum support)."""
-        # Basic validation - check required fields and types
+        """Validate JSON output against the expected schema.
+
+        Enforces:
+        - required fields present
+        - no unexpected extra keys (unless additionalProperties is true)
+        - type checking (string, number, integer, boolean, array, object)
+        - enum constraints
+        - numeric bounds (minimum, maximum)
+        """
         if schema.get("type") == "object":
             if not isinstance(data, dict):
                 raise ValueError(f"Expected object, got {type(data).__name__}")
 
             required = schema.get("required", [])
+            properties = schema.get("properties", {})
+            additional = schema.get("additionalProperties", False)
+
+            # Check required fields
             for field in required:
                 if field not in data:
                     raise ValueError(f"Missing required field: {field}")
-
-            properties = schema.get("properties", {})
-            for field, field_schema in properties.items():
-                if field in data:
-                    value = data[field]
+                # Required fields must not be None unless schema explicitly allows
+                if data[field] is None:
+                    field_schema = properties.get(field, {})
                     field_type = field_schema.get("type")
+                    if field_type and field_type != "null":
+                        raise ValueError(f"Required field '{field}' is null")
 
-                    # Type check
-                    if field_type == "string" and not isinstance(value, str):
-                        raise ValueError(f"Field '{field}' must be string")
-                    elif field_type == "number" and not isinstance(value, int | float):
-                        raise ValueError(f"Field '{field}' must be number")
-                    elif field_type == "boolean" and not isinstance(value, bool):
-                        raise ValueError(f"Field '{field}' must be boolean")
-                    elif field_type == "array" and not isinstance(value, list):
-                        raise ValueError(f"Field '{field}' must be array")
+            # Reject extra keys unless additionalProperties is allowed
+            if properties and not additional:
+                extra = set(data.keys()) - set(properties.keys())
+                if extra:
+                    raise ValueError(
+                        f"Unexpected extra fields: {sorted(extra)}. "
+                        f"Allowed fields: {sorted(properties.keys())}"
+                    )
 
-                    # Enum check (for any field type)
-                    if "enum" in field_schema:
-                        allowed_values = field_schema["enum"]
-                        if value not in allowed_values:
-                            raise ValueError(
-                                f"Field '{field}' has invalid value '{value}'. "
-                                f"Must be one of: {allowed_values}"
-                            )
+            # Validate each known property
+            for field, field_schema in properties.items():
+                if field not in data:
+                    continue
 
-                    # Bounds check for numbers
-                    if field_type == "number":
-                        if "minimum" in field_schema and value < field_schema["minimum"]:
-                            raise ValueError(
-                                f"Field '{field}' below minimum: {field_schema['minimum']}"
-                            )
-                        if "maximum" in field_schema and value > field_schema["maximum"]:
-                            raise ValueError(
-                                f"Field '{field}' above maximum: {field_schema['maximum']}"
-                            )
+                value = data[field]
+                field_type = field_schema.get("type")
+
+                # Null handling: null is only valid if the schema has no
+                # type constraint or explicitly allows null.  "Optional"
+                # means "may be omitted," not "may be null."
+                if value is None:
+                    if field_type and field_type != "null":
+                        raise ValueError(
+                            f"Field '{field}' is null but schema requires type '{field_type}'"
+                        )
+                    continue
+
+                # Type check
+                if field_type == "string" and not isinstance(value, str):
+                    raise ValueError(f"Field '{field}' must be string, got {type(value).__name__}")
+                elif field_type == "integer":
+                    if not isinstance(value, int) or isinstance(value, bool):
+                        raise ValueError(
+                            f"Field '{field}' must be integer, got {type(value).__name__}"
+                        )
+                elif field_type == "number":
+                    if isinstance(value, bool) or not isinstance(value, int | float):
+                        raise ValueError(
+                            f"Field '{field}' must be number, got {type(value).__name__}"
+                        )
+                elif field_type == "boolean" and not isinstance(value, bool):
+                    raise ValueError(f"Field '{field}' must be boolean, got {type(value).__name__}")
+                elif field_type == "array" and not isinstance(value, list):
+                    raise ValueError(f"Field '{field}' must be array, got {type(value).__name__}")
+                elif field_type == "object" and not isinstance(value, dict):
+                    raise ValueError(f"Field '{field}' must be object, got {type(value).__name__}")
+
+                # Enum check
+                if "enum" in field_schema:
+                    allowed_values = field_schema["enum"]
+                    if value not in allowed_values:
+                        raise ValueError(
+                            f"Field '{field}' has invalid value '{value}'. "
+                            f"Must be one of: {allowed_values}"
+                        )
+
+                # Bounds check for numbers
+                if field_type in ("number", "integer"):
+                    if "minimum" in field_schema and value < field_schema["minimum"]:
+                        raise ValueError(
+                            f"Field '{field}' value {value} below minimum {field_schema['minimum']}"
+                        )
+                    if "maximum" in field_schema and value > field_schema["maximum"]:
+                        raise ValueError(
+                            f"Field '{field}' value {value} above maximum {field_schema['maximum']}"
+                        )
 
     async def _repair_json(self, broken_json: str, target_schema: dict[str, Any]) -> dict[str, Any]:
         """Attempt to repair broken JSON using ai.fix_json."""

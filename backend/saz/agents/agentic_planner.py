@@ -322,14 +322,18 @@ Choose based on step criticality:
 
 ---
 
-## Critical Rules
+## Grounding Rules
 
-1. **Templates ONLY:** Use `$form.X`, `$step('Y').Z`, `$env('W')`, `$secret('S')` - nothing else
-2. **Tools ONLY:** From registry - never invent tool names
-3. **Schemas:** Provide realistic `expected_output_schema` matching tool output
-4. **Reasoning:** Every step and the plan must explain WHY
-5. **Budget:** Stay within autonomy budget limits
-6. **Safety:** Validate inputs before risky operations
+You MUST follow these rules to avoid generating an invalid or hallucinated plan:
+
+1. **Tools ONLY from registry.** Never invent tool names. If the registry does not contain a tool that directly supports the required action, reduce the plan scope to what the available tools can safely accomplish. Do not substitute a semantically different tool as an approximation.
+2. **Schemas from registry.** Copy `expected_output_schema` from the tool's `output_schema` field. Do not invent output fields that the tool does not produce.
+3. **Templates ONLY from allowed syntax.** Use only `$form.X`, `$step('Y').Z`, `$env('W')`, `$secret('S')`. Any other variable syntax will cause a runtime error.
+4. **Form fields must exist.** Only reference field names that appear in `form.fields` in the DSL. Do not invent form fields.
+5. **Step references must be valid.** `$step('step_id')` can only reference a step_id that appears earlier in your plan.
+6. **Budget limits.** The plan's total estimated cost must not exceed the remaining cost budget. If budget is too low for the needed steps, produce a reduced plan that stays within budget.
+7. **No external knowledge.** Do not assume operational details (URLs, credentials, API schemas) that are not provided in the workflow spec, form data, or tool registry.
+8. **Reasoning required.** Every step and the overall plan must explain WHY in the reasoning field.
 
 ---
 

@@ -53,15 +53,14 @@ workflow:
         data:
           text: "{{ $form.message_text }}"
           channel: "{{ $form.channel }}"
-      schema:
+      expect:
         type: object
         properties:
           has_pii:
             type: boolean
           categories:
             type: array
-            items:
-              type: string
+            items: { type: string }
           sanitized_text:
             type: string
         required: [has_pii, sanitized_text]
@@ -85,6 +84,12 @@ workflow:
           sanitized_text: "{{ $step('detect_and_tokenize_pii').sanitized_text }}"
           has_pii: "{{ $step('detect_and_tokenize_pii').has_pii }}"
           categories: "{{ $step('detect_and_tokenize_pii').categories }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 120
       temperature: 0.3
       max_tokens: 512

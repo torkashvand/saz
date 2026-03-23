@@ -202,6 +202,11 @@ workflow:
     - id: plan
       type: ai.generate
       instruction: Generate deployment plan
+      expect:
+        type: object
+        properties:
+          output: { type: string }
+        required: [output]
       params:
         data: {}
     - id: execute

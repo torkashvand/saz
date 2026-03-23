@@ -109,6 +109,12 @@ workflow:
           - erp_spend_query
           - supplier_risk_lookup
           - artifact_store
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
 
     # 3) Store a structured report as artifact
     - id: store_report

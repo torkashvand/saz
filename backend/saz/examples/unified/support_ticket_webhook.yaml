@@ -48,7 +48,7 @@ workflow:
       params:
         data:
           text: "{{ $form.ticket_text }}"
-      schema:
+      expect:
         type: object
         properties:
           category:
@@ -82,6 +82,15 @@ workflow:
         - sales_team
         - support_tier1
         - support_tier2_escalation
+      expect:
+        type: object
+        properties:
+          route:
+            type: string
+            enum: [engineering_support, billing_team, sales_team, support_tier1, support_tier2_escalation]
+          reason:
+            type: string
+        required: [route, reason]
       temperature: 0.1
       max_tokens: 256
 
@@ -97,6 +106,16 @@ workflow:
         data:
           ticket: "{{ $form.ticket_text }}"
           category: "{{ $step('extract_ticket_data').category }}"
+      expect:
+        type: object
+        properties:
+          score:
+            type: number
+            minimum: 0
+            maximum: 1
+          reason:
+            type: string
+        required: [score, reason]
       temperature: 0.1
       max_tokens: 256
 
@@ -117,6 +136,12 @@ workflow:
           sentiment: "{{ $step('extract_ticket_data').sentiment }}"
           routed_to: "{{ $step('route_ticket').route }}"
           complexity_score: "{{ $step('score_complexity').score }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 200
       temperature: 0.4
       max_tokens: 1024

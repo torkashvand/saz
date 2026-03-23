@@ -41,6 +41,11 @@ workflow:
     - id: step2
       type: ai.extract
       instruction: "Extract data"
+      expect:
+        type: object
+        properties:
+          result: { type: string }
+        required: [result]
 
 credentials:
   uses: [api_key]

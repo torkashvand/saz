@@ -46,15 +46,14 @@ workflow:
         data:
           runbook_type: "{{ $form.runbook_type }}"
           targets: "{{ $form.target_hosts }}"
-      schema:
+      expect:
         type: object
         properties:
           valid:
             type: boolean
           issues:
             type: array
-            items:
-              type: string
+            items: { type: string }
           recommendations:
             type: string
         required: [valid]
@@ -102,7 +101,7 @@ workflow:
         data:
           runbook_type: "{{ $form.runbook_type }}"
           callback_data: "{{ $step('wait_for_completion') }}"
-      schema:
+      expect:
         type: object
         properties:
           overall_status:
@@ -131,6 +130,12 @@ workflow:
           runbook: "{{ $form.runbook_type }}"
           targets: "{{ $form.target_hosts }}"
           analysis: "{{ $step('analyze_results') }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 300
       temperature: 0.3
       max_tokens: 1024

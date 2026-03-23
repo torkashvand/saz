@@ -117,6 +117,12 @@ workflow:
           needed_by: "{{ $form.needed_by }}"
           cost_centre: "{{ $form.cost_centre }}"
           vendor_constraints: "{{ $step('extract_requirements').vendor_constraints }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
 
     # 4) Human approval from procurement lead
     - id: approve_rfp

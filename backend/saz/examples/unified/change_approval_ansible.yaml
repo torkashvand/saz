@@ -50,7 +50,7 @@ workflow:
           description: "{{ $form.change_description }}"
           environment: "{{ $form.target_environment }}"
           playbook: "{{ $form.playbook_name }}"
-      schema:
+      expect:
         type: object
         properties:
           risk_level:
@@ -75,6 +75,12 @@ workflow:
           description: "{{ $form.change_description }}"
           environment: "{{ $form.target_environment }}"
           risk: "{{ $step('assess_risk') }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 150
       temperature: 0.3
       max_tokens: 512

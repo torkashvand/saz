@@ -696,6 +696,14 @@ def _validate_and_normalize_steps(
                 raise ValueError(
                     f"step '{sid}' (type: {stype}) requires non-empty 'instruction' field"
                 )
+            # All AI operations require expected output schema
+            if "expect" not in step or not step["expect"]:
+                raise ValueError(
+                    f"step '{sid}' (type: {stype}) requires 'expect' field with "
+                    f"expected output schema (properties, required fields, enums). "
+                    f"Without it, output validation is weak and the model may "
+                    f"return wrong field names."
+                )
         elif stype == "condition":
             _require_keys(step, ["if"])
             if "description" not in step or not step["description"]:

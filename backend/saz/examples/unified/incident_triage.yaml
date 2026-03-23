@@ -45,7 +45,7 @@ workflow:
         data:
           text: "{{ $form.incident_description }}"
           initial_severity: "{{ $form.initial_severity }}"
-      schema:
+      expect:
         type: object
         properties:
           category:
@@ -82,6 +82,15 @@ workflow:
         - data_team
         - security_team
         - infrastructure_team
+      expect:
+        type: object
+        properties:
+          route:
+            type: string
+            enum: [platform_oncall, app_backend_team, app_frontend_team, data_team, security_team, infrastructure_team]
+          reason:
+            type: string
+        required: [route, reason]
       temperature: 0.1
       max_tokens: 256
 
@@ -96,6 +105,12 @@ workflow:
           incident: "{{ $form.incident_description }}"
           extracted: "{{ $step('extract_incident_data') }}"
           routed_to: "{{ $step('route_to_team').route }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 150
       temperature: 0.3
       max_tokens: 512

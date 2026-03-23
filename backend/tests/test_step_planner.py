@@ -77,7 +77,7 @@ async def test_ai_step_conversion(planner):
                 "type": "ai.generate",
                 "instruction": "Generate something",
                 "params": {"data": {"input": "test"}},
-                "schema": {"type": "object"},
+                "expect": {"type": "object"},
                 "temperature": 0.5,
                 "max_tokens": 1024,
             }

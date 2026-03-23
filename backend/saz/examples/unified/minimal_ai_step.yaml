@@ -34,30 +34,25 @@ workflow:
       params:
         data:
           text: "{{ $form.input_text }}"
-      schema:
+      expect:
         type: object
         properties:
           people:
             type: array
-            items:
-              type: string
+            items: { type: string }
           organizations:
             type: array
-            items:
-              type: string
+            items: { type: string }
           locations:
             type: array
-            items:
-              type: string
+            items: { type: string }
           dates:
             type: array
-            items:
-              type: string
+            items: { type: string }
           topics:
             type: array
-            items:
-              type: string
-        required: []
+            items: { type: string }
+        required: [people, organizations, locations]
       temperature: 0.1
       max_tokens: 512
 

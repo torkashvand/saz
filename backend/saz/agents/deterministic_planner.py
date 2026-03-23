@@ -156,7 +156,7 @@ class DeterministicPlanner:
             return {
                 "instruction": step_dict.get("instruction", ""),
                 "data": step_dict.get("params", {}).get("data", {}),
-                "expected_schema": step_dict.get("schema"),
+                "expected_schema": step_dict.get("expect"),
                 "temperature_override": step_dict.get("temperature"),
                 "max_tokens_override": step_dict.get("max_tokens"),
                 # Pass through any AI-specific extras

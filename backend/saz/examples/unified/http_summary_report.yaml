@@ -88,15 +88,14 @@ workflow:
           metrics: "{{ $step('fetch_metrics') }}"
           incidents: "{{ $step('fetch_incidents') }}"
           deployments: "{{ $step('fetch_deployments') }}"
-      schema:
+      expect:
         type: object
         properties:
           health_score:
             type: number
           top_issues:
             type: array
-            items:
-              type: string
+            items: { type: string }
           deployment_count:
             type: number
           incident_count:
@@ -121,6 +120,12 @@ workflow:
           metrics: "{{ $step('fetch_metrics') }}"
           incidents: "{{ $step('fetch_incidents') }}"
           deployments: "{{ $step('fetch_deployments') }}"
+      expect:
+        type: object
+        properties:
+          output:
+            type: string
+        required: [output]
       word_cap: 400
       temperature: 0.4
       max_tokens: 1536

@@ -768,11 +768,25 @@ class WorkflowExecutor:
         )
         await emitter.commit_and_broadcast()
 
+        # For AI ops, inject the plan step's expected_output_schema so the
+        # AI-op prompt builder lists the exact required field names and the
+        # runtime validator enforces them.  Without this, ai.extract uses
+        # its permissive default schema (additionalProperties: true) and
+        # the model may return wrong key names that only the post-execution
+        # critic catches — leading to repeated identical failures on retry.
+        exec_arguments = {**tool_call.arguments}
+        if (
+            plan_step.expected_output_schema
+            and tool_call.tool.startswith("ai.")
+            and "expected_schema" not in exec_arguments
+        ):
+            exec_arguments["expected_schema"] = plan_step.expected_output_schema
+
         tool_start_time = datetime.now()
         try:
             result = await self.tool_registry.execute_tool(
                 tool_name=tool_call.tool,
-                arguments=tool_call.arguments,
+                arguments=exec_arguments,
                 idempotency_key=tool_call.idempotency_key,
                 run_id=run_id,
                 step_id=plan_step.step_id,

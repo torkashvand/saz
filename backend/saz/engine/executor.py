@@ -615,6 +615,12 @@ class WorkflowExecutor:
                 # Suspension is not a failure — let it propagate to the main loop
                 raise
 
+            except (PolicyViolation, EscalationRequired):
+                # Deterministic failures — retrying will not fix them.
+                # PolicyViolation: PII on disallowed paths, budget exceeded, etc.
+                # EscalationRequired: needs human review.
+                raise
+
             except Exception as e:
                 last_error = e
                 step.retry_count = attempt  # 0-based index of failed attempt

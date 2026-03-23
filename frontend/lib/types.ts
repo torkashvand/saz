@@ -421,3 +421,13 @@ export interface TemplateDetail {
   credentials: string[];
   form_schema: Record<string, any>;
 }
+
+// --- AI Operations Reference ---
+
+export interface AIOpReference {
+  name: string;
+  description: string;
+  output_format: 'json' | 'text';
+  default_output_schema: Record<string, any>;
+  extras: Record<string, any>;
+}

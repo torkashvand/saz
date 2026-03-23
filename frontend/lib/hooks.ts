@@ -2,6 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { RegisterFlowRequest, CompileFlowRequest, CreateRunRequest, ResumeRunRequest } from './types';
 
+// ========== AI Operations Reference ==========
+
+export function useAIOps() {
+  return useQuery({
+    queryKey: ['ai-ops'],
+    queryFn: () => api.listAIOps(),
+    staleTime: 5 * 60 * 1000, // 5 min — AI ops don't change at runtime
+  });
+}
+
 // ========== Unified DSL Hooks ==========
 
 export function useCompileFlow() {

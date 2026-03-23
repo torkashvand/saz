@@ -1,31 +1,52 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ValidationResult, FlowDraft } from '@/lib/flows/types';
-import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Zap } from 'lucide-react';
+import { AIOpsReferencePanel } from './ai-ops-reference';
 
 interface FlowPreviewPanelProps {
   validationResult: ValidationResult | null;
   draft: FlowDraft;
 }
 
+/**
+ * Extract AI op type from a validation error about missing `expect`.
+ * Returns the ai.* type if found, or null.
+ */
+function extractAIOpFromError(message: string): string | null {
+  const match = message.match(/\(type:\s*(ai\.\w+)\)/);
+  return match ? match[1] : null;
+}
+
 export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelProps) {
-  if (!validationResult) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-        No preview available. Build your flow or validate YAML.
-      </div>
-    );
-  }
+  const [activeTab, setActiveTab] = useState('summary');
+  const [focusOp, setFocusOp] = useState<string | null>(null);
+
+  const handleOpenOpReference = useCallback((opName: string) => {
+    setFocusOp(opName);
+    setActiveTab('ai-ops');
+  }, []);
 
   return (
-    <Tabs defaultValue="summary" className="h-full flex flex-col">
-      <TabsList className="grid w-full grid-cols-2">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+      <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="summary">Summary</TabsTrigger>
-        <TabsTrigger value="form">Form Schema</TabsTrigger>
+        <TabsTrigger value="form">Form</TabsTrigger>
+        <TabsTrigger value="ai-ops" className="gap-1">
+          <Zap className="h-3 w-3" />
+          AI Ops
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="summary" className="flex-1 space-y-4 overflow-y-auto">
+        {!validationResult ? (
+          <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
+            No preview available. Build your flow or validate YAML.
+          </div>
+        ) : (
+        <>
         {/* Validation Status Card */}
         <div className="border border-slate-200 rounded-lg p-4 bg-white">
           <h3 className="text-sm font-semibold text-slate-900 mb-3">Validation Status</h3>
@@ -47,12 +68,26 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
                   <div className="text-sm font-medium text-red-700">
                     {validationResult.errors.length} errors
                   </div>
-                  <div className="mt-2 space-y-1">
-                    {validationResult.errors.slice(0, 3).map((err, idx) => (
-                      <div key={idx} className="text-xs text-red-600">
-                        • {err.message}
-                      </div>
-                    ))}
+                  <div className="mt-2 space-y-1.5">
+                    {validationResult.errors.slice(0, 3).map((err, idx) => {
+                      const aiOp = extractAIOpFromError(err.message);
+                      return (
+                        <div key={idx}>
+                          <div className="text-xs text-red-600">
+                            • {err.message}
+                          </div>
+                          {aiOp && err.message.includes("expect") && (
+                            <button
+                              onClick={() => handleOpenOpReference(aiOp)}
+                              className="ml-3 mt-0.5 text-[11px] text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                            >
+                              <Zap className="h-3 w-3" />
+                              Open {aiOp} reference
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </>
@@ -132,6 +167,8 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
             )}
           </div>
         </div>
+        </>
+        )}
       </TabsContent>
 
       <TabsContent value="form" className="flex-1 overflow-y-auto">
@@ -170,6 +207,13 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
             </div>
           )}
         </div>
+      </TabsContent>
+
+      <TabsContent value="ai-ops" className="flex-1 overflow-y-auto">
+        <AIOpsReferencePanel
+          focusOp={focusOp}
+          onFocusHandled={() => setFocusOp(null)}
+        />
       </TabsContent>
     </Tabs>
   );

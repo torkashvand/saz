@@ -363,6 +363,11 @@ export const api = {
   // ========== Templates ==========
 
   /**
+   * List available AI operations with default schemas
+   */
+  listAIOps: () => fetchApi<import('./types').AIOpReference[]>('/api/v1/flows/ai-ops'),
+
+  /**
    * List all available flow templates
    */
   listTemplates: (recommendedOnly: boolean = false) =>

@@ -38,7 +38,28 @@ export default function RunDetailPageRedesign() {
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
   const [drawerStepId, setDrawerStepId] = useState<string | null>(null);
 
-  const isRunning = run?.status === 'running' || run?.status === 'pending';
+  // Derive running state from BOTH canonical data and live events.
+  // Canonical run.status may still be "queued" for a brief period after
+  // execution starts (until the cache invalidation refetch completes).
+  // The live event stream tells us immediately that the run is active.
+  const isRunningCanonical = run?.status === 'running' || run?.status === 'pending';
+  const isRunningFromEvents = useMemo(() => {
+    // Walk events in order; the last run-lifecycle event determines state.
+    let active = false;
+    for (const e of events) {
+      if (e.event_type === 'run.started' || e.event_type === 'run.resumed') {
+        active = true;
+      } else if (
+        e.event_type === 'run.completed' ||
+        e.event_type === 'run.failed' ||
+        e.event_type === 'run.suspended'
+      ) {
+        active = false;
+      }
+    }
+    return active;
+  }, [events]);
+  const isRunning = isRunningCanonical || isRunningFromEvents;
   const isSuspended = run?.status === 'suspended';
 
   // Detect human approval requirement from run.error
@@ -115,13 +136,35 @@ export default function RunDetailPageRedesign() {
   //   1. kind === 'planned' (step never executed) → create synthetic step
   //   2. kind === 'executed' but status is terminal (failed/completed from
   //      an older attempt) → override with running status for the new attempt
+  // When the run is active but no step.started event has arrived yet
+  // (planner is generating the plan), infer which step will run next
+  // so both the step cards AND the timeline show immediate feedback.
+  const effectiveRunningIndexes = useMemo(() => {
+    if (runningStepNumbers.size > 0 || !isRunningFromEvents || !run) {
+      return runningStepNumbers;
+    }
+    const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
+    const nextStep = steps.find(s =>
+      s.kind === 'planned' ||
+      (s.kind === 'executed' && s.step.status === 'failed')
+    );
+    if (nextStep !== undefined) {
+      const inferred = new Set(runningStepNumbers);
+      inferred.add(nextStep.index);
+      return inferred;
+    }
+    return runningStepNumbers;
+  }, [runningStepNumbers, isRunningFromEvents, run]);
+
   const displaySteps = useMemo(() => {
     if (!run) return [];
     const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
 
     // Enhance with real-time running status from WebSocket
+    // (effectiveRunningIndexes includes both confirmed step.started
+    // events AND the inferred next-step during the planning gap)
     return steps.map(displayStep => {
-      if (!runningStepNumbers.has(displayStep.index)) {
+      if (!effectiveRunningIndexes.has(displayStep.index)) {
         return displayStep;
       }
 
@@ -158,7 +201,7 @@ export default function RunDetailPageRedesign() {
 
       return displayStep;
     });
-  }, [run, runningStepNumbers]);
+  }, [run, effectiveRunningIndexes]);
 
   // Retry mutation (same-run semantics — stays on this page)
   const retryMutation = useMutation({
@@ -356,10 +399,10 @@ export default function RunDetailPageRedesign() {
           <StepProgressTimeline
             plannedSteps={run.planned_steps}
             executedSteps={run.steps}
-            runStatus={run.status}
+            runStatus={isRunning ? 'running' : run.status}
             selectedStepIndex={selectedStepIndex}
             onSelectStep={handleSelectStep}
-            liveRunningIndexes={runningStepNumbers}
+            liveRunningIndexes={effectiveRunningIndexes}
           />
         </div>
       )}

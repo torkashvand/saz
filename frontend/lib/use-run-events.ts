@@ -47,9 +47,17 @@ export function useRunEvents(runId: string) {
         });
 
         // Invalidate run details cache when run state changes materially.
-        // This covers step transitions, terminal states, and suspension/resume
-        // so the UI (approval panel, status badges, timeline) updates live.
+        //
+        // run.started triggers a refetch so run.status updates from
+        // "queued" to "running". step.started is NOT included because
+        // it doesn't change run.status and the live overlay already
+        // handles step-level running state — including it would cause
+        // unnecessary refetch churn (one per step).
+        //
+        // step.completed/failed ARE included because they persist
+        // step results and may change run-level aggregates.
         if (
+          event.event_type === 'run.started' ||
           event.event_type === 'step.completed' ||
           event.event_type === 'step.failed' ||
           event.event_type === 'run.completed' ||

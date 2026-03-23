@@ -642,3 +642,320 @@ describe('live overlay — full integration', () => {
     expect(runningIndexes.has(4)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// H. Immediate run-active detection from live events
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulate the page-level isRunningFromEvents derivation.
+ * This mirrors the useMemo in page.tsx that detects run activity
+ * from WebSocket events before the canonical run.status updates.
+ * Uses last-event-wins so resumed-after-suspended works correctly.
+ */
+function deriveIsRunningFromEvents(
+  events: Array<{ event_type: string }>,
+): boolean {
+  let active = false;
+  for (const e of events) {
+    if (e.event_type === 'run.started' || e.event_type === 'run.resumed') {
+      active = true;
+    } else if (
+      e.event_type === 'run.completed' ||
+      e.event_type === 'run.failed' ||
+      e.event_type === 'run.suspended'
+    ) {
+      active = false;
+    }
+  }
+  return active;
+}
+
+describe('live overlay — immediate run-active detection', () => {
+  it('REGRESSION: run.started makes isRunning true even when canonical status is queued', () => {
+    // This is the exact bug: run.status is still "queued" (refetch pending)
+    // but run.started event has arrived via WebSocket
+    const canonicalStatus = 'queued';
+    const isRunningCanonical = canonicalStatus === 'running' || canonicalStatus === 'pending';
+
+    const events = [
+      { event_type: 'run.started' },
+    ];
+    const isRunningFromEvents = deriveIsRunningFromEvents(events);
+
+    // Canonical says not running, but events say it is
+    expect(isRunningCanonical).toBe(false);
+    expect(isRunningFromEvents).toBe(true);
+
+    // Combined result: should be running
+    const isRunning = isRunningCanonical || isRunningFromEvents;
+    expect(isRunning).toBe(true);
+  });
+
+  it('plan.generated without terminal event keeps run active', () => {
+    const events = [
+      { event_type: 'run.started' },
+      { event_type: 'plan.generated' },
+    ];
+    expect(deriveIsRunningFromEvents(events)).toBe(true);
+  });
+
+  it('run.completed clears active state from events', () => {
+    const events = [
+      { event_type: 'run.started' },
+      { event_type: 'run.completed' },
+    ];
+    expect(deriveIsRunningFromEvents(events)).toBe(false);
+  });
+
+  it('run.failed clears active state from events', () => {
+    const events = [
+      { event_type: 'run.started' },
+      { event_type: 'run.failed' },
+    ];
+    expect(deriveIsRunningFromEvents(events)).toBe(false);
+  });
+
+  it('run.suspended clears active state from events', () => {
+    const events = [
+      { event_type: 'run.started' },
+      { event_type: 'run.suspended' },
+    ];
+    expect(deriveIsRunningFromEvents(events)).toBe(false);
+  });
+
+  it('run.resumed re-activates after suspension', () => {
+    const events = [
+      { event_type: 'run.started' },
+      { event_type: 'run.suspended' },
+      { event_type: 'run.resumed' },
+    ];
+    expect(deriveIsRunningFromEvents(events)).toBe(true);
+  });
+
+  it('no events means not running', () => {
+    expect(deriveIsRunningFromEvents([])).toBe(false);
+  });
+
+  it('timeline shows first step running when isRunning is true from events', () => {
+    const canonicalStatus = 'queued';
+    const isRunning = true;
+    const effectiveRunStatus = isRunning ? 'running' : canonicalStatus;
+    expect(effectiveRunStatus).toBe('running');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I. Inferred next-step during planning gap — mirrors effectiveRunningIndexes
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulate the page-level effectiveRunningIndexes computation.
+ * Mirrors the useMemo in page.tsx exactly.
+ */
+function computeEffectiveRunningIndexes(
+  runningStepNumbers: Set<number>,
+  isRunningFromEvents: boolean,
+  plannedSteps: PlannedStep[],
+  executedSteps: RunStep[],
+): Set<number> {
+  if (runningStepNumbers.size > 0 || !isRunningFromEvents) {
+    return runningStepNumbers;
+  }
+  const steps = buildDisplaySteps('deterministic', plannedSteps, executedSteps);
+  const nextStep = steps.find(s =>
+    s.kind === 'planned' ||
+    (s.kind === 'executed' && s.step.status === 'failed')
+  );
+  if (nextStep !== undefined) {
+    const inferred = new Set(runningStepNumbers);
+    inferred.add(nextStep.index);
+    return inferred;
+  }
+  return runningStepNumbers;
+}
+
+describe('inferred next-step during planning gap', () => {
+  it('fresh run: first planned step gets spinner', () => {
+    const effective = computeEffectiveRunningIndexes(
+      new Set(), true, PLANNED, [],
+    );
+    expect(effective.has(0)).toBe(true);
+    expect(effective.size).toBe(1);
+  });
+
+  it('retry: failed step at position 3 gets spinner, not step 0', () => {
+    const executed: RunStep[] = [
+      executedStep('extract_requirements', 0, 'completed'),
+      executedStep('validate_budget', 1, 'completed'),
+      executedStep('draft_rfp', 2, 'completed'),
+      executedStep('create_rfp_record', 3, 'failed', 1),
+    ];
+    const effective = computeEffectiveRunningIndexes(
+      new Set(), true, PLANNED, executed,
+    );
+    expect(effective.has(3)).toBe(true);
+    expect(effective.has(0)).toBe(false);
+    expect(effective.size).toBe(1);
+  });
+
+  it('all completed + one planned: infers the planned step', () => {
+    const executed: RunStep[] = [
+      executedStep('extract_requirements', 0, 'completed'),
+      executedStep('validate_budget', 1, 'completed'),
+      executedStep('draft_rfp', 2, 'completed'),
+      executedStep('create_rfp_record', 3, 'completed'),
+    ];
+    const effective = computeEffectiveRunningIndexes(
+      new Set(), true, PLANNED, executed,
+    );
+    // Step 4 (send_confirmation) is still planned
+    expect(effective.has(4)).toBe(true);
+    expect(effective.size).toBe(1);
+  });
+
+  it('all steps completed: no inference (nothing to run)', () => {
+    const executed: RunStep[] = [
+      executedStep('extract_requirements', 0, 'completed'),
+      executedStep('validate_budget', 1, 'completed'),
+      executedStep('draft_rfp', 2, 'completed'),
+      executedStep('create_rfp_record', 3, 'completed'),
+      executedStep('send_confirmation', 4, 'completed'),
+    ];
+    const effective = computeEffectiveRunningIndexes(
+      new Set(), true, PLANNED, executed,
+    );
+    expect(effective.size).toBe(0);
+  });
+
+  it('skipped when step.started already populated runningStepNumbers', () => {
+    const effective = computeEffectiveRunningIndexes(
+      new Set([2]), true, PLANNED, [],
+    );
+    // Should return original set unchanged
+    expect(effective.has(2)).toBe(true);
+    expect(effective.size).toBe(1);
+  });
+
+  it('skipped when run is not active from events', () => {
+    const effective = computeEffectiveRunningIndexes(
+      new Set(), false, PLANNED, [],
+    );
+    expect(effective.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// J. Full page-level user-visible state simulation
+// ---------------------------------------------------------------------------
+
+describe('page-level user-visible state', () => {
+  it('REGRESSION: fresh run — user sees spinner on first step immediately', () => {
+    // Simulates the full page-level state derivation a user would see:
+    // canonical run.status is still "queued", run.started event arrived
+
+    // 1. Canonical state
+    const canonicalRunStatus = 'queued';
+    const canonicalSteps: RunStep[] = [];
+
+    // 2. Live events
+    const events = [makeRunEvent('run.started')];
+
+    // 3. Derive isRunning (page.tsx logic)
+    const isRunningCanonical = canonicalRunStatus === 'running';
+    const isRunningFromLiveEvents = deriveIsRunningFromEvents(
+      events.map(e => ({ event_type: e.event_type })),
+    );
+    const isRunning = isRunningCanonical || isRunningFromLiveEvents;
+    expect(isRunning).toBe(true);
+
+    // 4. Derive running step numbers from events
+    const runningStepNumbers = deriveRunningIndexes(events, canonicalSteps, PLANNED);
+    expect(runningStepNumbers.size).toBe(0); // no step.started yet
+
+    // 5. Compute effective running indexes (with inference)
+    const effective = computeEffectiveRunningIndexes(
+      runningStepNumbers, isRunningFromLiveEvents, PLANNED, canonicalSteps,
+    );
+    expect(effective.has(0)).toBe(true); // first step inferred
+
+    // 6. Build display steps with overlay
+    const displaySteps = buildDisplaySteps('deterministic', PLANNED, canonicalSteps);
+    const finalSteps = applyLiveOverlay(displaySteps, effective);
+
+    // USER-VISIBLE RESULT: first step shows spinner, rest show not started
+    const statuses = finalSteps.map(ds =>
+      ds.kind === 'executed' ? ds.step.status : 'not_started'
+    );
+    expect(statuses).toEqual([
+      'running',      // extract_requirements — SPINNER visible
+      'not_started',  // validate_budget
+      'not_started',  // draft_rfp
+      'not_started',  // create_rfp_record
+      'not_started',  // send_confirmation
+    ]);
+
+    // Live badge visible
+    expect(isRunning).toBe(true);
+  });
+
+  it('REGRESSION: retry — user sees spinner on failed step immediately', () => {
+    // canonical: steps 0-2 completed, step 3 failed, run.status = "queued" (retry just triggered)
+    const canonicalRunStatus = 'queued';
+    const canonicalSteps: RunStep[] = [
+      executedStep('extract_requirements', 0, 'completed'),
+      executedStep('validate_budget', 1, 'completed'),
+      executedStep('draft_rfp', 2, 'completed'),
+      executedStep('create_rfp_record', 3, 'failed', 1),
+    ];
+
+    // run.started arrives
+    const events = [makeRunEvent('run.started')];
+
+    const isRunningFromLiveEvents = deriveIsRunningFromEvents(
+      events.map(e => ({ event_type: e.event_type })),
+    );
+    expect(isRunningFromLiveEvents).toBe(true);
+
+    const runningStepNumbers = deriveRunningIndexes(events, canonicalSteps, PLANNED);
+    expect(runningStepNumbers.size).toBe(0);
+
+    const effective = computeEffectiveRunningIndexes(
+      runningStepNumbers, isRunningFromLiveEvents, PLANNED, canonicalSteps,
+    );
+    expect(effective.has(3)).toBe(true); // failed step inferred
+
+    const displaySteps = buildDisplaySteps('deterministic', PLANNED, canonicalSteps);
+    const finalSteps = applyLiveOverlay(displaySteps, effective);
+
+    const statuses = finalSteps.map(ds =>
+      ds.kind === 'executed' ? ds.step.status : 'not_started'
+    );
+    expect(statuses).toEqual([
+      'completed',    // extract_requirements
+      'completed',    // validate_budget
+      'completed',    // draft_rfp
+      'running',      // create_rfp_record — SPINNER on failed step
+      'not_started',  // send_confirmation
+    ]);
+  });
+
+  it('after step.started arrives, inference stops and real state takes over', () => {
+    const canonicalSteps: RunStep[] = [];
+
+    // run.started + step.started for step 0
+    const events = [
+      makeRunEvent('run.started'),
+      makeEvent('step.started', 'extract_requirements'),
+    ];
+
+    const runningStepNumbers = deriveRunningIndexes(events, canonicalSteps, PLANNED);
+    expect(runningStepNumbers.has(0)).toBe(true);
+
+    // Since runningStepNumbers is non-empty, inference is skipped
+    const effective = computeEffectiveRunningIndexes(
+      runningStepNumbers, true, PLANNED, canonicalSteps,
+    );
+    expect(effective).toBe(runningStepNumbers); // same reference, no inference
+  });
+});

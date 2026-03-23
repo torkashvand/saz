@@ -567,7 +567,10 @@ class WorkflowExecutor:
 
                 # Execute step based on action type
                 result = await self._execute_step_action(
-                    plan_step=plan_step, context=context, run_id=run_id
+                    plan_step=plan_step,
+                    context=context,
+                    run_id=run_id,
+                    tool_attempt=attempt + 1,  # 1-based attempt ordinal
                 )
 
                 # Success - mark step as completed
@@ -602,6 +605,8 @@ class WorkflowExecutor:
 
             except Exception as e:
                 last_error = e
+                step.retry_count = attempt  # 0-based index of failed attempt
+                self.uow.commit()
                 logger.warning(f"Step {step_id} attempt {attempt + 1}/{max_attempts} failed: {e}")
 
                 # If this is the last attempt, fail the step
@@ -646,7 +651,13 @@ class WorkflowExecutor:
         # Should never reach here
         raise last_error or Exception(f"Step {step_id} failed without error")
 
-    async def _execute_step_action(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
+    async def _execute_step_action(
+        self,
+        plan_step: PlanStep,
+        context: dict,
+        run_id: str,
+        tool_attempt: int = 1,
+    ) -> Any:
         """
         Execute step based on step_type.
 
@@ -654,6 +665,7 @@ class WorkflowExecutor:
             plan_step: Plan step specification
             context: Execution context
             run_id: Run identifier
+            tool_attempt: 1-based retry attempt ordinal (from the executor retry loop)
 
         Returns:
             Step result
@@ -662,7 +674,7 @@ class WorkflowExecutor:
 
         # AI operations and tool.call → execute as tool call
         if t.startswith("ai.") or t == "tool.call" or t.startswith("artifact."):
-            return await self._execute_tool_call(plan_step, context, run_id)
+            return await self._execute_tool_call(plan_step, context, run_id, tool_attempt)
 
         # Condition evaluation
         elif t == "condition":
@@ -682,7 +694,13 @@ class WorkflowExecutor:
                 f"Expected: ai.*, tool.call, artifact.*, condition, human.approval, or webhook.wait"
             )
 
-    async def _execute_tool_call(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
+    async def _execute_tool_call(
+        self,
+        plan_step: PlanStep,
+        context: dict,
+        run_id: str,
+        tool_attempt: int = 1,
+    ) -> Any:
         """
         Execute tool call with dual-agent safety model:
         1. Ground step (ExecutorAgent)
@@ -743,7 +761,11 @@ class WorkflowExecutor:
         # --- Phase 3: Execute tool ---
         current_step: Step = context["current_step"]
 
-        emitter.tool_started(step_id=current_step.id, tool_name=tool_call.tool, attempt=1)
+        emitter.tool_started(
+            step_id=current_step.id,
+            tool_name=tool_call.tool,
+            attempt=tool_attempt,
+        )
         await emitter.commit_and_broadcast()
 
         tool_start_time = datetime.now()
@@ -761,6 +783,7 @@ class WorkflowExecutor:
                 step_id=current_step.id,
                 tool_name=tool_call.tool,
                 duration_ms=tool_duration_ms,
+                attempt=tool_attempt,
             )
             await emitter.commit_and_broadcast()
 
@@ -771,6 +794,7 @@ class WorkflowExecutor:
                 tool_name=tool_call.tool,
                 error=str(tool_error),
                 error_type=type(tool_error).__name__,
+                attempt=tool_attempt,
             )
             await emitter.commit_and_broadcast()
             raise

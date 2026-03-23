@@ -60,6 +60,28 @@ export default function RunDetailPageRedesign() {
     if (!run?.planned_steps) return running;
 
     events.forEach(event => {
+      // Run-level terminal / pause events: clear ALL running indicators.
+      // When a run suspends (approval gate), completes, or fails, no step
+      // should remain in the live "running" set.  Without this, a step
+      // that was started before suspension stays falsely lit as running,
+      // and after retry/resume the UI shows two running steps at once.
+      if (
+        event.event_type === 'run.suspended' ||
+        event.event_type === 'run.completed' ||
+        event.event_type === 'run.failed'
+      ) {
+        running.clear();
+        return;
+      }
+
+      // Step-level suspension (approval step marked suspended)
+      if (event.event_type === 'step.suspended') {
+        const idx = resolveCanonicalStepIndex(event, run.steps, run.planned_steps);
+        if (idx !== undefined) running.delete(idx);
+        return;
+      }
+
+      // Step lifecycle: started adds, completed/failed removes
       if (
         event.event_type !== 'step.started' &&
         event.event_type !== 'step.completed' &&
@@ -68,7 +90,6 @@ export default function RunDetailPageRedesign() {
         return;
       }
 
-      // Resolve canonical planned-step index by step name
       const canonicalIndex = resolveCanonicalStepIndex(event, run.steps, run.planned_steps);
 
       if (canonicalIndex !== undefined) {
@@ -83,15 +104,29 @@ export default function RunDetailPageRedesign() {
     return running;
   }, [events, run?.steps, run?.planned_steps]);
 
-  // Build display steps based on planner mode
+  // Build display steps based on planner mode, then overlay live running state.
+  //
+  // The canonical source of truth is run.steps (persisted). The WebSocket
+  // events provide a live overlay so the operator sees which step is
+  // currently executing without waiting for the next API poll.
+  //
+  // After retry, the canonical step may still be "failed" (old attempt)
+  // while a new attempt is running. The overlay must handle BOTH cases:
+  //   1. kind === 'planned' (step never executed) → create synthetic step
+  //   2. kind === 'executed' but status is terminal (failed/completed from
+  //      an older attempt) → override with running status for the new attempt
   const displaySteps = useMemo(() => {
     if (!run) return [];
     const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
 
     // Enhance with real-time running status from WebSocket
     return steps.map(displayStep => {
-      if (displayStep.kind === 'planned' && runningStepNumbers.has(displayStep.index)) {
-        // Create a synthetic "running" step for better UX
+      if (!runningStepNumbers.has(displayStep.index)) {
+        return displayStep;
+      }
+
+      if (displayStep.kind === 'planned') {
+        // Step never executed — create a synthetic running step
         return {
           ...displayStep,
           kind: 'executed' as const,
@@ -106,6 +141,21 @@ export default function RunDetailPageRedesign() {
           },
         };
       }
+
+      // Step already has a canonical record (e.g. failed from a previous
+      // attempt). Override to show it as running with the next attempt number.
+      if (displayStep.kind === 'executed' && displayStep.step.status !== 'running') {
+        return {
+          ...displayStep,
+          step: {
+            ...displayStep.step,
+            status: 'running' as const,
+            // Signal that this is the next attempt beyond what's persisted
+            attempt: displayStep.step.attempt + 1,
+          },
+        };
+      }
+
       return displayStep;
     });
   }, [run, runningStepNumbers]);
@@ -309,6 +359,7 @@ export default function RunDetailPageRedesign() {
             runStatus={run.status}
             selectedStepIndex={selectedStepIndex}
             onSelectStep={handleSelectStep}
+            liveRunningIndexes={runningStepNumbers}
           />
         </div>
       )}

@@ -11,6 +11,8 @@ interface StepProgressTimelineProps {
   runStatus: string;
   selectedStepIndex: number | null;
   onSelectStep: (index: number) => void;
+  /** Canonical step indexes currently running (from live WebSocket overlay) */
+  liveRunningIndexes?: Set<number>;
 }
 
 type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'suspended';
@@ -26,7 +28,8 @@ type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'su
 function deriveStepStates(
   plannedSteps: PlannedStep[],
   executedSteps: RunStep[],
-  runStatus: string
+  runStatus: string,
+  liveRunningIndexes?: Set<number>
 ): StepVisualStatus[] {
   // Check if run has started
   const runHasStarted = runStatus === 'running' || runStatus === 'completed' || runStatus === 'failed' || runStatus === 'suspended';
@@ -37,6 +40,15 @@ function deriveStepStates(
   );
 
   return plannedSteps.map((planned, index) => {
+    // Live WebSocket overlay takes priority: if the live events say this
+    // step is currently running, show it as running regardless of what the
+    // (possibly stale) canonical data says. This is critical after retry
+    // where the canonical step may still be "failed" (old attempt) while
+    // a new attempt is actively executing.
+    if (liveRunningIndexes?.has(index)) {
+      return 'running';
+    }
+
     const executed = findExecutedStepForPlanned(executedSteps, planned);
 
     // If we have an executed step, use its status
@@ -79,13 +91,14 @@ export function StepProgressTimeline({
   runStatus,
   selectedStepIndex,
   onSelectStep,
+  liveRunningIndexes,
 }: StepProgressTimelineProps) {
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
 
   if (plannedSteps.length === 0) return null;
 
-  // Derive all step states once (considers run-started state)
-  const stepStates = deriveStepStates(plannedSteps, executedSteps, runStatus);
+  // Derive all step states once (considers run-started state + live overlay)
+  const stepStates = deriveStepStates(plannedSteps, executedSteps, runStatus, liveRunningIndexes);
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">

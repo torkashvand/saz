@@ -34,6 +34,7 @@ function executed(
     id: `db-${name}-${number}`,
     number,
     name,
+    attempt: 1,
     step_type: 'tool.call',
     status,
     retry_count: 0,
@@ -401,5 +402,112 @@ describe('resolveCanonicalStepIndex', () => {
     const idx = resolveCanonicalStepIndex(event, executedSteps, PLANNED_STEPS);
     // Should use payload.step_name (create_rfp_record → 4), not step_id lookup
     expect(idx).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H. Retry: agentic mode deduplicates step attempts
+// ---------------------------------------------------------------------------
+
+/** Executed step factory with attempt number */
+function executedWithAttempt(
+  name: string,
+  number: number,
+  status: RunStep['status'],
+  attempt: number,
+): RunStep {
+  return {
+    id: `db-${name}-a${attempt}`,
+    number,
+    name,
+    attempt,
+    step_type: 'tool.call',
+    status,
+    retry_count: 0,
+  };
+}
+
+describe('buildDisplaySteps — agentic mode after retry', () => {
+  it('shows only latest attempt per step, not duplicates', () => {
+    // After retry in agentic mode: step_a has attempt 1 (failed) and attempt 2 (completed)
+    const executedSteps: RunStep[] = [
+      executedWithAttempt('step_a', 0, 'failed', 1),
+      executedWithAttempt('step_a', 0, 'completed', 2),
+      executedWithAttempt('step_b', 1, 'completed', 1),
+    ];
+
+    const result = buildDisplaySteps('agentic', undefined, executedSteps);
+
+    // Should show 2 steps (one per name), not 3
+    expect(result).toHaveLength(2);
+
+    // step_a should show attempt 2 (completed), not attempt 1 (failed)
+    expect(result[0].kind).toBe('executed');
+    if (result[0].kind === 'executed') {
+      expect(result[0].step.name).toBe('step_a');
+      expect(result[0].step.status).toBe('completed');
+      expect(result[0].step.attempt).toBe(2);
+    }
+
+    // step_b should show attempt 1 (completed)
+    expect(result[1].kind).toBe('executed');
+    if (result[1].kind === 'executed') {
+      expect(result[1].step.name).toBe('step_b');
+      expect(result[1].step.attempt).toBe(1);
+    }
+  });
+
+  it('preserves failed status from latest attempt', () => {
+    // After double retry: step_a has 3 attempts, latest is still failed
+    const executedSteps: RunStep[] = [
+      executedWithAttempt('step_a', 0, 'failed', 1),
+      executedWithAttempt('step_a', 0, 'failed', 2),
+      executedWithAttempt('step_a', 0, 'failed', 3),
+    ];
+
+    const result = buildDisplaySteps('agentic', undefined, executedSteps);
+
+    expect(result).toHaveLength(1);
+    if (result[0].kind === 'executed') {
+      expect(result[0].step.attempt).toBe(3);
+      expect(result[0].step.status).toBe('failed');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I. Retry: deterministic mode shows latest attempt per step
+// ---------------------------------------------------------------------------
+
+describe('buildDisplaySteps — deterministic mode after retry', () => {
+  it('shows latest attempt for retried step, not historical failure', () => {
+    // After retry: draft had attempt 1 (failed) then attempt 2 (completed)
+    const executedSteps: RunStep[] = [
+      executedWithAttempt('extract_requirements', 0, 'completed', 1),
+      executedWithAttempt('validate_budget', 1, 'completed', 1),
+      executedWithAttempt('draft_rfp', 2, 'failed', 1),
+      executedWithAttempt('draft_rfp', 2, 'completed', 2),
+      executedWithAttempt('approve_rfp', 3, 'completed', 1),
+      executedWithAttempt('create_rfp_record', 4, 'completed', 1),
+      executedWithAttempt('send_confirmation', 5, 'completed', 1),
+    ];
+
+    const result = buildDisplaySteps('deterministic', PLANNED_STEPS, executedSteps);
+
+    // draft_rfp at index 2 should show attempt 2 (completed), not attempt 1 (failed)
+    expect(result[2].kind).toBe('executed');
+    if (result[2].kind === 'executed') {
+      expect(result[2].step.name).toBe('draft_rfp');
+      expect(result[2].step.status).toBe('completed');
+      expect(result[2].step.attempt).toBe(2);
+    }
+
+    // All 6 steps should be shown and completed
+    const statuses = result.map(ds =>
+      ds.kind === 'executed' ? ds.step.status : 'not_started'
+    );
+    expect(statuses).toEqual([
+      'completed', 'completed', 'completed', 'completed', 'completed', 'completed',
+    ]);
   });
 });

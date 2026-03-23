@@ -11,8 +11,13 @@ export function useCompileFlow() {
 }
 
 export function useRegisterFlow() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (data: RegisterFlowRequest) => api.registerFlow(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['flows'] });
+    },
   });
 }
 

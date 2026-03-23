@@ -25,7 +25,7 @@ async function loadSentry() {
   }
 
   try {
-    Sentry = await import('@sentry/nextjs');
+    Sentry = await import(/* webpackIgnore: true */ '@sentry/nextjs');
     return Sentry;
   } catch (error) {
     console.warn('[Monitoring] Failed to load Sentry:', error);

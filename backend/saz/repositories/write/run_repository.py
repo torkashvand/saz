@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Run
@@ -80,10 +81,17 @@ class RunRepository(BaseRepository[Run]):
         Searches all runs with an error dict containing the callback_id,
         not just suspended ones, so callers can detect already-processed
         callbacks and handle them idempotently.
+
+        Uses a SQL-level JSON extraction so only the matching row is loaded,
+        not every run with a non-null error dict.
         """
-        runs_with_error = self.session.query(Run).filter(Run.error.isnot(None)).all()
-        for run in runs_with_error:
-            if isinstance(run.error, dict):
-                if run.error.get("callback_id") == callback_id:
-                    return run
-        return None
+        # Use JSON path extraction at the SQL level so only the matching row
+        # is loaded. .as_string() extracts the JSON value as a plain string
+        # (avoids the extra quoting that cast(... String) produces in SQLite).
+        stmt = (
+            select(Run)
+            .where(Run.error.isnot(None))
+            .where(Run.error["callback_id"].as_string() == callback_id)
+            .limit(1)
+        )
+        return self.session.scalar(stmt)

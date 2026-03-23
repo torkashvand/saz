@@ -254,3 +254,143 @@ def test_webhook_callback_mixed_repeat_is_stable(
     )
     assert r3.status_code == 200
     assert r3.json()["status"] == "already_processed"
+
+
+def test_webhook_callback_approve_completes_step(
+    app_client, suspended_run_with_callback, db_engine
+):
+    """After webhook approval, the suspended step must be marked completed
+    and resume_data stored in step.output."""
+    run_id, callback_id = suspended_run_with_callback
+
+    response = app_client.post(
+        f"/api/v1/webhooks/callback/{callback_id}",
+        json={"action": "approve", "data": {"approver": "ops-team"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "resumed"
+
+    with Session(db_engine) as session:
+        step = session.get(Step, "step_webhook_1")
+        assert step is not None
+        assert (
+            step.status == "completed"
+        ), f"Step must be completed after approval, got: {step.status}"
+        assert step.output is not None
+        assert step.output["approved"] is True
+        assert step.output["callback_id"] == callback_id
+        assert step.output["approver"] == "ops-team"
+
+
+def test_webhook_callback_preserves_suspension_context(
+    app_client, suspended_run_with_callback, db_engine
+):
+    """After webhook approval, run.error must preserve the original suspension
+    context (step_id, type, reasoning) for audit/debugging, not just overwrite
+    with a bare {callback_id, resolved} marker."""
+    run_id, callback_id = suspended_run_with_callback
+
+    app_client.post(
+        f"/api/v1/webhooks/callback/{callback_id}",
+        json={"action": "approve"},
+    )
+
+    with Session(db_engine) as session:
+        run = session.get(Run, run_id)
+        assert run.error is not None
+        # callback_id and resolved marker present
+        assert run.error["callback_id"] == callback_id
+        assert run.error["resolved"] is True
+        # Original suspension context preserved
+        assert run.error["type"] == "HumanApprovalRequired"
+        assert run.error["step_id"] == "approval_step"
+
+
+def test_webhook_callback_reject_preserves_callback_id(
+    app_client, suspended_run_for_reject, db_engine
+):
+    """After webhook rejection, run.error must include callback_id so
+    find_by_callback_id can still locate the run for idempotent duplicate
+    detection."""
+    run_id, callback_id = suspended_run_for_reject
+
+    app_client.post(
+        f"/api/v1/webhooks/callback/{callback_id}",
+        json={"action": "reject", "reason": "Unauthorized"},
+    )
+
+    with Session(db_engine) as session:
+        run = session.get(Run, run_id)
+        assert run.status == "failed"
+        assert run.error["callback_id"] == callback_id
+        assert run.error["type"] == "WebhookRejection"
+
+
+def test_webhook_callback_invalid_action(app_client, suspended_run_with_callback):
+    """Webhook callback with invalid action returns a validation error,
+    not a silent default to approve."""
+    _, callback_id = suspended_run_with_callback
+
+    response = app_client.post(
+        f"/api/v1/webhooks/callback/{callback_id}",
+        json={"action": "invalid_action"},
+    )
+    # Should be rejected, not silently approved
+    assert response.status_code in (400, 422)
+
+
+@pytest.fixture
+def many_runs_with_errors(db_engine):
+    """Create multiple runs with various error dicts, only one with the target callback."""
+    with Session(db_engine) as session:
+        flow = Flow(
+            id="flow_perf_test",
+            name="Perf Test",
+            definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
+        )
+        session.add(flow)
+        session.commit()
+
+        # Create 50 runs with various errors (none with our callback)
+        for i in range(50):
+            run = Run(
+                id=f"run_noise_{i}",
+                flow_id="flow_perf_test",
+                status="failed",
+                planner_mode="deterministic",
+                payload={},
+                error={"message": f"Error {i}", "type": "SomeError"},
+            )
+            session.add(run)
+
+        # One run with the target callback
+        target = Run(
+            id="run_target",
+            flow_id="flow_perf_test",
+            status="suspended",
+            planner_mode="deterministic",
+            payload={},
+            error={
+                "message": "Approval needed",
+                "type": "HumanApprovalRequired",
+                "step_id": "gate",
+                "callback_id": "cb_needle_in_haystack",
+            },
+        )
+        session.add(target)
+        session.commit()
+
+    return "run_target", "cb_needle_in_haystack"
+
+
+def test_find_by_callback_id_among_many_runs(app_client, many_runs_with_errors, db_engine):
+    """find_by_callback_id correctly finds the target among many error-bearing runs."""
+    run_id, callback_id = many_runs_with_errors
+
+    response = app_client.post(
+        f"/api/v1/webhooks/callback/{callback_id}",
+        json={"action": "approve"},
+    )
+    assert response.status_code == 200
+    assert response.json()["run_id"] == run_id
+    assert response.json()["status"] == "resumed"

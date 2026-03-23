@@ -127,6 +127,10 @@ async def handle_webhook_callback(
             message=f"Run already in state: {run.status}",
         )
 
+    # Validate action
+    if req.action not in ("approve", "reject"):
+        raise ValidationError(f"Invalid action '{req.action}'. Must be 'approve' or 'reject'.")
+
     # Emit webhook callback received event
     emitter = EventEmitter(
         uow=uow,
@@ -191,9 +195,12 @@ async def handle_webhook_callback(
     emitter.approval_granted(step_id=step_id, step_name=step_id)
     emitter.run_resumed(resume_source="webhook_callback")
 
-    # Mark run as queued, preserving callback_id for idempotent duplicate detection
+    # Mark run as queued, preserving callback_id for idempotent duplicate detection.
+    # Merge resolved marker into the existing error dict so the original suspension
+    # context (step_id, type, reasoning) remains available for audit/debugging.
+    resolved_error = {**(run.error or {}), "callback_id": callback_id, "resolved": True}
     run.status = "queued"
-    run.error = {"callback_id": callback_id, "resolved": True}
+    run.error = resolved_error
     await emitter.commit_and_broadcast()
 
     # Schedule run for re-execution

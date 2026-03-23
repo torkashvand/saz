@@ -71,7 +71,10 @@ class Run(Base):
     # Relationships
     flow: Mapped["Flow"] = relationship("Flow", back_populates="runs")
     steps: Mapped[list["Step"]] = relationship(
-        "Step", back_populates="run", cascade="all, delete-orphan", order_by="Step.number"
+        "Step",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="[Step.number, Step.attempt]",
     )
     artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact", back_populates="run", cascade="all, delete-orphan"
@@ -92,6 +95,7 @@ class Step(Base):
     )
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     # queued, running, suspended, failed, completed
     start_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -119,7 +123,7 @@ class Step(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Step {self.number}:{self.name} status={self.status}>"
+        return f"<Step {self.number}:{self.name} attempt={self.attempt} status={self.status}>"
 
 
 class Artifact(Base):

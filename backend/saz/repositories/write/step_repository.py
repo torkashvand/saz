@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Step
@@ -17,7 +17,13 @@ class StepRepository(BaseRepository[Step]):
         super().__init__(session, Step)
 
     def append(
-        self, run_id: str, number: int, name: str, step_type: str, status: str = "queued"
+        self,
+        run_id: str,
+        number: int,
+        name: str,
+        step_type: str,
+        status: str = "queued",
+        attempt: int = 1,
     ) -> Step:
         """Append new step to run."""
         step = Step(
@@ -27,6 +33,7 @@ class StepRepository(BaseRepository[Step]):
             name=name,
             step_type=step_type,
             status=status,
+            attempt=attempt,
             retry_count=0,
         )
         return self.add(step)
@@ -80,9 +87,26 @@ class StepRepository(BaseRepository[Step]):
         return self.session.scalar(stmt)
 
     def get_first_failed_for_run(self, run_id: str) -> Step | None:
-        """Get first failed step for a run."""
+        """Get first failed step for a run (latest attempt only).
+
+        Uses a subquery to find the max attempt per step name, then filters
+        to only failed steps from the latest attempt of each.
+        """
+        # Subquery: max attempt per (run_id, name)
+        max_attempt_sq = (
+            select(Step.name, func.max(Step.attempt).label("max_attempt"))
+            .where(Step.run_id == run_id)
+            .group_by(Step.name)
+            .subquery()
+        )
+
         stmt = (
             select(Step)
+            .join(
+                max_attempt_sq,
+                (Step.name == max_attempt_sq.c.name)
+                & (Step.attempt == max_attempt_sq.c.max_attempt),
+            )
             .where(Step.run_id == run_id)
             .where(Step.status == "failed")
             .order_by(Step.number.asc())
@@ -91,12 +115,47 @@ class StepRepository(BaseRepository[Step]):
         return self.session.scalar(stmt)
 
     def get_by_name(self, run_id: str, step_name: str) -> Step | None:
-        """Get step by run_id and step name (most recent if multiple)."""
+        """Get step by run_id and step name (latest attempt)."""
         stmt = (
             select(Step)
             .where(Step.run_id == run_id)
             .where(Step.name == step_name)
-            .order_by(Step.number.desc())
+            .order_by(Step.attempt.desc())
             .limit(1)
         )
         return self.session.scalar(stmt)
+
+    def get_max_attempt(self, run_id: str, step_name: str) -> int:
+        """Get the highest attempt number for a step name in a run. Returns 0 if none."""
+        stmt = (
+            select(func.max(Step.attempt))
+            .where(Step.run_id == run_id)
+            .where(Step.name == step_name)
+        )
+        result = self.session.scalar(stmt)
+        return result or 0
+
+    def get_latest_attempts_for_run(self, run_id: str) -> list[Step]:
+        """Get the latest attempt of each step for a run.
+
+        Returns one Step per step name — the one with the highest attempt number.
+        Ordered by number ASC.
+        """
+        max_attempt_sq = (
+            select(Step.name, func.max(Step.attempt).label("max_attempt"))
+            .where(Step.run_id == run_id)
+            .group_by(Step.name)
+            .subquery()
+        )
+
+        stmt = (
+            select(Step)
+            .join(
+                max_attempt_sq,
+                (Step.name == max_attempt_sq.c.name)
+                & (Step.attempt == max_attempt_sq.c.max_attempt),
+            )
+            .where(Step.run_id == run_id)
+            .order_by(Step.number.asc())
+        )
+        return list(self.session.scalars(stmt).all())

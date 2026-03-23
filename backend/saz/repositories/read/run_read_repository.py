@@ -78,6 +78,7 @@ class RunReadRepository:
                 id=step.id,
                 number=step.number,
                 name=step.name,
+                attempt=step.attempt,
                 status=step.status,
                 start_ts=step.start_ts,
                 end_ts=step.end_ts,
@@ -92,7 +93,7 @@ class RunReadRepository:
                 policy_flags=step.policy_flags,
                 step_type=step.step_type,
             )
-            for step in sorted(run.steps, key=lambda s: s.number)
+            for step in sorted(run.steps, key=lambda s: (s.number, s.attempt))
         ]
 
         return RunDetailDTO(

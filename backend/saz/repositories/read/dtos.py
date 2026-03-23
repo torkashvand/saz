@@ -48,6 +48,7 @@ class StepSummaryDTO:
     id: str
     number: int
     name: str
+    attempt: int
     status: str
     start_ts: datetime | None
     end_ts: datetime | None

@@ -550,9 +550,13 @@ class WorkflowExecutor:
         emitter.step_started(step_id=step.id, step_name=step_id, step_number=step_number)
         await emitter.commit_and_broadcast()
 
-        # Execute with retries
+        # Execute with retries.
+        # When a critique fails, store the feedback so the next retry can
+        # include it in the AI-op instruction — this lets the model
+        # self-correct instead of repeating the same mistake.
         max_attempts = plan_step.max_retries + 1
         last_error = None
+        last_critique_feedback: str | None = None
 
         for attempt in range(max_attempts):
             try:
@@ -564,6 +568,14 @@ class WorkflowExecutor:
                         f"after {backoff}s"
                     )
                     await asyncio.sleep(backoff)
+
+                # If the previous attempt failed with critique feedback,
+                # inject it into the context so _execute_step_action can
+                # append it to the AI-op instruction.
+                if last_critique_feedback:
+                    context["_last_critique_feedback"] = last_critique_feedback
+                else:
+                    context.pop("_last_critique_feedback", None)
 
                 # Execute step based on action type
                 result = await self._execute_step_action(
@@ -608,6 +620,13 @@ class WorkflowExecutor:
                 step.retry_count = attempt  # 0-based index of failed attempt
                 self.uow.commit()
                 logger.warning(f"Step {step_id} attempt {attempt + 1}/{max_attempts} failed: {e}")
+
+                # Capture critique feedback for the next retry so the
+                # AI-op prompt can include it for self-correction.
+                if isinstance(e, CritiqueFailure):
+                    last_critique_feedback = e.critique.reasoning
+                else:
+                    last_critique_feedback = None
 
                 # If this is the last attempt, fail the step
                 if attempt == max_attempts - 1:
@@ -775,12 +794,22 @@ class WorkflowExecutor:
         # the model may return wrong key names that only the post-execution
         # critic catches — leading to repeated identical failures on retry.
         exec_arguments = {**tool_call.arguments}
-        if (
-            plan_step.expected_output_schema
-            and tool_call.tool.startswith("ai.")
-            and "expected_schema" not in exec_arguments
-        ):
-            exec_arguments["expected_schema"] = plan_step.expected_output_schema
+        if tool_call.tool.startswith("ai."):
+            # Inject the plan step's expected_output_schema so the AI-op
+            # prompt builder lists exact field names and the validator
+            # enforces them.
+            if plan_step.expected_output_schema and "expected_schema" not in exec_arguments:
+                exec_arguments["expected_schema"] = plan_step.expected_output_schema
+
+            # Inject previous critique feedback so the model can
+            # self-correct on retry instead of repeating the same error.
+            critique_feedback = context.get("_last_critique_feedback")
+            if critique_feedback and "instruction" in exec_arguments:
+                exec_arguments["instruction"] = (
+                    exec_arguments["instruction"]
+                    + "\n\nPREVIOUS ATTEMPT FAILED. Fix this issue:\n"
+                    + critique_feedback
+                )
 
         tool_start_time = datetime.now()
         try:

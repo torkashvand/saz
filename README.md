@@ -128,9 +128,8 @@ GitHub Actions workflow: `.github/workflows/ci.yaml`.
 
 Backend (`backend/**`, `pyproject.toml`, `uv.lock`):
 1. `uv sync` — install pinned dependencies.
-2. `uv run pre-commit run --all-files` — ruff lint + ruff-format + uv-lock check.
-3. `uv run mypy .` — strict type check.
-4. `uv run pytest -n auto -q` — full test suite (parallel).
+2. `uv run pre-commit run --all-files` — ruff lint + ruff-format + mypy + uv-lock check.
+3. `uv run pytest -n auto -q` — full test suite (parallel).
 
 Frontend (`frontend/**`):
 1. `npm ci`

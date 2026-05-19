@@ -1,5 +1,6 @@
 """Tests for Ansible Runner Backend."""
 
+import shlex
 from unittest.mock import Mock, patch
 
 import pytest
@@ -15,7 +16,13 @@ def backend():
 
 @pytest.fixture
 def mock_runner():
-    """Create a mock ansible_runner.Runner object."""
+    """Create a mock ansible_runner.Runner object.
+
+    Shape mirrors the real ansible_runner.Runner.stats property:
+    keyed by stat name → {host: count}, with ansible_runner's own names
+    ('dark' = unreachable, 'failures' = failed). See
+    ansible_runner/runner.py::Runner.stats.
+    """
     runner = Mock()
     runner.status = "successful"
     runner.rc = 0
@@ -23,15 +30,14 @@ def mock_runner():
     runner.stdout.read = Mock(return_value="PLAY RECAP\nhost1: ok=5 changed=2 failed=0")
     runner.stderr = None
     runner.stats = {
-        "host1": {
-            "ok": 5,
-            "changed": 2,
-            "unreachable": 0,
-            "failed": 0,
-            "skipped": 1,
-            "rescued": 0,
-            "ignored": 0,
-        }
+        "ok": {"host1": 5},
+        "changed": {"host1": 2},
+        "dark": {},
+        "failures": {},
+        "skipped": {"host1": 1},
+        "rescued": {},
+        "ignored": {},
+        "processed": {"host1": 1},
     }
     runner.events = []
     runner.config = Mock()
@@ -66,6 +72,66 @@ async def test_execute_check_mode(backend, mock_runner):
         assert result["recap"]["ok"] == 5
         assert result["recap"]["changed"] == 2
         assert result["changed"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_actionable_error_when_ansible_binary_missing(backend):
+    """ansible_runner returns exit code 127 when the ansible-playbook
+    binary is not on PATH. The bare 'code 127' message with empty
+    stderr is unactionable for operators; the wrapper must surface
+    *what to install* in the RuntimeError."""
+    failing_runner = Mock()
+    failing_runner.status = "failed"
+    failing_runner.rc = 127
+    failing_runner.stdout = Mock(read=Mock(return_value=""))
+    failing_runner.stderr = Mock(read=Mock(return_value=""))
+    failing_runner.stats = {}
+    failing_runner.events = []
+    failing_runner.config = Mock(artifact_dir="/tmp/test/artifacts")
+
+    with patch("ansible_runner.run", return_value=failing_runner):
+        with pytest.raises(RuntimeError) as exc_info:
+            await backend.execute(
+                mode="check",
+                playbook="/path/to/playbook.yml",
+                inventory="/path/to/inventory",
+                run_id="r",
+                step_id="s",
+            )
+    msg = str(exc_info.value).lower()
+    # Must call out the missing binary explicitly so an operator can act.
+    assert "127" in str(exc_info.value)
+    assert "ansible-playbook" in msg
+    assert "path" in msg
+    # And must point at how to fix it.
+    assert "install" in msg
+
+
+@pytest.mark.asyncio
+async def test_execute_preserves_real_stderr_for_non_127_failures(backend):
+    """For other non-zero exit codes, the existing behaviour (forward
+    the first 500 chars of stderr) must stay so playbook-level errors
+    remain actionable."""
+    failing_runner = Mock()
+    failing_runner.status = "failed"
+    failing_runner.rc = 2
+    failing_runner.stdout = Mock(read=Mock(return_value=""))
+    failing_runner.stderr = Mock(read=Mock(return_value="syntax error in playbook"))
+    failing_runner.stats = {}
+    failing_runner.events = []
+    failing_runner.config = Mock(artifact_dir="/tmp/test/artifacts")
+
+    with patch("ansible_runner.run", return_value=failing_runner):
+        with pytest.raises(RuntimeError) as exc_info:
+            await backend.execute(
+                mode="apply",
+                playbook="/path/to/playbook.yml",
+                inventory="/path/to/inventory",
+                run_id="r",
+                step_id="s",
+            )
+    assert "code 2" in str(exc_info.value)
+    assert "syntax error in playbook" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -107,6 +173,53 @@ async def test_execute_with_limit(backend, mock_runner):
 
         call_kwargs = mock_run.call_args.kwargs
         assert "--limit web_servers" in call_kwargs["cmdline"]
+
+
+@pytest.mark.asyncio
+async def test_execute_shell_escapes_limit_with_special_chars(backend, mock_runner):
+    """Limit values containing spaces, quotes, commas, or other shell-special
+    characters must be passed to ansible-playbook as a SINGLE argument.
+
+    Regression: a literal-paste like  '"localhost", "web*", "edge:&prod"'  was
+    leaking through " ".join() unescaped, so ansible-playbook split it into
+    several positional args and rejected the trailing playbook path with
+    "unrecognized arguments: <playbook>".
+    """
+    weird_limit = ' "localhost", "web*", "edge:&prod"'
+    with patch("ansible_runner.run", return_value=mock_runner) as mock_run:
+        await backend.execute(
+            mode="check",
+            playbook="/path/to/playbook.yml",
+            inventory="/path/to/inventory",
+            limit=weird_limit,
+            run_id="test_run",
+            step_id="test_step",
+        )
+
+        cmdline = mock_run.call_args.kwargs["cmdline"]
+        # shlex.split must round-trip back to the same logical args — i.e.
+        # the weird limit string survives as one arg, not several.
+        split = shlex.split(cmdline)
+        assert "--limit" in split
+        assert split[split.index("--limit") + 1] == weird_limit
+
+
+@pytest.mark.asyncio
+async def test_execute_shell_escapes_safe_limit_unchanged(backend, mock_runner):
+    """Safe identifiers must remain unquoted so existing operator habits
+    (and existing cmdline-string assertions) still hold."""
+    with patch("ansible_runner.run", return_value=mock_runner) as mock_run:
+        await backend.execute(
+            mode="apply",
+            playbook="/path/to/playbook.yml",
+            inventory="/path/to/inventory",
+            limit="web_servers",
+            run_id="test_run",
+            step_id="test_step",
+        )
+        cmdline = mock_run.call_args.kwargs["cmdline"]
+        # No spurious quoting for shell-safe values.
+        assert "--limit web_servers" in cmdline
 
 
 @pytest.mark.asyncio
@@ -301,25 +414,16 @@ def test_extract_recap(backend, mock_runner):
 def test_extract_recap_multiple_hosts(backend):
     """Test recap extraction with multiple hosts."""
     runner = Mock()
+    # ansible_runner format: keyed by stat name, then host → count.
     runner.stats = {
-        "host1": {
-            "ok": 5,
-            "changed": 2,
-            "unreachable": 0,
-            "failed": 0,
-            "skipped": 1,
-            "rescued": 0,
-            "ignored": 0,
-        },
-        "host2": {
-            "ok": 3,
-            "changed": 1,
-            "unreachable": 0,
-            "failed": 0,
-            "skipped": 0,
-            "rescued": 0,
-            "ignored": 0,
-        },
+        "ok": {"host1": 5, "host2": 3},
+        "changed": {"host1": 2, "host2": 1},
+        "dark": {},
+        "failures": {},
+        "skipped": {"host1": 1},
+        "rescued": {},
+        "ignored": {},
+        "processed": {"host1": 1, "host2": 1},
     }
 
     recap = backend._extract_recap(runner)
@@ -328,6 +432,44 @@ def test_extract_recap_multiple_hosts(backend):
     assert recap["ok"] == 8  # 5 + 3
     assert recap["changed"] == 3  # 2 + 1
     assert recap["skipped"] == 1
+
+
+def test_extract_recap_translates_dark_and_failures(backend):
+    """Regression: ansible_runner emits 'dark' for unreachable hosts and
+    'failures' for failed hosts. Saz exposes 'unreachable' and 'failed' in
+    its recap. The translation must happen — otherwise a real production run
+    silently reports unreachable=0/failed=0 while hosts are actually down,
+    and 'changed' downstream consumers (the post-execution critic, the UI)
+    think nothing happened."""
+    runner = Mock()
+    runner.stats = {
+        "ok": {"host1": 1},
+        "changed": {"host1": 1},
+        "dark": {"host2": 1, "host3": 1},  # unreachable
+        "failures": {"host4": 1},  # failed
+        "skipped": {},
+        "rescued": {},
+        "ignored": {},
+        "processed": {"host1": 1},
+    }
+
+    recap = backend._extract_recap(runner)
+
+    assert recap["unreachable"] == 2, "two 'dark' hosts must surface as unreachable=2"
+    assert recap["failed"] == 1, "one 'failures' host must surface as failed=1"
+    assert recap["ok"] == 1
+    assert recap["changed"] == 1
+
+
+def test_extract_recap_returns_zeros_when_stats_missing(backend):
+    """If ansible_runner didn't emit a playbook_on_stats event (e.g. the run
+    exited before stats were tallied), runner.stats is None. The recap must
+    still return a fully-populated zero dict rather than crashing."""
+    runner = Mock()
+    runner.stats = None
+    recap = backend._extract_recap(runner)
+    for key in ("ok", "changed", "unreachable", "failed", "skipped", "rescued", "ignored"):
+        assert recap[key] == 0
 
 
 def test_extract_events(backend):

@@ -154,6 +154,15 @@ class AnsibleTool:
         Returns:
             Dict with stdout, events, recap, artifacts
         """
+        # ansible_runner executes inside its own private_data_dir, so
+        # relative playbook/inventory paths resolve against that runner
+        # directory (not the backend's CWD). Resolve to absolute paths
+        # here so demos like change_approval_ansible — which ship a
+        # bundled playbook at `saz/examples/ansible/demo_change.yml` —
+        # work regardless of where the backend was launched from.
+        playbook = str(Path(playbook).resolve()) if playbook else playbook
+        inventory = str(Path(inventory).resolve()) if inventory else inventory
+
         self.logger.info(
             "ansible_execute_start",
             mode=mode,
@@ -172,6 +181,22 @@ class AnsibleTool:
         if not self._is_allowed_inventory(inventory):
             raise ValueError(
                 f"Inventory '{inventory}' not in allowed inventories: {self.allowed_inventories}"
+            )
+
+        # Fail fast with an actionable error if the playbook is missing
+        # rather than letting ansible-playbook fail with a confusing
+        # "could not be found" message buried in stdout.
+        if not Path(playbook).exists():
+            raise FileNotFoundError(
+                f"Ansible playbook not found at {playbook}. Check the "
+                f"`playbook` argument or the SAZ_DEMO_ANSIBLE_PLAYBOOK env "
+                f"var if you're running the bundled change-approval demo."
+            )
+        if not Path(inventory).exists():
+            raise FileNotFoundError(
+                f"Ansible inventory not found at {inventory}. Check the "
+                f"`inventory` argument or the SAZ_DEMO_ANSIBLE_INVENTORY env "
+                f"var if you're running the bundled change-approval demo."
             )
 
         # Execute via ansible_runner backend

@@ -1,6 +1,7 @@
 """Tests for Ansible Tool with ansible_runner backend."""
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,6 +20,39 @@ def ansible_tool(tmp_path):
         allowed_inventories=["/allowed/inventory.ini"],
         artifact_storage_path=str(artifact_path),
         runner_artifacts_dir=str(runner_path),
+    )
+
+
+@pytest.fixture
+def real_playbook(tmp_path):
+    """Create a real (empty but present) playbook file the tool can stat.
+
+    The AnsibleTool now fails fast if the playbook path doesn't exist,
+    so tests that drive .execute() need a real file on disk — the
+    backend itself is still mocked, so the file's content is irrelevant.
+    """
+    p = tmp_path / "site.yml"
+    p.write_text("- hosts: localhost\n  tasks: []\n")
+    return str(p)
+
+
+@pytest.fixture
+def real_inventory(tmp_path):
+    """Create a real (empty but present) inventory file."""
+    p = tmp_path / "inventory.ini"
+    p.write_text("[demo]\nlocalhost ansible_connection=local\n")
+    return str(p)
+
+
+@pytest.fixture
+def ansible_tool_unrestricted(tmp_path):
+    """AnsibleTool with no allowlists — for tests that drive .execute()
+    with real (tmp_path) playbook/inventory paths."""
+    return AnsibleTool(
+        allowed_playbook_roots=[],
+        allowed_inventories=[],
+        artifact_storage_path=str(tmp_path / "artifacts"),
+        runner_artifacts_dir=str(tmp_path / "runner"),
     )
 
 
@@ -48,15 +82,16 @@ def test_spec(ansible_tool):
 
 
 @pytest.mark.asyncio
-async def test_execute_success(ansible_tool, mock_backend_result, tmp_path):
+async def test_execute_success(
+    ansible_tool_unrestricted, real_playbook, real_inventory, mock_backend_result
+):
     """Test successful playbook execution."""
-    with patch.object(
-        ansible_tool.backend, "execute", new=AsyncMock(return_value=mock_backend_result)
-    ):
-        result = await ansible_tool.execute(
+    tool = ansible_tool_unrestricted
+    with patch.object(tool.backend, "execute", new=AsyncMock(return_value=mock_backend_result)):
+        result = await tool.execute(
             mode="check",
-            playbook="/allowed/playbooks/site.yml",
-            inventory="/allowed/inventory.ini",
+            playbook=real_playbook,
+            inventory=real_inventory,
             run_id="test_run",
             step_id="step1",
         )
@@ -70,13 +105,13 @@ async def test_execute_success(ansible_tool, mock_backend_result, tmp_path):
         assert "stdout_preview" in result
 
         # Verify artifact was stored
-        artifact_path = ansible_tool.artifact_storage_path / "test_run_step1_ansible.json"
+        artifact_path = tool.artifact_storage_path / "test_run_step1_ansible.json"
         assert artifact_path.exists()
 
-        # Verify artifact contents
+        # Verify artifact contents — execute() resolves paths to absolute
         artifact_data = json.loads(artifact_path.read_text())
         assert artifact_data["mode"] == "check"
-        assert artifact_data["playbook"] == "/allowed/playbooks/site.yml"
+        assert artifact_data["playbook"] == str(Path(real_playbook).resolve())
         assert "events" in artifact_data
         assert "runner_artifacts_dir" in artifact_data
 
@@ -120,15 +155,18 @@ async def test_execute_with_allowlist_validation_inventory(ansible_tool, mock_ba
 
 
 @pytest.mark.asyncio
-async def test_execute_with_all_parameters(ansible_tool, mock_backend_result):
+async def test_execute_with_all_parameters(
+    ansible_tool_unrestricted, real_playbook, real_inventory, mock_backend_result
+):
     """Test execution with all optional parameters."""
+    tool = ansible_tool_unrestricted
     with patch.object(
-        ansible_tool.backend, "execute", new=AsyncMock(return_value=mock_backend_result)
+        tool.backend, "execute", new=AsyncMock(return_value=mock_backend_result)
     ) as mock_exec:
-        await ansible_tool.execute(
+        await tool.execute(
             mode="apply",
-            playbook="/allowed/playbooks/site.yml",
-            inventory="/allowed/inventory.ini",
+            playbook=real_playbook,
+            inventory=real_inventory,
             limit="web_servers",
             tags=["deploy"],
             skip_tags=["backup"],
@@ -196,18 +234,83 @@ def test_is_allowed_inventory_no_restrictions(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_execute_backend_failure_propagation(ansible_tool):
-    """Test that backend failures are propagated correctly."""
+async def test_execute_fails_fast_when_playbook_missing(
+    ansible_tool_unrestricted, real_inventory, tmp_path
+):
+    """Missing playbook should raise FileNotFoundError with an actionable hint
+    instead of letting ansible-playbook fail with a confusing message."""
+    missing_playbook = str(tmp_path / "does_not_exist.yml")
+    with pytest.raises(FileNotFoundError) as exc_info:
+        await ansible_tool_unrestricted.execute(
+            mode="check",
+            playbook=missing_playbook,
+            inventory=real_inventory,
+            run_id="test_run",
+            step_id="step1",
+        )
+    assert "Ansible playbook not found" in str(exc_info.value)
+    assert "SAZ_DEMO_ANSIBLE_PLAYBOOK" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_execute_fails_fast_when_inventory_missing(
+    ansible_tool_unrestricted, real_playbook, tmp_path
+):
+    """Missing inventory should raise FileNotFoundError with an actionable hint."""
+    missing_inventory = str(tmp_path / "does_not_exist.ini")
+    with pytest.raises(FileNotFoundError) as exc_info:
+        await ansible_tool_unrestricted.execute(
+            mode="check",
+            playbook=real_playbook,
+            inventory=missing_inventory,
+            run_id="test_run",
+            step_id="step1",
+        )
+    assert "Ansible inventory not found" in str(exc_info.value)
+    assert "SAZ_DEMO_ANSIBLE_INVENTORY" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_execute_resolves_relative_playbook_path(
+    ansible_tool_unrestricted, real_playbook, real_inventory, mock_backend_result
+):
+    """The tool must resolve relative playbook paths to absolute before calling
+    the backend, because ansible_runner executes inside its own private_data_dir
+    and would otherwise look for the playbook relative to that directory."""
+    tool = ansible_tool_unrestricted
     with patch.object(
-        ansible_tool.backend,
+        tool.backend, "execute", new=AsyncMock(return_value=mock_backend_result)
+    ) as mock_exec:
+        await tool.execute(
+            mode="check",
+            playbook=real_playbook,
+            inventory=real_inventory,
+            run_id="test_run",
+            step_id="step1",
+        )
+        call_kwargs = mock_exec.call_args.kwargs
+        # Path passed to the backend must be absolute and resolved.
+        assert Path(call_kwargs["playbook"]).is_absolute()
+        assert call_kwargs["playbook"] == str(Path(real_playbook).resolve())
+        assert call_kwargs["inventory"] == str(Path(real_inventory).resolve())
+
+
+@pytest.mark.asyncio
+async def test_execute_backend_failure_propagation(
+    ansible_tool_unrestricted, real_playbook, real_inventory
+):
+    """Test that backend failures are propagated correctly."""
+    tool = ansible_tool_unrestricted
+    with patch.object(
+        tool.backend,
         "execute",
         new=AsyncMock(side_effect=RuntimeError("Playbook failed")),
     ):
         with pytest.raises(RuntimeError) as exc_info:
-            await ansible_tool.execute(
+            await tool.execute(
                 mode="apply",
-                playbook="/allowed/playbooks/site.yml",
-                inventory="/allowed/inventory.ini",
+                playbook=real_playbook,
+                inventory=real_inventory,
                 run_id="test_run",
                 step_id="step1",
             )

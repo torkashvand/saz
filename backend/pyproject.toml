@@ -20,6 +20,7 @@ dependencies = [
     "cryptography>=46.0.3",
     "APScheduler>=3.11.0",
     "ansible-runner>=2.4.0",
+    "ansible-core>=2.16",
     "pydantic-settings>=2.12.0",
 ]
 

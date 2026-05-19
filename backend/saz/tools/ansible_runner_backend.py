@@ -4,6 +4,7 @@ Provides a clean wrapper around ansible_runner for executing Ansible playbooks
 with structured event handling, better error reporting, and enhanced artifact capture.
 """
 
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -126,12 +127,17 @@ class AnsibleRunnerBackend:
                 cmdline_preview=" ".join(cmdline_args[:10]),
             )
 
+            # Use shlex.join so cmdline args with shell-special characters
+            # (spaces, quotes, &, *, etc.) survive ansible_runner's internal
+            # shell splitting as a single argument. Plain " ".join breaks the
+            # moment a user-supplied --limit pattern or credential path
+            # contains anything outside [\w@%+=:,./-].
             runner = ansible_runner.run(
                 playbook=playbook,
                 inventory=inventory,
                 extravars=final_extra_vars,
                 verbosity=verbosity,
-                cmdline=" ".join(cmdline_args),
+                cmdline=shlex.join(cmdline_args),
                 private_data_dir=str(self.runner_artifacts_dir),
                 quiet=False,
                 json_mode=False,
@@ -159,9 +165,26 @@ class AnsibleRunnerBackend:
 
             # Determine success
             if return_code != 0:
-                error_msg = f"Ansible playbook failed (code {return_code})"
+                stderr_text = ""
                 if runner.stderr:
-                    error_msg += f": {runner.stderr.read()[:500]}"
+                    stderr_text = runner.stderr.read()[:500]
+
+                # Exit code 127 from ansible_runner overwhelmingly means
+                # the ansible-playbook binary itself is not on PATH (or
+                # ansible-runner can't find it). The raw "code 127" with
+                # empty stderr is unactionable; surface what to install.
+                if return_code == 127:
+                    error_msg = (
+                        "Ansible playbook failed (code 127): the "
+                        "'ansible-playbook' binary was not found on PATH. "
+                        "Install Ansible (pip install 'ansible-core' "
+                        "or your distro's ansible package) and make sure "
+                        "'ansible-playbook' resolves, then retry."
+                    )
+                else:
+                    error_msg = f"Ansible playbook failed (code {return_code})"
+                    if stderr_text:
+                        error_msg += f": {stderr_text}"
                 raise RuntimeError(error_msg)
 
             return {
@@ -220,11 +243,32 @@ class AnsibleRunnerBackend:
         else:
             return runner_status  # timeout, canceled, etc.
 
+    # Mapping from ansible_runner.Runner.stats keys to Saz recap keys.
+    # ansible_runner emits 'dark' for unreachable and 'failures' for failed;
+    # the rest line up by name. 'processed' is intentionally not surfaced —
+    # the PLAY RECAP line operators are used to seeing doesn't include it.
+    _RUNNER_TO_SAZ_RECAP_KEYS: dict[str, str] = {
+        "ok": "ok",
+        "changed": "changed",
+        "dark": "unreachable",
+        "failures": "failed",
+        "skipped": "skipped",
+        "rescued": "rescued",
+        "ignored": "ignored",
+    }
+
     def _extract_recap(self, runner: Any) -> dict[str, int]:
         """
         Extract recap statistics from ansible_runner.
 
-        ansible_runner provides stats via runner.stats attribute.
+        ansible_runner.Runner.stats is keyed by STAT name then host:
+            {'ok': {'localhost': 3}, 'changed': {'localhost': 2}, 'dark': {},
+             'failures': {}, 'skipped': {}, 'ignored': {}, 'rescued': {},
+             'processed': {'localhost': 1}}
+        (See ansible_runner/runner.py::Runner.stats.) Saz uses the more
+        common Ansible CLI names — 'unreachable' instead of 'dark',
+        'failed' instead of 'failures' — so we both flip the axis and
+        translate the keys.
         """
         recap: dict[str, int] = {
             "ok": 0,
@@ -237,11 +281,10 @@ class AnsibleRunnerBackend:
         }
 
         if hasattr(runner, "stats") and runner.stats:
-            # runner.stats is a dict like:
-            # {'host1': {'ok': 5, 'changed': 2, 'unreachable': 0, ...}, ...}
-            for _host, host_stats in runner.stats.items():
-                for key in recap.keys():
-                    recap[key] += host_stats.get(key, 0)
+            for runner_key, saz_key in self._RUNNER_TO_SAZ_RECAP_KEYS.items():
+                host_counts = runner.stats.get(runner_key) or {}
+                # Sum across all hosts in the play.
+                recap[saz_key] = sum(int(v) for v in host_counts.values())
 
         return recap
 

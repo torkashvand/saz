@@ -25,6 +25,12 @@ import {
 } from '@/lib/runs/display-steps';
 import type { PlannedStep, RunStep } from '@/lib/types';
 
+// Local alias mirroring the canonical run-status union in lib/types.ts.
+// Used so regression tests can write `const status: RunStatus = 'queued'`
+// without TS narrowing the const to a literal that makes
+// `status === 'running'` look like dead code.
+type RunStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'pending';
+
 // ---------------------------------------------------------------------------
 // Helpers — mirror page-level overlay logic from app/runs/[id]/page.tsx
 // ---------------------------------------------------------------------------
@@ -675,7 +681,7 @@ describe('live overlay — immediate run-active detection', () => {
   it('REGRESSION: run.started makes isRunning true even when canonical status is queued', () => {
     // This is the exact bug: run.status is still "queued" (refetch pending)
     // but run.started event has arrived via WebSocket
-    const canonicalStatus = 'queued';
+    const canonicalStatus = 'queued' as RunStatus;
     const isRunningCanonical = canonicalStatus === 'running' || canonicalStatus === 'pending';
 
     const events = [
@@ -855,7 +861,7 @@ describe('page-level user-visible state', () => {
     // canonical run.status is still "queued", run.started event arrived
 
     // 1. Canonical state
-    const canonicalRunStatus = 'queued';
+    const canonicalRunStatus = 'queued' as RunStatus;
     const canonicalSteps: RunStep[] = [];
 
     // 2. Live events

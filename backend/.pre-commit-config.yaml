@@ -30,3 +30,60 @@ repos:
           - cryptography>=41.0
           - litellm>=1.0
           - structlog>=23.0
+
+  # ---------------------------------------------------------------------------
+  # Frontend hooks — fire only when frontend/** files are staged, and quietly
+  # skip when frontend/node_modules is missing (so a backend-only contributor
+  # is not forced to install Node tooling).
+  #
+  # Enable locally with: cd frontend && npm ci   (one time)
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: frontend-typecheck
+        name: frontend typecheck (tsc --noEmit)
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: ^frontend/.+\.(ts|tsx)$
+        entry: bash
+        args:
+          - -c
+          - |
+            if [ ! -d frontend/node_modules ]; then
+              echo "skip: frontend/node_modules missing (run 'cd frontend && npm ci' to enable)"
+              exit 0
+            fi
+            cd frontend && npm run --silent typecheck
+
+      - id: frontend-lint
+        name: frontend lint (next lint)
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: ^frontend/.+\.(ts|tsx|js|jsx)$
+        entry: bash
+        args:
+          - -c
+          - |
+            if [ ! -d frontend/node_modules ]; then
+              echo "skip: frontend/node_modules missing (run 'cd frontend && npm ci' to enable)"
+              exit 0
+            fi
+            cd frontend && npm run --silent lint
+
+      - id: frontend-format
+        name: frontend format (prettier --check)
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: ^frontend/.+\.(ts|tsx|js|jsx|json|css|md|yaml|yml)$
+        entry: bash
+        args:
+          - -c
+          - |
+            if [ ! -d frontend/node_modules ]; then
+              echo "skip: frontend/node_modules missing (run 'cd frontend && npm ci' to enable)"
+              exit 0
+            fi
+            cd frontend && npm run --silent format:check

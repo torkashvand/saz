@@ -126,9 +126,9 @@ GitHub Actions workflow: `.github/workflows/ci.yaml`.
 
 **What runs (only when the matching paths change):**
 
-Backend (`backend/**`, `pyproject.toml`, `uv.lock`):
+Backend (`backend/**`):
 1. `uv sync` — install pinned dependencies.
-2. `uv run pre-commit run --all-files` — ruff lint + ruff-format + mypy + uv-lock check.
+2. `uv run --project backend pre-commit run --all-files` — ruff lint + ruff-format + mypy + uv-lock + frontend hooks (scoped via path filters).
 3. `uv run pytest -n auto -q` — full test suite (parallel).
 
 Frontend (`frontend/**`):

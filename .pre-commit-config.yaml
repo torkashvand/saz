@@ -1,11 +1,19 @@
+# Monorepo pre-commit config. Hooks run from the repository root.
+# Python tooling is scoped to backend/, JS/TS tooling to frontend/.
+#
+# One-time setup per clone:
+#   pre-commit install                    # registers the git hook
+#   cd backend  && uv sync                # backend deps (ruff/mypy/uv-lock)
+#   cd frontend && npm ci                 # frontend deps (tsc/eslint/prettier)
+
 repos:
+  # ---------------------------------------------------------------------------
+  # Backend (Python) — scoped to backend/**
+  # ---------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.9.6
     hooks:
       - id: uv-lock
-        # Pre-commit runs hooks from the repo root, but the project lives
-        # in backend/. Scope the file filter to backend/ paths and tell
-        # `uv lock` which project to operate on.
         files: ^backend/(uv\.lock|pyproject\.toml|uv\.toml)$
         args: ['--project', 'backend']
 
@@ -13,13 +21,16 @@ repos:
     rev: v0.8.5
     hooks:
       - id: ruff
+        files: ^backend/.+\.(py|pyi)$
         args: [--fix, --show-fixes]
       - id: ruff-format
+        files: ^backend/.+\.(py|pyi)$
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.13.0
     hooks:
       - id: mypy
+        files: ^backend/.+\.py$
         additional_dependencies:
           - types-PyYAML
           - types-requests

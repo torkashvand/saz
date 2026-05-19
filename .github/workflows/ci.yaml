@@ -59,10 +59,11 @@ jobs:
         run: uv sync
 
       - name: Lint, format, types (pre-commit)
-        # Pre-commit runs ruff (lint), ruff-format, and mypy. mypy here is
-        # the project's accepted invocation — pinned mypy version + the
-        # additional_dependencies declared in .pre-commit-config.yaml.
-        run: uv run pre-commit run --all-files --show-diff-on-failure
+        # Run from repo root because .pre-commit-config.yaml lives there.
+        # Use --project backend so `uv run` picks up the backend venv that
+        # `uv sync` populated above.
+        working-directory: ${{ github.workspace }}
+        run: uv run --project backend pre-commit run --all-files --show-diff-on-failure
 
       - name: Tests (pytest)
         run: uv run pytest -n auto -q

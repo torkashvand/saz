@@ -119,6 +119,47 @@ def test_env_reads_and_missing(monkeypatch, caplog):
     assert _res("V={{ $env('NOPE') }}!") == "V=!"
 
 
+def test_env_with_fallback_uses_default_when_missing(monkeypatch):
+    """`$env('NAME', 'default')` returns the default verbatim when the
+    env var is not set. This lets demo workflows declare a safe path
+    or value without requiring the operator to set env vars upfront."""
+    monkeypatch.delenv("NOT_SET_FOR_TEST", raising=False)
+    assert _res("{{ $env('NOT_SET_FOR_TEST', 'safe-default') }}") == "safe-default"
+    # interpolated form too
+    assert _res("path={{ $env('NOT_SET_FOR_TEST', 'a/b') }}/x") == "path=a/b/x"
+
+
+def test_env_with_fallback_prefers_env_when_set(monkeypatch):
+    """When the env var IS set, the fallback is ignored — operator
+    override always wins."""
+    monkeypatch.setenv("OVERRIDE_ME", "from-env")
+    assert _res("{{ $env('OVERRIDE_ME', 'fallback') }}") == "from-env"
+
+
+def test_env_fallback_handles_empty_env_as_missing(monkeypatch):
+    """An empty string is treated as missing — same semantics as the
+    no-fallback form. Otherwise an operator who exports
+    FOO= would silently override the safe default with empty string."""
+    monkeypatch.setenv("EMPTY_ENV", "")
+    assert _res("{{ $env('EMPTY_ENV', 'fallback') }}") == "fallback"
+
+
+def test_env_fallback_with_double_quotes(monkeypatch):
+    """Both single and double quotes around the fallback must parse,
+    matching the existing $env('NAME') quote handling."""
+    monkeypatch.delenv("Q_TEST", raising=False)
+    assert _res('{{ $env("Q_TEST", "with-doubles") }}') == "with-doubles"
+
+
+def test_env_fallback_back_compat_for_no_default(monkeypatch):
+    """The original `$env('NAME')` shape (no default) must keep its
+    pre-existing behaviour: missing → None at top level, '' in
+    interpolation. This is the safety net for the regex change."""
+    monkeypatch.delenv("BC_TEST", raising=False)
+    assert _res("{{ $env('BC_TEST') }}") is None
+    assert _res("v={{ $env('BC_TEST') }}!") == "v=!"
+
+
 # ----------------------------- $secret -----------------------------
 
 

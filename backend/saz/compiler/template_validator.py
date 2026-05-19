@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 _TEMPLATE_RE = re.compile(r'\{\{\s*(.+?)\s*\}\}')
 _STEP_RE = re.compile(r"\$step\(['\"](.+?)['\"]\)(?:\.(.+))?")
 _FORM_RE = re.compile(r"\$form\.(.+)")
-_ENV_RE = re.compile(r"\$env\(['\"](.+?)['\"]\)")
+_ENV_RE = re.compile(r"\$env\(['\"](.+?)['\"](?:\s*,\s*['\"](.*?)['\"])?\)")
 _SECRET_RE = re.compile(r"\$secret\(['\"](.+?)['\"]\)")
 
 

@@ -4,8 +4,9 @@ Supported forms:
   - {{ $form.path.to.value }}
   - {{ $step('step_id') }} or {{ $step('step_id').deep.path[.index] }}
     * STRICT: reads ONLY step_results[step_id]['output']; no aliases or metadata.
-  - {{ $env('NAME') }}           -> returns None when missing or empty
-  - {{ $secret('NAME') }}        -> raises ValueError when missing
+  - {{ $env('NAME') }}                       -> returns None when missing or empty
+  - {{ $env('NAME', 'fallback_value') }}     -> returns fallback when missing or empty
+  - {{ $secret('NAME') }}                    -> raises ValueError when missing
 
 Resolution rules:
   - If the whole string is a single template, return the native type.
@@ -122,11 +123,18 @@ class TemplateContext:
             prop_path = step_match.group(2)
             return self._resolve_step_output(step_id, prop_path)
 
-        # $env('NAME')
-        env_match = re.match(r"\$env\(['\"](.+?)['\"]\)", expr)
+        # $env('NAME')  or  $env('NAME', 'fallback')
+        # The optional second argument is returned verbatim when the env
+        # var is missing or empty, so demos can ship with safe defaults
+        # while still letting operators override via the environment.
+        env_match = re.match(
+            r"\$env\(['\"](.+?)['\"](?:\s*,\s*['\"](.*?)['\"])?\)",
+            expr,
+        )
         if env_match:
             name = env_match.group(1)
-            return self._resolve_env(name)
+            default = env_match.group(2)  # None when no default was given
+            return self._resolve_env(name, default)
 
         # $secret('NAME')
         sec_match = re.match(r"\$secret\(['\"](.+?)['\"]\)", expr)
@@ -143,6 +151,11 @@ class TemplateContext:
         return self._walk_path(self.form_data, path, on_missing=lambda: self._warn_form(path))
 
     def _resolve_step_output(self, step_id: str, prop_path: str | None) -> Any:
+        # Contract: ``WorkflowExecutor`` stores every step result as
+        # ``step_results[id] = {"output": <step result dict>}`` (see the
+        # writers in ``saz/engine/executor.py``). We always read through
+        # the ``["output"]`` wrapper — flat-dict storage would silently
+        # resolve ``$step('x').field`` to ``None`` and break audit blobs.
         if step_id not in self.step_results or not isinstance(self.step_results[step_id], dict):
             self.logger.warning(
                 "step_result_not_found",
@@ -166,9 +179,12 @@ class TemplateContext:
             on_missing=lambda: self._warn_step_prop(step_id, prop_path),
         )
 
-    def _resolve_env(self, name: str) -> Any:
+    def _resolve_env(self, name: str, default: str | None = None) -> Any:
         val = os.getenv(name)
-        if not val:  # missing or empty -> None
+        if not val:  # missing or empty -> default (or None)
+            if default is not None:
+                self.logger.debug("env_var_default_used", var=name)
+                return default
             self.logger.warning("env_var_not_found", var=name)
             return None
         return val

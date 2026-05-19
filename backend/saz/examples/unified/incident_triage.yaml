@@ -1,8 +1,12 @@
 meta:
   id: incident_triage
   title: "Incident Triage Assistant"
-  description: "AI-powered incident classification, severity assessment, and team routing with PagerDuty integration"
-  tags: ["incidents", "agentic", "ops", "recommended"]
+  description: >-
+    Wedge demo. An alert arrives; AI classifies the incident, extracts affected
+    systems, recommends a next action, and decides whether escalation is needed.
+    The result is recorded as an audit artifact. AI never mutates production
+    systems — risky actions surface as proposals for the on-call operator.
+  tags: ["wedge-demo", "incidents", "ops", "sre", "recommended"]
   complexity: "medium"
   recommended: true
 
@@ -11,144 +15,181 @@ schema_version: 1
 flow:
   name: incident_triage
   version: "1.0"
-  description: AI-powered incident triage and routing
+  description: >-
+    AI-assisted incident classification with strict output schema and an audit
+    artifact. Safe to run locally with no external credentials.
 
 form:
   fields:
-    - name: incident_description
+    - name: alert_title
       type: string
       required: true
-      description: Incident description from alert or user report
-    - name: initial_severity
+      description: Short alert title (e.g. "P1 — checkout 5xx spike")
+    - name: alert_description
+      type: text
+      required: true
+      description: Full alert body, ticket text, or pager message
+    - name: affected_service
+      type: string
+      required: true
+      description: Service name as listed in your service catalog (e.g. "checkout-api")
+    - name: environment
+      type: string
+      required: true
+      enum: [dev, staging, prod]
+      description: Environment where the issue is observed
+    - name: source_system
+      type: string
+      required: true
+      enum: [pagerduty, prometheus, datadog, sentry, manual, other]
+      description: Origin of the alert or report
+    - name: severity_hint
       type: string
       required: false
-      description: Optional initial severity (low/medium/high/critical)
+      enum: [low, medium, high, critical]
+      description: Reporter's initial severity guess; the AI may revise it
+    - name: customer_impact
+      type: text
+      required: false
+      description: Known or suspected customer impact, if any
+    - name: on_call_team
+      type: string
+      required: false
+      description: Team currently on-call (used for the proposed routing)
 
 triggers:
   manual: true
-  webhook:
-    path: "/incidents/triage"
 
 workflow:
-  planner_mode: agentic
+  planner_mode: deterministic
   steps:
-    - id: extract_incident_data
+    - id: classify_incident
       type: ai.extract
       instruction: |
-        Extract structured information from this incident report:
-        - Category (infrastructure, application, database, network, security)
-        - Severity (low, medium, high, critical)
-        - Affected service or component
-        - Impact scope (single user, team, organization, external)
-        - Whether this appears to be a known issue
+        You are an incident triage assistant for a platform engineering team.
+        Read the alert and the operator-provided context, then produce a single
+        JSON object that conforms exactly to the expected schema.
+
+        Rules:
+        - Do not invent affected systems that are not implied by the input.
+        - "escalation_required" must be true for environment=prod with
+          severity high or critical, or whenever customer_impact is non-empty.
+        - "recommended_action" must be a proposal for a human operator — never
+          phrase it as something to execute automatically.
+        - "confidence" is your self-assessed confidence in this classification
+          on a 0.0–1.0 scale.
       params:
         data:
-          text: "{{ $form.incident_description }}"
-          initial_severity: "{{ $form.initial_severity }}"
+          alert_title: "{{ $form.alert_title }}"
+          alert_description: "{{ $form.alert_description }}"
+          affected_service: "{{ $form.affected_service }}"
+          environment: "{{ $form.environment }}"
+          source_system: "{{ $form.source_system }}"
+          severity_hint: "{{ $form.severity_hint }}"
+          customer_impact: "{{ $form.customer_impact }}"
+          on_call_team: "{{ $form.on_call_team }}"
       expect:
         type: object
+        additionalProperties: false
         properties:
-          category:
+          incident_type:
             type: string
-            enum: [infrastructure, application, database, network, security, other]
+            enum:
+              - infrastructure
+              - application
+              - database
+              - network
+              - security
+              - data_pipeline
+              - third_party
+              - other
           severity:
             type: string
             enum: [low, medium, high, critical]
-          service:
+          affected_systems:
+            type: array
+            items: { type: string }
+            description: Concrete service or component names
+          probable_cause:
             type: string
-          impact_scope:
+          recommended_action:
             type: string
-            enum: [single_user, team, organization, external]
-          appears_known:
+            description: Proposed next step for the on-call operator
+          escalation_required:
             type: boolean
-        required: [category, severity, impact_scope]
-      temperature: 0.1
-      max_tokens: 512
-
-    - id: route_to_team
-      type: ai.route
-      instruction: |
-        Determine the correct engineering team to handle this incident.
-        Consider severity, category, and current on-call rotations.
-      params:
-        data:
-          category: "{{ $step('extract_incident_data').category }}"
-          severity: "{{ $step('extract_incident_data').severity }}"
-          service: "{{ $step('extract_incident_data').service }}"
-      branches_enum:
-        - platform_oncall
-        - app_backend_team
-        - app_frontend_team
-        - data_team
-        - security_team
-        - infrastructure_team
-      expect:
-        type: object
-        properties:
-          route:
+          confidence:
+            type: number
+            minimum: 0
+            maximum: 1
+          operator_summary:
             type: string
-            enum: [platform_oncall, app_backend_team, app_frontend_team, data_team, security_team, infrastructure_team]
-          reason:
-            type: string
-        required: [route, reason]
+            description: One-paragraph summary in plain English
+        required:
+          - incident_type
+          - severity
+          - affected_systems
+          - probable_cause
+          - recommended_action
+          - escalation_required
+          - confidence
+          - operator_summary
       temperature: 0.1
-      max_tokens: 256
+      max_tokens: 800
 
-    - id: generate_summary
+    - id: write_chatops_summary
       type: ai.generate
       instruction: |
-        Write a concise incident summary for the engineering team.
-        Include: what happened, severity, impact, and recommended next steps.
-        Keep it under 150 words, use bullet points.
+        Write a concise ChatOps-ready summary that an on-call engineer can
+        skim in under 10 seconds. Use 4-6 lines, plain text only, no markdown
+        headers, no emojis. Lead with severity and affected service, then the
+        probable cause, then the recommended next step. End with a single
+        line "Escalation: yes" or "Escalation: no".
       params:
         data:
-          incident: "{{ $form.incident_description }}"
-          extracted: "{{ $step('extract_incident_data') }}"
-          routed_to: "{{ $step('route_to_team').route }}"
+          alert_title: "{{ $form.alert_title }}"
+          classification: "{{ $step('classify_incident') }}"
       expect:
         type: object
+        additionalProperties: false
         properties:
           output:
             type: string
         required: [output]
-      word_cap: 150
-      temperature: 0.3
-      max_tokens: 512
+      word_cap: 120
+      temperature: 0.2
+      max_tokens: 400
 
-    - id: create_pagerduty_incident
-      type: tool.call
-      tool: http_request
-      description: Create incident in PagerDuty
+    - id: store_triage_record
+      type: artifact.store
+      description: >-
+        Store the full triage record as an audit artifact. This is the safe
+        deterministic action that always runs — no production systems are
+        mutated by this demo.
       params:
-        method: POST
-        url: "https://api.pagerduty.com/incidents"
-        headers:
-          Authorization: "Token token={{ $secret('pagerduty_api_token') }}"
-          Content-Type: "application/json"
-        body:
-          incident:
-            type: "incident"
-            title: "{{ $step('extract_incident_data').category }} - {{ $step('extract_incident_data').service }}"
-            urgency: "{{ $step('extract_incident_data').severity }}"
-            body:
-              type: "incident_body"
-              details: "{{ $step('generate_summary') }}"
-            escalation_policy:
-              id: "{{ $step('route_to_team').route }}"
-              type: "escalation_policy_reference"
-      expect:
-        type: object
-        properties:
-          incident:
-            type: object
+        name: "incident_triage_record"
+        content_type: json
+        content:
+          alert:
+            title: "{{ $form.alert_title }}"
+            description: "{{ $form.alert_description }}"
+            service: "{{ $form.affected_service }}"
+            environment: "{{ $form.environment }}"
+            source_system: "{{ $form.source_system }}"
+            severity_hint: "{{ $form.severity_hint }}"
+            customer_impact: "{{ $form.customer_impact }}"
+            on_call_team: "{{ $form.on_call_team }}"
+          classification: "{{ $step('classify_incident') }}"
+          chatops_summary: "{{ $step('write_chatops_summary') }}"
+          next_action:
+            kind: proposal
+            proposed_to: "{{ $form.on_call_team }}"
+            description: "{{ $step('classify_incident').recommended_action }}"
+            escalation_required: "{{ $step('classify_incident').escalation_required }}"
 
 policies:
-  budget_usd: 0.50
+  budget_usd: 0.20
   defaults:
-    timeout_ms: 180000
+    timeout_ms: 60000
     continue_on_fail: false
   pii:
     allow: false
-
-credentials:
-  uses: [pagerduty_api_token]

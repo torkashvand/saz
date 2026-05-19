@@ -74,7 +74,7 @@ def test_all_templates_discovered():
         "support_ticket_webhook",
         "incident_triage",
         "change_approval_ansible",
-        "runbook_with_callback",
+        "callback_driven_maintenance",
         "http_summary_report",
         "pii_safe_support_demo",
     ]

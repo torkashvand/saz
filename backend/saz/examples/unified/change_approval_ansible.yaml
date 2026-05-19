@@ -1,8 +1,13 @@
 meta:
   id: change_approval_ansible
-  title: "Change Approval with Ansible Execution"
-  description: "Deterministic change approval workflow with human approval gate and automated Ansible playbook execution"
-  tags: ["change-management", "ansible", "approval", "deterministic"]
+  title: "Change Approval with Ansible"
+  description: >-
+    Wedge demo. A change request is intaken, AI summarizes the blast radius and
+    risk, Ansible runs in check (dry-run) mode against a bundled safe
+    playbook, a human approves, and only then Ansible runs in apply mode.
+    Demonstrates the canonical "AI proposes, human approves, deterministic tool
+    executes, every action audited" loop.
+  tags: ["wedge-demo", "change-management", "ansible", "approval", "sre", "recommended"]
   complexity: "advanced"
   recommended: true
 
@@ -11,27 +16,51 @@ schema_version: 1
 flow:
   name: change_approval_ansible
   version: "1.0"
-  description: Change request approval and automated deployment via Ansible
+  description: >-
+    Change-request intake → AI risk summary → Ansible check → human approval →
+    Ansible apply, with every step audited. Ships with a safe, idempotent
+    localhost playbook so the demo runs end-to-end without real infrastructure.
 
 form:
   fields:
-    - name: change_description
+    - name: change_title
       type: string
       required: true
-      description: Description of the proposed change
+      description: Short change title (e.g. "Rotate API gateway TLS cert")
     - name: target_environment
       type: string
       required: true
-      description: Target environment (dev, staging, prod)
-    - name: playbook_name
+      enum: [dev, staging, prod]
+      description: Target environment
+    - name: target_hosts
       type: string
       required: true
-      description: Ansible playbook to execute
-    - name: requester_email
+      description: >-
+        A single Ansible host pattern (not a list). Use ":" to combine groups
+        and "&" / "!" to intersect or exclude. Examples: localhost — web* —
+        web*:edge — webservers:&prod.
+    - name: requested_action
+      type: text
+      required: true
+      description: Plain-English description of what the change does
+    - name: maintenance_window
       type: string
       required: true
-      description: Email of person requesting the change
+      description: Maintenance window (e.g. "2026-05-20 02:00–04:00 UTC")
+    - name: rollback_plan
+      type: text
+      required: true
+      description: How to roll back if the change misbehaves
+    - name: risk_hint
+      type: string
+      required: false
+      enum: [low, medium, high]
+      description: Requester's risk guess; the AI may revise it
+    - name: requester
+      type: string
+      required: true
       format: email
+      description: Email of the requester (audit trail)
 
 triggers:
   manual: true
@@ -39,135 +68,228 @@ triggers:
 workflow:
   planner_mode: deterministic
   steps:
-    - id: assess_risk
+    - id: summarize_change
       type: ai.extract
       instruction: |
-        Assess the risk level of this change request.
-        Consider the target environment, scope of change, and potential impact.
-        Classify as: low, medium, high, critical
+        You are reviewing an Ansible-backed change request before any
+        execution. Read the request and produce a single JSON object
+        conforming exactly to the expected schema.
+
+        Rules:
+        - "blast_radius" must be a short factual phrase ("single localhost"
+          for the demo, or e.g. "12 prod web hosts").
+        - "risk_level" should be "high" whenever target_environment is "prod",
+          unless the requested change is read-only.
+        - "pre_checks" is a short ordered list (3-6 items) of things the
+          operator should verify before approval (e.g. "confirm backup
+          completed in last 24h", "verify maintenance window approved").
+        - "approval_recommendation" is your honest call: "approve" only if
+          the change appears low-risk, dry-run-checkable, and within the
+          stated window; otherwise "review_required" or "reject".
+        - Never propose to bypass approval.
       params:
         data:
-          description: "{{ $form.change_description }}"
-          environment: "{{ $form.target_environment }}"
-          playbook: "{{ $form.playbook_name }}"
+          change_title: "{{ $form.change_title }}"
+          target_environment: "{{ $form.target_environment }}"
+          target_hosts: "{{ $form.target_hosts }}"
+          requested_action: "{{ $form.requested_action }}"
+          maintenance_window: "{{ $form.maintenance_window }}"
+          rollback_plan: "{{ $form.rollback_plan }}"
+          risk_hint: "{{ $form.risk_hint }}"
+          requester: "{{ $form.requester }}"
       expect:
         type: object
+        additionalProperties: false
         properties:
+          change_intent:
+            type: string
+            description: One-sentence restatement of what is being changed
+          affected_targets:
+            type: array
+            items: { type: string }
           risk_level:
             type: string
             enum: [low, medium, high, critical]
+          blast_radius:
+            type: string
+          pre_checks:
+            type: array
+            items: { type: string }
+            minItems: 1
+          rollback_summary:
+            type: string
+          approval_recommendation:
+            type: string
+            enum: [approve, review_required, reject]
           reasoning:
             type: string
-          requires_manager_approval:
-            type: boolean
-        required: [risk_level, requires_manager_approval]
+        required:
+          - change_intent
+          - affected_targets
+          - risk_level
+          - blast_radius
+          - pre_checks
+          - rollback_summary
+          - approval_recommendation
+          - reasoning
       temperature: 0.1
-      max_tokens: 512
+      max_tokens: 700
 
-    - id: generate_change_summary
-      type: ai.generate
-      instruction: |
-        Generate a concise change summary for the approval request.
-        Include: what's changing, why, expected impact, and rollback plan.
-        Format as bullet points, max 150 words.
+    - id: ansible_check
+      type: tool.call
+      tool: ansible_run
+      description: >-
+        Dry-run the bundled demo playbook in --check mode against the
+        operator-specified target hosts. No state is changed on any host.
+        Defaults to the bundled safe localhost playbook; override via
+        SAZ_DEMO_ANSIBLE_PLAYBOOK / SAZ_DEMO_ANSIBLE_INVENTORY to target
+        your own infrastructure.
       params:
-        data:
-          description: "{{ $form.change_description }}"
-          environment: "{{ $form.target_environment }}"
-          risk: "{{ $step('assess_risk') }}"
+        mode: check
+        playbook: "{{ $env('SAZ_DEMO_ANSIBLE_PLAYBOOK', 'saz/examples/ansible/demo_change.yml') }}"
+        inventory: "{{ $env('SAZ_DEMO_ANSIBLE_INVENTORY', 'saz/examples/ansible/demo_inventory.ini') }}"
+        limit: "{{ $form.target_hosts }}"
+        extra_vars:
+          target_env: "{{ $form.target_environment }}"
+          change_id: "{{ $form.change_title }}"
       expect:
         type: object
         properties:
-          output:
-            type: string
-        required: [output]
-      word_cap: 150
-      temperature: 0.3
-      max_tokens: 512
+          status: { type: string }
+          mode: { type: string }
+          changed: { type: boolean }
+          artifact_id: { type: string }
+          stdout_preview: { type: string }
+          recap:
+            type: object
+            properties:
+              ok: { type: integer }
+              changed: { type: integer }
+              unreachable: { type: integer }
+              failed: { type: integer }
+              skipped: { type: integer }
+              rescued: { type: integer }
+              ignored: { type: integer }
+
+    - id: store_dryrun_artifact
+      type: artifact.store
+      description: >-
+        Persist the dry-run recap and AI summary as an audit artifact, so the
+        approver and any reviewer can see exactly what was proposed.
+      params:
+        name: "change_dryrun_record"
+        content_type: json
+        content:
+          requester: "{{ $form.requester }}"
+          change_title: "{{ $form.change_title }}"
+          environment: "{{ $form.target_environment }}"
+          target_hosts: "{{ $form.target_hosts }}"
+          maintenance_window: "{{ $form.maintenance_window }}"
+          rollback_plan: "{{ $form.rollback_plan }}"
+          ai_summary: "{{ $step('summarize_change') }}"
+          dry_run:
+            status: "{{ $step('ansible_check').status }}"
+            mode: "{{ $step('ansible_check').mode }}"
+            changed: "{{ $step('ansible_check').changed }}"
+            recap: "{{ $step('ansible_check').recap }}"
+            artifact_id: "{{ $step('ansible_check').artifact_id }}"
 
     - id: request_approval
       type: human.approval
-      description: Request approval from operations team before executing change
+      description: >-
+        Pause for an operator to approve or reject the change. The approval
+        panel surfaces the AI summary and the dry-run recap from earlier
+        steps. Apply mode runs only on approval.
       params:
-        title: "Change Approval Required"
-        description: "{{ $step('generate_change_summary') }}"
-        context:
-          environment: "{{ $form.target_environment }}"
-          risk_level: "{{ $step('assess_risk').risk_level }}"
-          playbook: "{{ $form.playbook_name }}"
-          requester: "{{ $form.requester_email }}"
+        title: "Approve change: {{ $form.change_title }}"
+        message: >-
+          Requester: {{ $form.requester }}
+          Environment: {{ $form.target_environment }}
+          Hosts: {{ $form.target_hosts }}
+          Window: {{ $form.maintenance_window }}
+          AI risk: {{ $step('summarize_change').risk_level }}
+          AI recommendation: {{ $step('summarize_change').approval_recommendation }}
+          Dry-run status: {{ $step('ansible_check').status }}
+          Dry-run changed: {{ $step('ansible_check').changed }}
         approvers:
-          - ops-team@example.com
-        timeout_minutes: 1440
+          - "{{ $form.requester }}"
 
-    - id: execute_ansible_playbook
+    - id: ansible_apply
       type: tool.call
-      tool: http_request
-      description: Trigger Ansible Tower/AWX job
+      tool: ansible_run
+      description: >-
+        Apply the change with the same bundled playbook. Only reachable after
+        the human approval gate. Same inputs as the check step, so the apply
+        cannot drift from what the approver reviewed.
       params:
-        method: POST
-        url: "https://ansible-tower.example.com/api/v2/job_templates/{{ $form.playbook_name }}/launch/"
-        headers:
-          Authorization: "Bearer {{ $secret('ansible_tower_token') }}"
-        body:
-          extra_vars:
-            environment: "{{ $form.target_environment }}"
-            change_id: "{{ $env('RUN_ID') }}"
-            requester: "{{ $form.requester_email }}"
+        mode: apply
+        playbook: "{{ $env('SAZ_DEMO_ANSIBLE_PLAYBOOK', 'saz/examples/ansible/demo_change.yml') }}"
+        inventory: "{{ $env('SAZ_DEMO_ANSIBLE_INVENTORY', 'saz/examples/ansible/demo_inventory.ini') }}"
+        limit: "{{ $form.target_hosts }}"
+        extra_vars:
+          target_env: "{{ $form.target_environment }}"
+          change_id: "{{ $form.change_title }}"
       expect:
         type: object
         properties:
-          job:
-            type: number
-
-    - id: wait_for_completion
-      type: webhook.wait
-      description: Wait for Ansible job completion callback
-      params:
-        event_name: "ansible.job_complete"
-        timeout_minutes: 60
-        webhook_path: "/ansible/callback"
-        expected_payload:
-          job_id: "{{ $step('execute_ansible_playbook').job }}"
-
-    - id: notify_completion
-      type: tool.call
-      tool: http_request
-      description: Send completion notification
-      params:
-        method: POST
-        url: "https://hooks.slack.com/services/{{ $secret('slack_webhook_id') }}"
-        body:
-          text: |
-            ✅ Change completed successfully
-            Environment: {{ $form.target_environment }}
-            Playbook: {{ $form.playbook_name }}
-            Requester: {{ $form.requester_email }}
-            Job: {{ $step('execute_ansible_playbook').job }}
-      expect:
-        type: object
+          status: { type: string }
+          mode: { type: string }
+          changed: { type: boolean }
+          artifact_id: { type: string }
+          stdout_preview: { type: string }
+          recap:
+            type: object
+            properties:
+              ok: { type: integer }
+              changed: { type: integer }
+              unreachable: { type: integer }
+              failed: { type: integer }
+              skipped: { type: integer }
+              rescued: { type: integer }
+              ignored: { type: integer }
 
     - id: store_change_record
       type: artifact.store
-      description: Store complete change execution record for audit trail
+      description: >-
+        Final audit record. Includes the AI summary, the dry-run recap, the
+        approval payload, and the apply recap. This is the demo's "every
+        action auditable" artifact.
       params:
-        name: "change_{{ $env('RUN_ID') }}"
+        name: "change_executed_record"
+        content_type: json
         content:
-          requester: "{{ $form.requester_email }}"
+          requester: "{{ $form.requester }}"
+          change_title: "{{ $form.change_title }}"
           environment: "{{ $form.target_environment }}"
-          playbook: "{{ $form.playbook_name }}"
-          risk_assessment: "{{ $step('assess_risk') }}"
+          target_hosts: "{{ $form.target_hosts }}"
+          maintenance_window: "{{ $form.maintenance_window }}"
+          rollback_plan: "{{ $form.rollback_plan }}"
+          ai_summary: "{{ $step('summarize_change') }}"
           approval: "{{ $step('request_approval') }}"
-          ansible_job: "{{ $step('execute_ansible_playbook').job }}"
-          completed_at: "{{ $env('TIMESTAMP') }}"
+          dry_run:
+            status: "{{ $step('ansible_check').status }}"
+            recap: "{{ $step('ansible_check').recap }}"
+            artifact_id: "{{ $step('ansible_check').artifact_id }}"
+          apply:
+            status: "{{ $step('ansible_apply').status }}"
+            recap: "{{ $step('ansible_apply').recap }}"
+            artifact_id: "{{ $step('ansible_apply').artifact_id }}"
+            changed: "{{ $step('ansible_apply').changed }}"
 
 policies:
   budget_usd: 0.20
   defaults:
-    timeout_ms: 300000
+    timeout_ms: 600000
     continue_on_fail: false
   pii:
+    # PII is blocked by default everywhere else. The artifact.store steps
+    # below are the run's audit record — they must preserve requester /
+    # approver identity for the change to be traceable. Operators opt in
+    # explicitly per path so this isn't a blanket override.
     allow: false
-
-credentials:
-  uses: [ansible_tower_token, slack_webhook_id]
+    exceptions:
+      tools:
+        artifact.store:
+          allow:
+            - content.requester
+            - content.approval

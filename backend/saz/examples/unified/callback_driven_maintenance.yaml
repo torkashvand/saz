@@ -1,0 +1,166 @@
+meta:
+  id: callback_driven_maintenance
+  title: "Callback-Driven Maintenance Window"
+  description: >-
+    Wedge demo. A maintenance window is intaken; the run prepares an audit
+    record, then suspends on a webhook.wait step. The run remains suspended
+    until an external system (or the operator) POSTs to the generated
+    callback URL. On approve, the run resumes and finalizes the record. On
+    reject, the run fails with the rejection reason captured in the audit
+    trail.
+  tags: ["wedge-demo", "maintenance", "callback", "webhook", "ops", "sre", "recommended"]
+  complexity: "medium"
+  recommended: true
+
+schema_version: 1
+
+flow:
+  name: callback_driven_maintenance
+  version: "1.0"
+  description: >-
+    Suspends on webhook.wait; resumes via a callback POST. Demonstrates the
+    canonical operational pause/resume pattern for maintenance windows that
+    must wait on an external system's confirmation.
+
+form:
+  fields:
+    - name: maintenance_title
+      type: string
+      required: true
+      description: Short maintenance title (e.g. "Edge cache rebuild")
+    - name: target_system
+      type: string
+      required: true
+      description: Service or component being maintained
+    - name: environment
+      type: string
+      required: true
+      enum: [dev, staging, prod]
+    - name: maintenance_window
+      type: string
+      required: true
+      description: Planned window (e.g. "2026-05-20 02:00–04:00 UTC")
+    - name: external_ticket_id
+      type: string
+      required: false
+      description: Change-management ticket (e.g. "CHG-2024-001")
+    - name: notification_channel
+      type: string
+      required: false
+      description: Where operators discuss this maintenance (e.g. "#sre-on-call")
+    - name: expected_callback_source
+      type: string
+      required: false
+      description: System expected to send the completion callback (e.g. "deploy-bot", "operator")
+
+triggers:
+  manual: true
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: validate_maintenance_plan
+      type: ai.extract
+      instruction: |
+        Review the maintenance request and produce a JSON object that conforms
+        exactly to the expected schema.
+
+        Rules:
+        - "preconditions" is a short ordered list (3-6 items) the operator must
+          confirm before the maintenance starts (backups, freezes, traffic
+          drains, etc.).
+        - "blast_radius" is a short factual phrase.
+        - "ready_to_proceed" is false whenever required information is missing
+          (no maintenance_window, no rollback path implied, etc.).
+        - Never propose to skip the callback wait.
+      params:
+        data:
+          title: "{{ $form.maintenance_title }}"
+          target_system: "{{ $form.target_system }}"
+          environment: "{{ $form.environment }}"
+          window: "{{ $form.maintenance_window }}"
+          ticket_id: "{{ $form.external_ticket_id }}"
+          channel: "{{ $form.notification_channel }}"
+          callback_source: "{{ $form.expected_callback_source }}"
+      expect:
+        type: object
+        additionalProperties: false
+        properties:
+          intent_summary:
+            type: string
+          blast_radius:
+            type: string
+          preconditions:
+            type: array
+            items: { type: string }
+            minItems: 1
+          ready_to_proceed:
+            type: boolean
+          notes:
+            type: string
+        required:
+          - intent_summary
+          - blast_radius
+          - preconditions
+          - ready_to_proceed
+      temperature: 0.1
+      max_tokens: 600
+
+    - id: store_prep_record
+      type: artifact.store
+      description: >-
+        Persist the validated maintenance plan as an audit artifact before
+        suspending. If the callback never arrives, this record still shows
+        what was prepared and why.
+      params:
+        name: "maintenance_prep_record"
+        content_type: json
+        content:
+          stage: prepared
+          requester_inputs:
+            title: "{{ $form.maintenance_title }}"
+            target_system: "{{ $form.target_system }}"
+            environment: "{{ $form.environment }}"
+            window: "{{ $form.maintenance_window }}"
+            ticket_id: "{{ $form.external_ticket_id }}"
+            channel: "{{ $form.notification_channel }}"
+            callback_source: "{{ $form.expected_callback_source }}"
+          validation: "{{ $step('validate_maintenance_plan') }}"
+
+    - id: wait_for_completion_callback
+      type: webhook.wait
+      description: >-
+        Suspend the run until an external system or operator POSTs the
+        completion callback. The run's error payload exposes a callback_id;
+        send POST /api/v1/webhooks/callback/{callback_id} with
+        {"action": "approve", "data": {...}} to resume, or "reject" to fail.
+      params:
+        event_name: "maintenance.completed"
+        timeout_minutes: 240
+
+    - id: store_completion_record
+      type: artifact.store
+      description: >-
+        Persist the final maintenance audit record, including the callback
+        payload that resumed the run. Only reached when the callback approves.
+      params:
+        name: "maintenance_completion_record"
+        content_type: json
+        content:
+          stage: completed
+          requester_inputs:
+            title: "{{ $form.maintenance_title }}"
+            target_system: "{{ $form.target_system }}"
+            environment: "{{ $form.environment }}"
+            window: "{{ $form.maintenance_window }}"
+            ticket_id: "{{ $form.external_ticket_id }}"
+          validation: "{{ $step('validate_maintenance_plan') }}"
+          callback: "{{ $step('wait_for_completion_callback') }}"
+
+policies:
+  budget_usd: 0.10
+  defaults:
+    timeout_ms: 120000
+    continue_on_fail: false
+  pii:
+    allow: false

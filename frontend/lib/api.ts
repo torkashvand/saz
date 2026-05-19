@@ -17,6 +17,8 @@ import type {
   ResumeRunRequest,
   ResumeRunResponse,
   RetryRunResponse,
+  WebhookCallbackRequest,
+  WebhookCallbackResponse,
   // Events
   Event,
   EventListResponse,
@@ -30,6 +32,9 @@ import type {
   CreateCredentialRequest,
   UpdateCredentialRequest,
   CredentialResponse,
+  // Templates
+  TemplateSummary,
+  TemplateDetail,
   // Graph
   RunGraphResponse,
   // Legacy
@@ -239,6 +244,20 @@ export const api = {
     }),
 
   /**
+   * Send an approve/reject callback to a suspended webhook.wait or
+   * human.approval step. The callback_id is the run.error.callback_id of
+   * the suspended run.
+   */
+  sendWebhookCallback: (callbackId: string, body: WebhookCallbackRequest) =>
+    fetchApi<WebhookCallbackResponse>(
+      `/api/v1/webhooks/callback/${callbackId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
+
+  /**
    * Get run summary with aggregated event metrics
    */
   getRunSummary: (runId: string) => fetchApi<RunSummary>(`/api/v1/runs/${runId}`),
@@ -284,6 +303,28 @@ export const api = {
     const query = stepId ? `?step_id=${stepId}` : '';
     return fetchApi<ArtifactListResponse>(`/api/v1/runs/${id}/artifacts${query}`);
   },
+
+  // ========== Templates ==========
+
+  /**
+   * List flow templates (built-in YAML examples shipped with the
+   * backend). Pass recommended_only=true to filter to the
+   * conference-ready wedge demos.
+   */
+  listTemplates: (params?: { recommendedOnly?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.recommendedOnly) query.set('recommended_only', 'true');
+    const qs = query.toString();
+    return fetchApi<TemplateSummary[]>(
+      `/api/templates/${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  /**
+   * Fetch the full YAML + metadata for a single template by id.
+   */
+  getTemplate: (id: string) =>
+    fetchApi<TemplateDetail>(`/api/templates/${encodeURIComponent(id)}`),
 
   // ========== Credential Endpoints ==========
 
@@ -366,18 +407,4 @@ export const api = {
    * List available AI operations with default schemas
    */
   listAIOps: () => fetchApi<import('./types').AIOpReference[]>('/api/v1/flows/ai-ops'),
-
-  /**
-   * List all available flow templates
-   */
-  listTemplates: (recommendedOnly: boolean = false) =>
-    fetchApi<import('./types').TemplateSummary[]>(
-      `/api/templates${recommendedOnly ? '?recommended_only=true' : ''}`
-    ),
-
-  /**
-   * Get detailed template with YAML content
-   */
-  getTemplate: (templateId: string) =>
-    fetchApi<import('./types').TemplateDetail>(`/api/templates/${templateId}`),
 };

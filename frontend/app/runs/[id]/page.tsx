@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { useRunDetails, useResumeRun } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
-import type { HumanApprovalError } from '@/lib/types';
+import type { HumanApprovalError, WebhookWaitError } from '@/lib/types';
 import { useRunEvents } from '@/lib/use-run-events';
 import { useRunMetrics } from '@/lib/use-run-metrics';
 import { ErrorBanner } from '@/components/ui/error-banner';
@@ -20,6 +20,7 @@ import { CostMetricsView } from '@/components/metrics/cost-view';
 import { EnhancedConsolePanel } from '@/components/runs/console-panel';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { HumanApprovalPanel } from '@/components/runs/human-approval-panel';
+import { WebhookCallbackPanel } from '@/components/runs/webhook-callback-panel';
 import { buildDisplaySteps, resolveCanonicalStepIndex } from '@/lib/runs/display-steps';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
@@ -68,8 +69,47 @@ export default function RunDetailPageRedesign() {
       ? (run.error as HumanApprovalError)
       : null;
 
+  // Detect webhook.wait suspension. The same callback_id mechanism powers
+  // both human.approval and webhook.wait, but for webhook.wait there is no
+  // approver workflow — operators (or external systems) just POST to the
+  // callback URL to resume.
+  const webhookError: WebhookWaitError | null =
+    isSuspended && run?.error?.type === 'WebhookWait'
+      ? (run.error as WebhookWaitError)
+      : null;
+  const webhookCallbackUrl = webhookError
+    ? `${(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/v1/webhooks/callback/${webhookError.callback_id}`
+    : '';
+
   // Resume mutation
   const resumeMutation = useResumeRun(runId);
+
+  // Webhook callback mutation — calls the webhook endpoint directly rather
+  // than /resume, so duplicate callbacks are handled idempotently by the
+  // backend and the audit trail records a webhook.callback_received event.
+  const callbackMutation = useMutation({
+    mutationFn: (body: {
+      action: 'approve' | 'reject';
+      reason?: string;
+      data?: Record<string, unknown>;
+    }) => {
+      if (!webhookError) {
+        return Promise.reject(new Error('No callback_id available'));
+      }
+      return api.sendWebhookCallback(webhookError.callback_id, body);
+    },
+    onSuccess: (resp) => {
+      if (resp.status === 'rejected') {
+        showSuccess('Callback rejected; run marked as failed.');
+      } else if (resp.status === 'already_processed') {
+        showSuccess(`Callback already processed (${resp.message}).`);
+      } else {
+        showSuccess('Callback accepted; run resuming.');
+      }
+      queryClient.invalidateQueries({ queryKey: ['run', runId] });
+    },
+    onError: showError,
+  });
 
   // Track running steps from WebSocket events.
   // Resolves events to canonical planned-step positions by step NAME,
@@ -348,6 +388,21 @@ export default function RunDetailPageRedesign() {
             onApprove={handleApprove}
             onReject={handleReject}
             isPending={resumeMutation.isPending}
+          />
+        </div>
+      )}
+
+      {/* Webhook Callback Panel — surfaces the callback URL and an in-UI
+          send button when a run is suspended on a webhook.wait step. */}
+      {webhookError && (
+        <div className="mb-6">
+          <WebhookCallbackPanel
+            webhookError={webhookError}
+            callbackUrl={webhookCallbackUrl}
+            onSendCallback={async (body) => {
+              await callbackMutation.mutateAsync(body);
+            }}
+            isPending={callbackMutation.isPending}
           />
         </div>
       )}

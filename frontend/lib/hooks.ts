@@ -12,6 +12,36 @@ export function useAIOps() {
   });
 }
 
+// ========== Templates ==========
+
+/**
+ * List built-in flow templates. Pass recommendedOnly to filter to the
+ * curated wedge demos. Cached for 5 min — templates ship with the
+ * backend and only change on deploy.
+ */
+export function useTemplates(options?: { recommendedOnly?: boolean }) {
+  const recommendedOnly = !!options?.recommendedOnly;
+  return useQuery({
+    queryKey: ['templates', { recommendedOnly }],
+    queryFn: () => api.listTemplates({ recommendedOnly }),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Fetch the full YAML + metadata for a single template. Returns null
+ * when ``templateId`` is null/empty so callers can pass a controlled
+ * value without conditional hook usage.
+ */
+export function useTemplate(templateId: string | null) {
+  return useQuery({
+    queryKey: ['template', templateId],
+    queryFn: () => api.getTemplate(templateId!),
+    enabled: !!templateId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 // ========== Unified DSL Hooks ==========
 
 export function useCompileFlow() {

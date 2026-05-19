@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { FileCode, Layout, Check, Circle, Loader2, AlertCircle } from 'lucide-react';
+import { FileCode, Layout, Check, Circle, Loader2, AlertCircle, BookOpen } from 'lucide-react';
 import type { FlowBuilderMode } from '@/lib/flows/types';
-import type { TemplateSummary } from '@/lib/types';
-import { api } from '@/lib/api';
+import { TemplatePicker } from './template-picker';
 
 interface FlowBuilderHeaderProps {
   mode: FlowBuilderMode;
@@ -38,22 +37,7 @@ export function FlowBuilderHeader({
   isSaving = false,
   saveError = null,
 }: FlowBuilderHeaderProps) {
-  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
-
-  useEffect(() => {
-    async function fetchTemplates() {
-      try {
-        const fetchedTemplates = await api.listTemplates(true);
-        setTemplates(fetchedTemplates);
-      } catch (error) {
-        console.error('Failed to load templates:', error);
-      } finally {
-        setLoadingTemplates(false);
-      }
-    }
-    fetchTemplates();
-  }, []);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const formatLastSaved = (date: Date | null) => {
     if (!date) return '';
@@ -95,24 +79,15 @@ export function FlowBuilderHeader({
 
           <div className="flex items-center gap-3">
             {!isEditMode && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-600">Template:</label>
-                <select
-                  onChange={(e) => e.target.value && onTemplateSelect(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  defaultValue=""
-                  disabled={loadingTemplates}
-                >
-                  <option value="">
-                    {loadingTemplates ? 'Loading templates...' : 'Choose template...'}
-                  </option>
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPickerOpen(true)}
+                data-testid="open-template-picker"
+              >
+                <BookOpen className="h-4 w-4 mr-1.5" aria-hidden="true" />
+                Browse templates
+              </Button>
             )}
 
             <Button variant="outline" size="sm" onClick={onClear}>
@@ -138,6 +113,17 @@ export function FlowBuilderHeader({
             </Button>
           </div>
         </div>
+
+        {!isEditMode && (
+          <TemplatePicker
+            open={pickerOpen}
+            onClose={() => setPickerOpen(false)}
+            onSelect={(templateId) => {
+              setPickerOpen(false);
+              onTemplateSelect(templateId);
+            }}
+          />
+        )}
 
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 mr-2">Mode:</span>

@@ -200,6 +200,28 @@ export interface HumanApprovalError {
   type: 'HumanApprovalRequired';
   step_id: string;
   reasoning?: string;
+  callback_id?: string;
+}
+
+/** Shape of run.error when type === 'WebhookWait' */
+export interface WebhookWaitError {
+  message: string;
+  type: 'WebhookWait';
+  step_id: string;
+  callback_id: string;
+}
+
+/** Request body for POST /api/v1/webhooks/callback/{callback_id}. */
+export interface WebhookCallbackRequest {
+  action: 'approve' | 'reject';
+  reason?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface WebhookCallbackResponse {
+  status: 'resumed' | 'rejected' | 'already_processed';
+  run_id: string;
+  message: string;
 }
 
 export interface RetryRunResponse {

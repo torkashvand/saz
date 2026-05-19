@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CollapsibleJson } from '@/components/common/json-view';
+import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
 import type { HumanApprovalError, RunDetailResponse, RunStep, PlannedStep } from '@/lib/types';
 
 interface HumanApprovalPanelProps {
@@ -71,6 +72,19 @@ function hasContent(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === 'object' && Object.keys(value as object).length === 0) return false;
   return true;
+}
+
+/**
+ * Build the absolute URL operators can POST to in order to resolve the
+ * approval gate via the webhook callback path. Mirrors the construction
+ * used on the run detail page for the webhook.wait variant so the curl
+ * recipe in the docs works for both suspension types.
+ */
+function buildApprovalCallbackUrl(callbackId: string): string {
+  const base = (
+    process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+  ).replace(/\/$/, '');
+  return `${base}/api/v1/webhooks/callback/${callbackId}`;
 }
 
 export function HumanApprovalPanel({
@@ -172,6 +186,24 @@ export function HumanApprovalPanel({
           <div className="text-xs text-slate-500 font-mono">
             Step: {approvalError.step_id}
           </div>
+          {approvalError.callback_id && (
+            <details className="border-t border-slate-100 pt-3">
+              <summary className="cursor-pointer select-none text-xs font-medium uppercase tracking-wide text-slate-600">
+                Advanced: approve via webhook callback (curl)
+              </summary>
+              <div className="mt-3">
+                <CallbackUrlBlock
+                  url={buildApprovalCallbackUrl(approvalError.callback_id)}
+                  label="Callback URL"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Approving via the buttons below calls <code>POST /runs/{run.id}/resume</code>.
+                  External systems can resolve this gate by POSTing to the
+                  callback URL above instead — the audit trail records both paths.
+                </p>
+              </div>
+            </details>
+          )}
         </div>
 
         {/* Tabbed review area */}

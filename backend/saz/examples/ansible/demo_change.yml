@@ -1,0 +1,41 @@
+---
+# Saz change-approval demo playbook.
+#
+# Intentionally safe and idempotent — does NOT mutate real infrastructure.
+# Designed to run cleanly in --check mode and in apply mode against
+# localhost (ansible_connection: local). Used by the
+# change_approval_ansible.yaml demo workflow.
+#
+# The playbook simulates a routine maintenance change:
+#   1. Capture the current timestamp into an artifact file.
+#   2. Render a one-line change marker into /tmp/saz-demo/.
+#
+# Operators may swap in their own playbook by setting the
+# SAZ_DEMO_ANSIBLE_PLAYBOOK env var (see backend/saz/examples/README.md).
+- name: Saz demo change
+  hosts: localhost
+  gather_facts: false
+  vars:
+    saz_demo_dir: /tmp/saz-demo
+    saz_change_id: "{{ change_id | default('local-demo') }}"
+    saz_target_env: "{{ target_env | default('dev') }}"
+
+  tasks:
+    - name: Ensure demo workspace exists
+      ansible.builtin.file:
+        path: "{{ saz_demo_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render change marker
+      ansible.builtin.copy:
+        dest: "{{ saz_demo_dir }}/last_change.txt"
+        mode: "0644"
+        content: |
+          saz_change_id: {{ saz_change_id }}
+          target_env: {{ saz_target_env }}
+          applied_at: {{ ansible_date_time.iso8601 | default('unknown') }}
+
+    - name: Report demo result
+      ansible.builtin.debug:
+        msg: "Saz demo change {{ saz_change_id }} prepared for {{ saz_target_env }}"

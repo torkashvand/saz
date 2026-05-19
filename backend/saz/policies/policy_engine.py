@@ -399,12 +399,29 @@ class PolicyEngine:
         if budget_usd:
             self.budget_tracker.max_cost_usd = budget_usd
 
-        # Extract rate limits
+        # Extract rate limits.
+        # The DSL/compiler shape is {tool_name: {rpm: N}}. We also accept
+        # legacy top-level keys (calls_per_minute / calls_per_hour) for any
+        # callers that build policies dicts by hand.
         rate_limits = policies_dict.get("rate_limits", {})
-        calls_per_minute = rate_limits.get("calls_per_minute", 10)
-        calls_per_hour = rate_limits.get("calls_per_hour", 100)
-        self.rate_limiter.calls_per_minute = calls_per_minute
-        self.rate_limiter.calls_per_hour = calls_per_hour
+        per_tool_rpm: dict[str, int] = {}
+        legacy_per_minute: int | None = None
+        legacy_per_hour: int | None = None
+        if isinstance(rate_limits, dict):
+            for key, val in rate_limits.items():
+                if key == "calls_per_minute" and isinstance(val, int):
+                    legacy_per_minute = val
+                elif key == "calls_per_hour" and isinstance(val, int):
+                    legacy_per_hour = val
+                elif isinstance(val, dict) and "rpm" in val:
+                    per_tool_rpm[key] = int(val["rpm"])
+
+        if legacy_per_minute is not None:
+            self.rate_limiter.calls_per_minute = legacy_per_minute
+        if legacy_per_hour is not None:
+            self.rate_limiter.calls_per_hour = legacy_per_hour
+        if per_tool_rpm:
+            self.rate_limiter.per_tool_rpm = per_tool_rpm
 
         # Extract PII policy
         pii_config = policies_dict.get("pii", {})

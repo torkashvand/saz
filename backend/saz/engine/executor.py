@@ -938,6 +938,31 @@ class WorkflowExecutor:
             )
             await emitter.commit_and_broadcast()
 
+            # Persist Artifact row when artifact.store succeeds so the DB
+            # reflects what the filesystem already does. The Artifact model
+            # and run.artifacts relationship exist precisely for this — the
+            # tool layer just writes a JSON blob, so without this hop the
+            # database stays empty and any consumer of run.artifacts (read
+            # repository, UI) sees nothing.
+            if (
+                tool_call.tool == "artifact.store"
+                and isinstance(result, dict)
+                and self.uow.artifacts is not None
+            ):
+                artifact_id = result.get("artifact_id")
+                if artifact_id:
+                    self.uow.artifacts.create(
+                        run_id=run_id,
+                        name=result.get("name") or "artifact",
+                        blob_ref=result.get("storage_path") or "",
+                        meta={
+                            "artifact_id": artifact_id,
+                            "content_type": result.get("content_type", "json"),
+                        },
+                        step_id=current_step.id,
+                    )
+                    self.uow.commit()
+
         except Exception as tool_error:
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
             emitter.tool_failed(

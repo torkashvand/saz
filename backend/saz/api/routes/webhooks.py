@@ -155,13 +155,29 @@ async def handle_webhook_callback(
     )
 
     if req.action == "reject":
-        # Rejection: fail the run
+        # Rejection: fail the suspended step AND the run.
+        # A failed run must never own a "suspended" step row — that confuses
+        # the timeline UI, retry/resume logic, and any audit consumer that
+        # expects terminal step state on a terminal run. The rejection reason
+        # also belongs on Step.error so operators see WHY the gate failed
+        # without digging through run.error.
         reason = req.reason or "Rejected via webhook callback"
         emitter.approval_denied(
             step_id=suspended_step_db_id or "",
             step_name=suspended_step_name,
             reason=reason,
         )
+
+        if suspended_step_db_id is not None:
+            uow.steps.mark_failed(
+                suspended_step_db_id,
+                {
+                    "type": "WebhookRejection",
+                    "message": f"Rejected via webhook: {reason}",
+                    "reason": reason,
+                    "callback_id": callback_id,
+                },
+            )
 
         uow.runs.mark_failed(
             run.id,

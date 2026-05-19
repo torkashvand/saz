@@ -46,14 +46,28 @@ class StepRepository(BaseRepository[Step]):
             step.start_ts = datetime.now(UTC)
         return step
 
+    def _set_step_duration(self, step: Step) -> None:
+        """Compute and persist duration_ms. SQLite strips tzinfo on round-trip
+        even with DateTime(timezone=True); PostgreSQL preserves it. Normalize
+        both sides to UTC-aware before subtracting.
+        """
+        if step.start_ts is None or step.end_ts is None:
+            return
+        start = step.start_ts
+        end = step.end_ts
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        step.duration_ms = int((end - start).total_seconds() * 1000)
+
     def mark_completed(self, step_id: str) -> Step | None:
         """Mark step as completed."""
         step = self.get(step_id)
         if step:
             step.status = "completed"
             step.end_ts = datetime.now(UTC)
-            if step.start_ts:
-                step.duration_ms = int((step.end_ts - step.start_ts).total_seconds() * 1000)
+            self._set_step_duration(step)
         return step
 
     def mark_failed(self, step_id: str, error: dict) -> Step | None:
@@ -63,8 +77,7 @@ class StepRepository(BaseRepository[Step]):
             step.status = "failed"
             step.error = error
             step.end_ts = datetime.now(UTC)
-            if step.start_ts:
-                step.duration_ms = int((step.end_ts - step.start_ts).total_seconds() * 1000)
+            self._set_step_duration(step)
         return step
 
     def mark_suspended(self, step_id: str) -> Step | None:

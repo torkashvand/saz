@@ -24,6 +24,10 @@ class RateLimiter:
         self.calls_per_minute = calls_per_minute
         self.calls_per_hour = calls_per_hour
         self.burst_allowance = burst_allowance
+        # Per-tool RPM overrides set by PolicyEngine.initialize_from_dsl from
+        # DSL `policies.rate_limits.<tool>.rpm`. Falls back to
+        # calls_per_minute when a tool has no override.
+        self.per_tool_rpm: dict[str, int] = {}
         self.logger = logger.bind(policy="rate_limiter")
 
         # Storage: {key -> [(timestamp, count)]}
@@ -43,18 +47,20 @@ class RateLimiter:
         """
         now = datetime.now(UTC)
 
-        # Check per-tool per-minute limit
+        # Per-tool per-minute limit. Use DSL override if declared, else the
+        # global default.
+        tool_limit = self.per_tool_rpm.get(tool_name, self.calls_per_minute)
         tool_key = f"tool:{tool_name}"
         if not self._check_bucket(
-            self._minute_buckets[tool_key], now, timedelta(minutes=1), self.calls_per_minute
+            self._minute_buckets[tool_key], now, timedelta(minutes=1), tool_limit
         ):
-            reason = f"Tool '{tool_name}' exceeded {self.calls_per_minute} calls/minute"
+            reason = f"Tool '{tool_name}' exceeded {tool_limit} calls/minute"
             self.logger.warning(
                 "rate_limit_exceeded",
                 tool=tool_name,
                 run_id=run_id,
                 limit_type="per_minute",
-                limit=self.calls_per_minute,
+                limit=tool_limit,
             )
             return False, reason
 

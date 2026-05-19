@@ -162,14 +162,20 @@ class ExecutorAgent:
         """
         Basic validation that required parameters are present.
 
+        Tool specs in this repo are not consistent about key casing —
+        HttpTool/WebhookTool/ArtifactTool emit ``inputSchema`` (camelCase)
+        while the AI-op spec factory and AnsibleTool emit ``input_schema``
+        (snake_case). Look at both so the required-field check actually
+        fires for every registered tool.
+
         Args:
             arguments: Grounded arguments
-            tool_spec: Tool specification with inputSchema
+            tool_spec: Tool specification with inputSchema/input_schema
 
         Raises:
             ValueError: If required parameters missing
         """
-        input_schema = tool_spec.get('inputSchema', {})
+        input_schema = tool_spec.get('input_schema') or tool_spec.get('inputSchema') or {}
         required_params = input_schema.get('required', [])
 
         missing = [p for p in required_params if p not in arguments]

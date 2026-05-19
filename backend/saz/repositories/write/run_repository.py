@@ -17,11 +17,25 @@ class RunRepository(BaseRepository[Run]):
         super().__init__(session, Run)
 
     def create(self, flow_id: str, payload: dict) -> Run:
-        """Create new run."""
+        """Create new run.
+
+        Copies the parent Flow's planner_mode onto the Run row so the API
+        response and audit events reflect what the flow actually executes
+        as (not just the model column default).
+        """
+        from saz.db.models import Flow
+
+        flow = self.session.get(Flow, flow_id)
+        planner_mode = "deterministic"
+        if flow and isinstance(flow.definition, dict):
+            workflow_def = flow.definition.get("workflow", {})
+            planner_mode = workflow_def.get("planner_mode", "deterministic")
+
         run = Run(
             id=str(uuid4()),
             flow_id=flow_id,
             status="queued",
+            planner_mode=planner_mode,
             payload=payload,
             cost_cents=0,
             created_at=datetime.now(UTC),
@@ -29,18 +43,45 @@ class RunRepository(BaseRepository[Run]):
         return self.add(run)
 
     def mark_running(self, run_id: str) -> Run | None:
-        """Mark run as running."""
+        """Mark run as running, recording started_at so duration_ms reflects
+        actual execution time rather than queue + suspension wait."""
         run = self.get(run_id)
         if run:
             run.status = "running"
+            if run.started_at is None:
+                run.started_at = datetime.now(UTC)
         return run
 
+    def _set_duration_ms(self, run: Run) -> None:
+        """Populate run.duration_ms from started_at → completed_at.
+
+        SQLite strips tzinfo on round-trip even though the column is declared
+        DateTime(timezone=True); PostgreSQL preserves it. Normalize both
+        sides to UTC-aware before subtracting so the call works on either
+        backend.
+        """
+        if run.started_at is None or run.completed_at is None:
+            return
+        started = run.started_at
+        completed = run.completed_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=UTC)
+        run.duration_ms = int((completed - started).total_seconds() * 1000)
+
     def mark_completed(self, run_id: str) -> Run | None:
-        """Mark run as completed."""
+        """Mark run as completed.
+
+        Persists duration_ms (started_at → completed_at) so the column is
+        not left NULL and consumers don't need to recompute it from
+        created_at, which would include queue + suspension time.
+        """
         run = self.get(run_id)
         if run:
             run.status = "completed"
             run.completed_at = datetime.now(UTC)
+            self._set_duration_ms(run)
         return run
 
     def mark_failed(self, run_id: str, error: dict) -> Run | None:
@@ -50,6 +91,7 @@ class RunRepository(BaseRepository[Run]):
             run.status = "failed"
             run.error = error
             run.completed_at = datetime.now(UTC)
+            self._set_duration_ms(run)
         return run
 
     def mark_suspended(self, run_id: str, error: dict | None = None) -> Run | None:

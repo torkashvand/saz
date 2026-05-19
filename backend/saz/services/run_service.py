@@ -144,12 +144,15 @@ class RunService:
                 suspended_step = step
                 break
 
-        # Store resume data in the suspended step's output
-        if suspended_step and resume_data:
+        # Always complete the suspended step on resume — leaving it suspended
+        # while requeuing the run causes the executor to either re-enter the
+        # same gate or never advance it (only completed steps are skipped on
+        # restart). When the caller does not provide explicit resume_data,
+        # store a minimal "resumed" marker so the step output is still a dict.
+        if suspended_step:
             step_entity = self.uow.steps.get(suspended_step.id)
             if step_entity:
-                step_entity.output = resume_data
-                # Mark step as completed
+                step_entity.output = resume_data or {"resumed": True}
                 self.uow.steps.mark_completed(suspended_step.id)
 
         # Update run payload if override provided and mark as queued

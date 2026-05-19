@@ -50,9 +50,6 @@ Allowed step types:
 - webhook.wait      : { id, type, params{ event_name } }
 - artifact.store    : { id, type, params }
 - artifact.retrieve : { id, type, params }
-- group.parallel    : { id, type, steps[], join: all|any }
-- group.map         : { id, type, foreach, as, steps[] }
-- noop              : { id, type }
 
 Template syntax:
 - {{ $form.field_name }}                    → Form data
@@ -341,6 +338,14 @@ _DSL_SCHEMA: dict[str, Any] | None = {
 # Runtime constants                                                                      #
 # -------------------------------------------------------------------------------------- #
 
+# Step types accepted by the compiler. Must mirror what
+# engine/executor.py:_execute_step_action() can actually dispatch — a
+# compiler-allowed step that the runtime cannot run lets invalid flows pass
+# /flows/compile and crash at execute time with "Unknown step_type".
+#
+# group.parallel / group.map / noop were declared here historically but were
+# never implemented in the executor and no shipped example workflow uses
+# them; removed until/unless the runtime side lands.
 _ALLOWED_STEP_TYPES: set[str] = {
     "tool.call",
     "condition",
@@ -360,9 +365,7 @@ _ALLOWED_STEP_TYPES: set[str] = {
     "ai.translate",
     "ai.summarize",
     "ai.fix_json",
-    "group.parallel",
-    "group.map",
-    "noop",
+    "ai.plan",
 }
 
 
@@ -731,26 +734,6 @@ def _validate_and_normalize_steps(
                 raise ValueError(
                     f"step '{sid}' (type: {stype}) requires non-empty 'description' field"
                 )
-        elif stype == "group.parallel":
-            _require_keys(step, ["steps", "join"])
-            if step["join"] not in {"all", "any"}:
-                raise ValueError(f"step '{sid}' group.parallel.join must be 'all' or 'any'")
-            inner = step["steps"]
-            if not isinstance(inner, list) or not inner:
-                raise ValueError(f"step '{sid}' group.parallel.steps must be a non-empty list")
-            for j, inner_step in enumerate(inner):
-                if (
-                    not isinstance(inner_step, dict)
-                    or "id" not in inner_step
-                    or "type" not in inner_step
-                ):
-                    raise ValueError(f"step '{sid}' group.parallel.steps[{j}] must include id/type")
-        elif stype == "group.map":
-            _require_keys(step, ["foreach", "as", "steps"])
-            if not isinstance(step["steps"], list) or not step["steps"]:
-                raise ValueError(f"step '{sid}' group.map.steps must be a non-empty list")
-        elif stype == "noop":
-            pass
 
         # uses_credentials
         creds = step.get("uses_credentials", [])

@@ -2,6 +2,7 @@
 
 import yaml
 
+from saz.compiler import compile_dsl
 from saz.db.unit_of_work import UnitOfWork
 from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
 
@@ -13,12 +14,24 @@ class FlowService:
         self.uow = uow
 
     def register(self, yaml_content: str) -> str:
-        """Register a new flow from YAML DSL."""
-        # Parse YAML
+        """Register a new flow from YAML DSL.
+
+        Runs the full DSL compiler before persisting so /flows and
+        /flows/compile agree on what's valid. Invalid workflows fail at
+        register time with a clear error instead of being saved and crashing
+        the executor later.
+        """
+        # Parse YAML for an early friendly error before compile_dsl runs its
+        # own parser (compile_dsl also catches yaml errors but the message is
+        # less actionable than this one for clients).
         try:
             dsl = yaml.safe_load(yaml_content)
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML: {e}") from None
+
+        # Full compile: validates schema, step types, templates, expect
+        # schemas, credential refs, etc. Raises ValueError on any failure.
+        compile_dsl(yaml_content)
 
         # Extract metadata
         flow_meta = dsl.get("flow", {})

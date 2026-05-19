@@ -120,7 +120,7 @@ async def list_runs(
                 completed_at=r.completed_at,
                 total_cost_usd=r.total_cost_usd or 0.0,
                 total_tokens=r.total_tokens or 0,
-                error=r.error,
+                error=sanitize_error(r.error, include_sensitive=False),
             )
             for r in runs_with_flow
         ],
@@ -195,7 +195,7 @@ async def get_run_summary(
         total_cost_usd=run.total_cost_usd or 0.0,
         total_tokens=run.total_tokens or 0,
         step_count=len(run.steps) if run.steps else 0,
-        error=run.error,
+        error=sanitize_error(run.error, include_sensitive=False),
     )
 
 
@@ -421,7 +421,7 @@ async def get_run_steps(
                 cost_usd=s.cost_usd,
                 input=s.input,
                 output=s.output,
-                error=s.error,
+                error=sanitize_error(s.error, include_sensitive=False),
             )
             for s in (run.steps or [])
         ],

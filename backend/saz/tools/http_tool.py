@@ -119,8 +119,10 @@ class HttpTool:
                 except Exception:
                     response_body = {"raw": response.text}
 
+                ok = 200 <= response.status_code < 300
                 result = {
                     "status_code": response.status_code,
+                    "ok": ok,
                     "headers": dict(response.headers),
                     "body": response_body,
                     "metadata": {
@@ -129,6 +131,26 @@ class HttpTool:
                         "timestamp": start_time.isoformat(),
                     },
                 }
+
+                # Non-2xx responses are surfaced as failures so the
+                # post-execution critic and downstream steps cannot mistake a
+                # 500 error page for a successful tool call. The structured
+                # result is included on the exception so callers that catch
+                # it can inspect status_code/body.
+                if not ok:
+                    self.logger.warning(
+                        "http_request_non_2xx",
+                        method=method,
+                        url=url,
+                        status_code=response.status_code,
+                        duration_ms=duration_ms,
+                        idempotency_key=idempotency_key,
+                    )
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {response.status_code} for {method} {url}",
+                        request=response.request,
+                        response=response,
+                    )
 
                 self.logger.info(
                     "http_request_success",

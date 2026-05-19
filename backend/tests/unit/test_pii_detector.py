@@ -109,6 +109,36 @@ def test_phone_detection_and_masking(det: PIIDetector, phone: str):
     assert re.sub(r"\D", "", phone)[-4:] in masked
 
 
+@pytest.mark.parametrize(
+    "ticket_id",
+    [
+        # Bare digit blobs — most common false-positive source.
+        "1234567",
+        "12345678",
+        "9876543210",
+        # Internal ticket / change / order ids — value passed to the
+        # validator after the regex match is just the digit run.
+        "INC-1234567",
+        "CHG-2024-12345",
+        "JIRA-12345678",
+        "ORDER-9876543",
+        "TICKET-7654321",
+    ],
+)
+def test_ticket_id_shaped_strings_are_not_phones(ticket_id):
+    """Regression: any 7+ digit blob with no separators / parens / `+`
+    prefix used to pass the phone validator. Operational workflows carry
+    ticket ids, change numbers, and order refs in audit artifacts — and
+    treating them as phone PII redacted the audit trail and blocked
+    artifact.store with a 'PII on disallowed paths' error."""
+    det = PIIDetector()
+    findings = det.detect(ticket_id)
+    flagged_phones = [f for f in findings if f["type"] == "phone"]
+    assert not flagged_phones, (
+        f"ticket-id-shaped value {ticket_id!r} was flagged as phone; " f"findings={findings}"
+    )
+
+
 # ------------------------------- IPs ----------------------------------------------------
 
 
@@ -183,6 +213,104 @@ def test_entropy_token_threshold_toggle():
     token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-"
     assert any(f["type"] == "entropy_token" for f in low_thr.detect(token))
     assert not any(f["type"] == "entropy_token" for f in high_thr.detect(token))
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "maintenance_completion_record",
+        "maintenance_prep_record",
+        "change_dryrun_record",
+        "incident_triage_record",
+        "callback_driven_maintenance",
+        "wait_for_completion_callback",
+        "snake_case_with_underscores",
+    ],
+)
+def test_snake_case_identifiers_are_not_entropy_tokens(identifier):
+    """Pure-lowercase snake_case identifiers (workflow names, artifact
+    names, step ids) must NEVER be flagged as entropy_token secrets,
+    even when their Shannon entropy crosses the threshold.
+
+    Regression: a literal artifact name like 'maintenance_completion_record'
+    has ~3.56 bits/char and tripped the entropy detector with the
+    default 3.5 threshold. That false-positive blocked artifact.store
+    calls on every wedge demo. The fix: real secrets overwhelmingly
+    contain mixed case OR digits; pure [a-z_-] strings are identifiers.
+    """
+    det = PIIDetector()
+    findings = det.detect(identifier)
+    assert not any(f["type"] == "entropy_token" for f in findings), (
+        f"snake_case identifier {identifier!r} was flagged as entropy_token; "
+        f"findings={findings}"
+    )
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        # bare canonical UUID v4
+        "3f30b8be-8859-4a76-8f0a-576582bc08a7",
+        # UUID + step suffix — Saz artifact_id shape
+        "3f30b8be-8859-4a76-8f0a-576582bc08a7_ansible_check_ansible",
+        # UUID + colon-delimited step id — Saz idempotency key shape
+        "3f30b8be-8859-4a76-8f0a-576582bc08a7:ansible_check",
+        # uppercase hex UUID (some libraries emit this)
+        "3F30B8BE-8859-4A76-8F0A-576582BC08A7",
+        # UUID embedded inside a longer correlation handle
+        "run-3f30b8be-8859-4a76-8f0a-576582bc08a7-attempt-2",
+        # uuid.uuid4().hex — compact 32-char lowercase hex (callback_id,
+        # idempotency keys, internal correlation tokens).
+        "3f30b8be88594a768f0a576582bc08a7",
+        # compact UUID inside a callback URL fragment
+        "/webhooks/callback/3f30b8be88594a768f0a576582bc08a7",
+    ],
+)
+def test_uuid_shaped_identifiers_are_not_entropy_or_api_key(identifier):
+    """Run/step/artifact UUIDs surface everywhere in Saz audit logs and
+    tool outputs. They are correlation handles, not secrets.
+
+    Regression: the change-approval demo's ansible_run result includes an
+    artifact_id of shape '<run_uuid>_<step_name>_ansible' that was tripping
+    BOTH the api_key (32+ alnum) and entropy_token (24+ alnum) detectors
+    via _validate_entropy. The fix: contains-UUID is a precise rejection
+    because real API keys/tokens essentially never adopt the 8-4-4-4-12
+    hex-with-hyphens layout.
+    """
+    det = PIIDetector()
+    findings = det.detect(identifier)
+    flagged_types = {f["type"] for f in findings}
+    assert "entropy_token" not in flagged_types, (
+        f"UUID-shaped identifier {identifier!r} was flagged as entropy_token; "
+        f"findings={findings}"
+    )
+    assert "api_key" not in flagged_types, (
+        f"UUID-shaped identifier {identifier!r} was flagged as api_key; " f"findings={findings}"
+    )
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        # mixed case + digits — real-shape tokens
+        "AKIAIOSFODNN7EXAMPLE",
+        "AbCdEfGh1234IjKlMn5678OpQrSt",
+        "ghp_1A2B3C4D5E6F7G8H9I0J",
+        # has digits, no mixed case — still suspicious
+        "abc123def456ghi789jkl012mno345",
+    ],
+)
+def test_real_secret_shapes_still_flagged(secret):
+    """The snake_case guard must NOT make the entropy detector blind
+    to real-shape secrets: anything with mixed case or digits must
+    still flow through the threshold check."""
+    det = PIIDetector(entropy_threshold_bits_per_char=3.5)
+    findings = det.detect(secret)
+    # Note: some of these may match more specific patterns (api_key,
+    # aws_access_key_id, github_token) and not entropy_token — that is
+    # also acceptable; the demo-critical invariant is that *something*
+    # detected them as PII / secret.
+    assert findings, f"expected {secret!r} to surface at least one finding"
 
 
 def test_kv_secret_value_extraction_and_redaction(det: PIIDetector):

@@ -94,6 +94,22 @@ class PolicyEngine:
         """Check if tool is an outbound integration."""
         return tool_name in OUTBOUND_TOOLS
 
+    @staticmethod
+    def _disallowed_pii_paths(pii_paths: list[str], allowed_paths: set[str]) -> list[str]:
+        """Return the subset of detected PII paths that are NOT covered by
+        any entry in ``allowed_paths``. An allowed entry covers the path
+        itself plus anything nested under it (so ``content`` allows
+        ``content.requester``)."""
+        disallowed: list[str] = []
+        for path in pii_paths:
+            clean = path.replace("[", ".").replace("]", "")
+            if any(
+                clean == allowed or clean.startswith(allowed + ".") for allowed in allowed_paths
+            ):
+                continue
+            disallowed.append(path)
+        return disallowed
+
     def tokenize_arguments(
         self, tool_name: str, arguments: dict[str, Any], run_id: str
     ) -> dict[str, Any]:
@@ -243,22 +259,11 @@ class PolicyEngine:
                 )
                 # Don't block model tools - they'll receive tokenized inputs
             elif self._is_outbound_tool(tool_name):
-                # Outbound tools: check against allow-list
+                # Outbound tools always require explicit path allow-lists,
+                # regardless of the run-level pii.allow flag — these calls
+                # leave the trust boundary.
                 allowed_paths = set(self.pii_allow_lists.get(tool_name, []))
-                disallowed_paths = []
-
-                for path in pii_paths:
-                    # Check if path is allowed
-                    path_allowed = False
-                    clean_path = path.replace('[', '.').replace(']', '')
-                    for allowed_path in allowed_paths:
-                        if clean_path == allowed_path or clean_path.startswith(allowed_path + "."):
-                            path_allowed = True
-                            break
-
-                    if not path_allowed:
-                        disallowed_paths.append(path)
-
+                disallowed_paths = self._disallowed_pii_paths(pii_paths, allowed_paths)
                 if disallowed_paths:
                     self.logger.error(
                         "pii_on_disallowed_paths",
@@ -271,7 +276,35 @@ class PolicyEngine:
                         f"PII detected on non-approved paths: {disallowed_paths}. "
                         f"Approved paths for {tool_name}: {list(allowed_paths)}"
                     )
-                else:
+                self.logger.info(
+                    "pii_detected_on_allowed_paths",
+                    tool=tool_name,
+                    run_id=run_id,
+                    paths=pii_paths,
+                    allowed_paths=list(allowed_paths),
+                )
+            else:
+                # Other tools (artifact.store, etc.): when pii.allow=false,
+                # honor the same per-path allow-list mechanism as outbound
+                # tools. Audit artifacts legitimately need to preserve
+                # identity (requester, approver) — that is the whole point
+                # of an audit record. Operators opt in by declaring the
+                # exact paths under policies.pii.exceptions.tools.<tool>.
+                if self.enforce_pii_redaction:
+                    allowed_paths = set(self.pii_allow_lists.get(tool_name, []))
+                    disallowed_paths = self._disallowed_pii_paths(pii_paths, allowed_paths)
+                    if disallowed_paths:
+                        self.logger.error(
+                            "pii_on_disallowed_paths",
+                            tool=tool_name,
+                            run_id=run_id,
+                            disallowed_paths=disallowed_paths,
+                            allowed_paths=list(allowed_paths),
+                        )
+                        return False, (
+                            f"PII detected on non-approved paths: {disallowed_paths}. "
+                            f"Approved paths for {tool_name}: {list(allowed_paths)}"
+                        )
                     self.logger.info(
                         "pii_detected_on_allowed_paths",
                         tool=tool_name,
@@ -279,13 +312,13 @@ class PolicyEngine:
                         paths=pii_paths,
                         allowed_paths=list(allowed_paths),
                     )
-            else:
-                # Other tools (artifact, webhook, etc): check enforcement flag
-                self.logger.warning(
-                    "pii_detected_in_tool_args", tool=tool_name, run_id=run_id, paths=pii_paths
-                )
-                if self.enforce_pii_redaction:
-                    return False, f"PII detected in arguments: {pii_paths}"
+                else:
+                    self.logger.warning(
+                        "pii_detected_in_tool_args",
+                        tool=tool_name,
+                        run_id=run_id,
+                        paths=pii_paths,
+                    )
 
         self.logger.debug("tool_call_allowed", tool=tool_name, run_id=run_id)
 

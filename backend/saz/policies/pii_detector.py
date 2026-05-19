@@ -13,6 +13,21 @@ from typing import Any, cast
 
 import structlog
 
+# Canonical UUID shape (8-4-4-4-12 hex with hyphens) OR the hyphenless
+# compact hex form produced by ``uuid.uuid4().hex`` — exactly 32 hex chars.
+# Saz uses the compact form for callback_ids, idempotency keys, etc., and
+# the canonical form for run_ids and step PKs. Both are correlation handles,
+# not secrets. Real API keys overwhelmingly carry mixed case or vendor
+# prefixes (``sk_live_``, ``ghp_``, ``AKIA…``) and don't adopt either shape,
+# so the carve-out is precise rather than blanket.
+_UUID_SHAPE_RE = re.compile(
+    r"(?:"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|\b[0-9a-f]{32}\b"
+    r")",
+    re.IGNORECASE,
+)
+
 logger = structlog.get_logger(__name__)
 
 # Cross-type priority: higher number wins and keeps its span; lower overlapping spans are dropped.
@@ -402,11 +417,53 @@ class PIIDetector:
         return True, None
 
     def _validate_phone(self, value: str) -> tuple[bool, str | None]:
-        """Basic check: at least 7 digits."""
+        """Accept only matches that look structurally like a phone number.
+
+        The phone regex is permissive — it happily matches any blob of 7+
+        digits — so we filter in the validator. Real phone numbers nearly
+        always carry at least one structural marker:
+
+          * an international '+' prefix,
+          * parentheses around the area code, or
+          * separator characters (space, dash, dot) between digit groups.
+
+        A bare digit run like "1234567" or "5551234567" is far more likely
+        to be a ticket id, transaction reference, account number, or order
+        id — especially inside operational workflow inputs. We require at
+        least one structural marker so audit-record fields like
+        "ticket_id: INC-1234567" don't get redacted as if they were phone
+        numbers.
+        """
         digits = re.sub(r"\D", "", value)
-        return (len(digits) >= 7, None if len(digits) >= 7 else "too-short")
+        if len(digits) < 7:
+            return False, "too-short"
+        if not re.search(r"[+\s()\-.]", value):
+            return False, "no-phone-structure"
+        return True, None
 
     def _validate_entropy(self, value: str) -> tuple[bool, str | None]:
+        # UUID-shaped strings (and Saz identifiers that embed a UUID, like
+        # "<run_uuid>_<step_name>_ansible" artifact ids or
+        # "<run_uuid>:<step_id>" idempotency keys) are correlation handles
+        # surfaced everywhere in audit logs and tool outputs — not secrets.
+        # Real API keys/tokens basically never adopt the 8-4-4-4-12 hex
+        # shape, so a contains-UUID test is a precise rejection.
+        if _UUID_SHAPE_RE.search(value):
+            return False, "uuid_shaped_identifier"
+
+        # Real secrets (API keys, tokens, credentials) overwhelmingly use
+        # mixed case OR digits. A pure-lowercase string with no digits
+        # is structurally an identifier (snake_case workflow names,
+        # artifact ids, step ids, slugs) — not a secret. Allowing entropy
+        # alone to flag them as PII was a noisy false-positive that
+        # blocked legitimate workflow arguments (e.g. artifact.store
+        # names like "maintenance_completion_record" which happen to sit
+        # right at the 3.5-bits-per-char threshold).
+        has_upper = any(c.isupper() for c in value)
+        has_digit = any(c.isdigit() for c in value)
+        if not has_upper and not has_digit:
+            return False, "snake_case_identifier"
+
         h = _entropy_bits_per_char(value)
         if _has_structured_sequences(value):
             h -= 1.0  # small penalty for obvious sequences

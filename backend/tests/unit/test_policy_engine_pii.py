@@ -235,6 +235,100 @@ def test_check_tool_call_outbound_tool_with_pii_on_disallowed_path():
     assert "non-approved paths" in reason.lower()
 
 
+# --------------------- artifact.store + other "non-outbound" tool PII allow-lists ----------
+#
+# These tests pin the regression where artifact.store was binary-blocking PII
+# (e.g. requester emails) with no way to opt in. Audit artifacts are the run's
+# permanent record of who requested / who approved a change — losing identity
+# defeats the audit. The fix: extend the per-tool path allow-list mechanism
+# (already used by outbound tools like http_request / ansible_run) to also
+# apply to artifact.store and other "other tools" when pii.allow=false.
+
+
+def test_check_tool_call_artifact_store_pii_blocked_without_allowlist():
+    """Without a per-path exception, artifact.store must still block PII
+    when pii.allow=false. Default behaviour is unchanged."""
+    engine = PolicyEngine(enforce_pii_redaction=True)
+    run_id = "test-artifact-deny"
+    engine.initialize_run(run_id)
+
+    args = {
+        "name": "change_record",
+        "content_type": "json",
+        "content": {"requester": "alice@example.com", "title": "Rotate cert"},
+    }
+    allowed, reason = engine.check_tool_call("artifact.store", args, run_id)
+    assert allowed is False
+    assert "non-approved paths" in reason.lower()
+    assert "content.requester" in reason
+
+
+def test_check_tool_call_artifact_store_pii_allowed_on_listed_path():
+    """When the YAML declares an exception for content.requester (or any
+    other audit-identity path), artifact.store must accept the PII —
+    audit artifacts legitimately need to preserve who requested what."""
+    engine = PolicyEngine(
+        enforce_pii_redaction=True,
+        pii_allow_lists={"artifact.store": ["content.requester"]},
+    )
+    run_id = "test-artifact-allow"
+    engine.initialize_run(run_id)
+
+    args = {
+        "name": "change_record",
+        "content_type": "json",
+        "content": {"requester": "alice@example.com", "title": "Rotate cert"},
+    }
+    allowed, reason = engine.check_tool_call("artifact.store", args, run_id)
+    assert allowed, f"expected allowed, got reason: {reason}"
+
+
+def test_check_tool_call_artifact_store_pii_allowed_on_nested_prefix():
+    """A parent path in the allow-list must cover descendants — listing
+    'content' should permit PII at 'content.requester', 'content.approval.by',
+    etc. This is what makes the allow-list ergonomic for nested audit blobs."""
+    engine = PolicyEngine(
+        enforce_pii_redaction=True,
+        pii_allow_lists={"artifact.store": ["content"]},
+    )
+    run_id = "test-artifact-nested"
+    engine.initialize_run(run_id)
+
+    args = {
+        "name": "change_record",
+        "content_type": "json",
+        "content": {
+            "requester": "alice@example.com",
+            "approval": {"by": "bob@example.com"},
+        },
+    }
+    allowed, _ = engine.check_tool_call("artifact.store", args, run_id)
+    assert allowed
+
+
+def test_check_tool_call_artifact_store_pii_partial_allowlist_blocks_unlisted_path():
+    """If only some paths are listed, PII on an unlisted sibling path must
+    still block. The allow-list is exact + descendants, not lax."""
+    engine = PolicyEngine(
+        enforce_pii_redaction=True,
+        pii_allow_lists={"artifact.store": ["content.requester"]},
+    )
+    run_id = "test-artifact-partial"
+    engine.initialize_run(run_id)
+
+    args = {
+        "name": "change_record",
+        "content_type": "json",
+        "content": {
+            "requester": "alice@example.com",  # allowed
+            "leaked_email": "eve@example.com",  # NOT allowed
+        },
+    }
+    allowed, reason = engine.check_tool_call("artifact.store", args, run_id)
+    assert allowed is False
+    assert "content.leaked_email" in reason
+
+
 # ------------------------------- DSL Initialization ----------------------------------------
 
 

@@ -47,16 +47,49 @@ Do not assume information not provided. Do not infer external context.
 - Previous steps completed: {completed_steps}
 - Current state: {current_state}
 
+## AI Operation Tool-Call Shape (READ FIRST)
+
+For step types starting with `ai.` (ai.extract, ai.generate, ai.route, ai.assess, etc.) the
+proposed tool call uses a specific contract you MUST understand before applying the checks:
+
+- `instruction`: the prompt sent to the model.
+- `data`: arbitrary context the model needs to do its job. Its shape is determined by the
+  workflow author, NOT by the expected output. There is no required-keys list for `data`.
+- `expected_schema`: the JSON Schema the model's OUTPUT must conform to (e.g.
+  `properties.blast_radius`, `properties.ready_to_proceed`). These are the keys the
+  *model will produce*, not keys the *call must contain*.
+
+Therefore, for ai.* tool calls:
+
+- Do NOT compare `expected_schema` property names against `data` keys.
+- Do NOT say "data is missing X" when X is an `expected_schema` output property.
+- Schema conformance of the OUTPUT is enforced by the AI op runtime (validation +
+  ai.fix_json repair) and by the post-execution critic. It is NOT your responsibility
+  to verify that the model will produce all required output fields.
+
+For non-ai tools (http_request, ansible_run, webhook_emit, artifact.store, ...) the tool
+call must contain all arguments declared as required by the tool's input schema, and you
+SHOULD flag missing required arguments.
+
 ## Decision Policy
 
 Apply these checks in order:
 
 1. **Tool validity**: Is the tool in the allowed tool set? If not → FAIL.
-2. **Required arguments**: Does the tool call include all required arguments for the tool? If critical arguments are missing → REPLAN.
-3. **Intent alignment**: Does the tool call accomplish what the step intent describes? If fundamentally misaligned → FAIL.
-4. **Safety**: Could this call cause data loss, unauthorized access, or destructive side effects without safeguards? If yes → FAIL or ESCALATE.
-5. **Credential usage**: Are secrets/credentials used appropriately? If credentials are exposed in plain text or sent to wrong endpoints → FAIL.
-6. **Completeness**: Are arguments reasonable and well-formed? If fixable → REPLAN. If reasonable → PASS.
+2. **Required arguments** (non-ai tools only): Does the tool call include all required
+   arguments for the tool's own input schema? If critical arguments are missing → REPLAN.
+   For ai.* tools, treat `instruction` as the only hard requirement; `data` and
+   `expected_schema` are workflow-author concerns, not yours.
+3. **Intent alignment**: Does the tool call accomplish what the step intent describes? If
+   fundamentally misaligned (e.g. the instruction is empty / placeholder / nonsense, or the
+   tool is the wrong one for the intent) → FAIL.
+4. **Safety**: Could this call cause data loss, unauthorized access, or destructive side
+   effects without safeguards? If yes → FAIL or ESCALATE.
+5. **Credential usage**: Are secrets/credentials used appropriately? If credentials are
+   exposed in plain text or sent to wrong endpoints → FAIL.
+6. **Completeness**: Are arguments reasonable and well-formed? If fixable → REPLAN. If
+   reasonable → PASS. Do not REPLAN over output-contract concerns for ai.* tools — those
+   are not fixable at this stage.
 
 ## Verdict Definitions
 - **pass**: Safe, aligned with intent, arguments are complete and reasonable.

@@ -118,6 +118,32 @@ cd frontend
 npm run build
 ```
 
+## Continuous Integration
+
+GitHub Actions workflow: `.github/workflows/ci.yaml`.
+
+**Runs on:** pull requests targeting `main`, and pushes to `main`.
+
+**What runs (only when the matching paths change):**
+
+Backend (`backend/**`, `pyproject.toml`, `uv.lock`):
+1. `uv sync` — install pinned dependencies.
+2. `uv run pre-commit run --all-files` — ruff lint + ruff-format + uv-lock check.
+3. `uv run mypy .` — strict type check.
+4. `uv run pytest -n auto -q` — full test suite (parallel).
+
+Frontend (`frontend/**`):
+1. `npm ci`
+2. `npm run typecheck`
+3. `npm run lint`
+4. `npm run format:check`
+5. `npm run build`
+
+A final `CI` job aggregates the per-area results. PRs must show a green
+`CI / CI` check before merge. Set this as the required status check in
+GitHub branch protection — it succeeds whether backend, frontend, or
+both ran, and fails on any failure or cancellation.
+
 ## Environment Variables
 
 **Backend** (`.env` or export):

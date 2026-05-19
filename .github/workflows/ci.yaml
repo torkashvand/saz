@@ -1,15 +1,18 @@
 name: CI
+
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
-    branches: ["**"]
+    branches: [main]
+
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   changes:
+    name: Detect changes
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -21,39 +24,53 @@ jobs:
         with:
           filters: |
             backend:
-              - 'backend/pyproject.toml'
-              - 'backend/**/*.py'
-              - 'backend/.pre-commit-config.yaml'
-              - 'backend/saz/**'
+              - 'backend/**'
+              - '.github/workflows/ci.yaml'
               - 'pyproject.toml'
               - 'uv.lock'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yaml'
               - '.eslintrc*'
               - '.prettierrc*'
               - '.prettierignore'
 
   backend:
+    name: Backend (lint, types, tests)
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      DATABASE_URL: "sqlite:///:memory:"
+      SUSPENSION_SWEEP_ENABLED: "False"
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - uses: astral-sh/setup-uv@v7
-      - name: Sync deps
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
         run: uv sync
-      - name: Pre-commit (all files)
-        run: uv run pre-commit run --all-files
-      - name: Mypy
+
+      - name: Lint and format (pre-commit)
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+      - name: Type check (mypy)
         run: uv run mypy .
 
+      - name: Tests (pytest)
+        run: uv run pytest -n auto -q
+
   frontend:
+    name: Frontend (lint, types, build)
     needs: changes
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
@@ -62,18 +79,46 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
+
       - name: Install
         run: npm ci
-      - name: Typecheck
+
+      - name: Type check
         run: npm run typecheck
+
       - name: Lint
         run: npm run lint
+
       - name: Format check
         run: npm run format:check
+
       - name: Build
         run: npm run build
+
+  ci:
+    name: CI
+    needs: [backend, frontend]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate status
+        run: |
+          backend="${{ needs.backend.result }}"
+          frontend="${{ needs.frontend.result }}"
+          echo "backend=$backend frontend=$frontend"
+          # Pass if each required job either succeeded or was skipped
+          # (path filter says nothing in that area changed). Fail on any
+          # failure or cancellation.
+          for r in "$backend" "$frontend"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::A required job did not succeed (got '$r')"; exit 1 ;;
+            esac
+          done
+          echo "All required checks passed."

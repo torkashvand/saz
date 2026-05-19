@@ -281,18 +281,25 @@ def test_execute_run_fails_when_budget_exceeded_before_first_step(db_engine) -> 
 # --------------------------- _resolve_secret ---------------------------
 
 
-def _fernet_encrypt(payload: dict) -> bytes:
-    key = settings.CREDENTIALS_ENCRYPTION_KEY
+def _fernet_encrypt(key: str, payload: dict) -> bytes:
     cipher = Fernet(key.encode())
     return cipher.encrypt(yaml.safe_dump(payload).encode())
 
 
-def test_resolve_secret_returns_value_from_encrypted_credential(db_engine) -> None:
+def test_resolve_secret_returns_value_from_encrypted_credential(
+    db_engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Generate a fresh Fernet key for this test instead of relying on the
+    # dev .env. CI runs without that file, and settings.CREDENTIALS_ENCRYPTION_KEY
+    # is otherwise an empty string → Fernet rejects it as not-32-bytes.
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(settings, "CREDENTIALS_ENCRYPTION_KEY", key)
+
     with Session(db_engine) as session:
         cred = Credential(
             name="MY_API_KEY",
             type="api_token",
-            data_encrypted=_fernet_encrypt({"api_key": "shhh-secret-value"}),
+            data_encrypted=_fernet_encrypt(key, {"api_key": "shhh-secret-value"}),
         )
         session.add(cred)
         session.commit()

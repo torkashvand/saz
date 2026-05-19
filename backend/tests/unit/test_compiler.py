@@ -356,36 +356,16 @@ def test_dsl_condition_and_human_and_webhook_and_artifacts():
     ]
 
 
-def test_dsl_group_parallel_and_group_map_minimal():
-    steps = """
-    - id: p1
-      type: group.parallel
-      join: all
-      steps:
-        - id: t1
-          type: tool.call
-          description: "Test step"
-          tool: http_request
-          params: { url: "https://a" }
-        - id: t2
-          type: noop
-    - id: m1
-      type: group.map
-      foreach: "${{ input.items }}"
-      as: "item"
-      steps:
-        - id: t3
-          type: noop
-"""
-    compiled = compile_dsl(_base(steps))
-    s = compiled.workflow_spec["steps"]
-    assert s[0]["type"] == "group.parallel" and s[0]["join"] == "all"
-    assert s[1]["type"] == "group.map" and s[1]["foreach"] and s[1]["as"]
+def test_dsl_rejects_group_and_noop_step_types():
+    """group.parallel, group.map, and noop are no longer compiler-allowed.
 
-
-def test_dsl_noop_ok():
-    compiled = compile_dsl(_base("    - id: n1\n      type: noop\n"))
-    assert compiled.workflow_spec["steps"][0]["id"] == "n1"
+    Historically the compiler accepted these but the executor never
+    implemented them — flows compiled fine and crashed with
+    'Unknown step_type' at runtime. The compiler now matches the runtime.
+    """
+    for stype in ("group.parallel", "group.map", "noop"):
+        with pytest.raises(ValueError, match="Unknown step type"):
+            compile_dsl(_base(f"    - id: x1\n      type: {stype}\n"))
 
 
 # ---------------------------------------------------------------------------
@@ -425,31 +405,6 @@ def test_dsl_missing_required_keys_per_type():
             )
         )
 
-    with pytest.raises(ValueError, match="group.parallel.steps"):
-        compile_dsl(
-            _base(
-                """
-    - id: p1
-      type: group.parallel
-      join: any
-      steps: []
-"""
-            )
-        )
-
-    with pytest.raises(ValueError, match="group.map.steps"):
-        compile_dsl(
-            _base(
-                """
-    - id: m1
-      type: group.map
-      foreach: "${{ items }}"
-      as: it
-      steps: []
-"""
-            )
-        )
-
 
 def test_dsl_params_must_be_object_when_present():
     with pytest.raises(ValueError, match="params must be an object"):
@@ -484,9 +439,11 @@ def test_dsl_duplicate_step_ids_disallowed():
             _base(
                 """
     - id: s
-      type: noop
+      type: human.approval
+      description: "Filler step"
     - id: s
-      type: noop
+      type: human.approval
+      description: "Duplicate id"
 """
             )
         )
@@ -604,7 +561,7 @@ triggers:
   schedule: { cron: "0 * * * *", timezone: "Europe/Amsterdam" }
 workflow:
   planner_mode: deterministic
-  steps: [ { id: s1, type: noop } ]
+  steps: [ { id: s1, type: human.approval, description: "Filler" } ]
 """
     compiled = compile_dsl(doc)
     t = compiled.triggers
@@ -620,7 +577,7 @@ schema_version: 1
 flow: { name: FlowX, description: "Test workflow" }
 workflow:
   planner_mode: deterministic
-  steps: [ { id: s1, type: noop } ]
+  steps: [ { id: s1, type: human.approval, description: "Filler" } ]
 """
     )
     assert compiled.triggers["manual"] is True

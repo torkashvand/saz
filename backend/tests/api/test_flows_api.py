@@ -22,9 +22,19 @@ workflow:
     - id: step_extract
       type: ai.extract
       instruction: "Extract entities from text"
+      expect:
+        properties:
+          entities:
+            type: array
+            items: { type: string }
+        required: [entities]
     - id: step_generate
       type: ai.generate
       instruction: "Generate summary"
+      expect:
+        properties:
+          summary: { type: string }
+        required: [summary]
 
 policies:
   budget_usd: 0.25
@@ -56,6 +66,10 @@ workflow:
     - id: step_action
       type: ai.generate
       instruction: "Generate result"
+      expect:
+        properties:
+          result: { type: string }
+        required: [result]
 
 policies:
   budget_usd: 0.10
@@ -87,9 +101,19 @@ workflow:
         - support
         - engineering
         - sales
+      expect:
+        properties:
+          branch:
+            type: string
+            enum: [support, engineering, sales]
+        required: [branch]
     - id: step_handle
       type: ai.generate
       instruction: "Generate response"
+      expect:
+        properties:
+          response: { type: string }
+        required: [response]
 
 policies:
   budget_usd: 0.10
@@ -226,7 +250,12 @@ def test_graph_not_found(app_client):
 
 
 def test_graph_empty_workflow(app_client):
-    """Flow with no steps should produce empty graph."""
+    """Flow with no steps should produce empty graph.
+
+    Deterministic mode requires non-empty steps, so empty-step flows must
+    be agentic — the planner generates the plan at runtime. The graph
+    endpoint walks definition.workflow.steps which is empty here.
+    """
     yaml_content = """
 schema_version: 1
 flow:
@@ -234,7 +263,7 @@ flow:
   version: "1.0"
   description: No steps
 workflow:
-  planner_mode: deterministic
+  planner_mode: agentic
   steps: []
 policies:
   budget_usd: 0.01

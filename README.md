@@ -204,8 +204,8 @@ Do not commit secrets. To report a vulnerability, follow
 
 ## License
 
-No `LICENSE` file is checked in yet. Until one is added, treat the code as
-"all rights reserved" by the repository owner.
+Licensed under the [Apache License, Version 2.0](LICENSE). Copyright (c)
+2026 Fariman Torkashvand.
 
 [uv]: https://docs.astral.sh/uv/
 [LiteLLM]: https://docs.litellm.ai/

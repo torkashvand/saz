@@ -3,6 +3,11 @@ repos:
     rev: 0.9.6
     hooks:
       - id: uv-lock
+        # Pre-commit runs hooks from the repo root, but the project lives
+        # in backend/. Scope the file filter to backend/ paths and tell
+        # `uv lock` which project to operate on.
+        files: ^backend/(uv\.lock|pyproject\.toml|uv\.toml)$
+        args: ['--project', 'backend']
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.5

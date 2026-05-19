@@ -26,8 +26,6 @@ jobs:
             backend:
               - 'backend/**'
               - '.github/workflows/ci.yaml'
-              - 'pyproject.toml'
-              - 'uv.lock'
             frontend:
               - 'frontend/**'
               - '.github/workflows/ci.yaml'

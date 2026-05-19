@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     WARNING: Should ALWAYS be False in production.
     Only set to True in development/staging for debugging.
     """
+    SUSPENSION_SWEEP_INTERVAL_SECONDS: float = 60.0
+    """How often the SuspensionSweeper scans for timed-out suspended runs.
+
+    Runs are suspended on human.approval and webhook.wait steps; the
+    sweeper fails them once ``error.timeout_at`` has passed. Lower values
+    make timeouts more responsive at the cost of DB load.
+    """
+    SUSPENSION_SWEEP_BATCH_LIMIT: int = 100
+    """Maximum suspended-run rows processed in a single sweep pass."""
+    SUSPENSION_SWEEP_ENABLED: bool = True
+    """Disable the sweeper entirely (e.g. for in-process tests where the
+    background thread would race with synchronous assertions)."""
 
 
 settings = Settings()

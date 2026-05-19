@@ -86,6 +86,24 @@ class StepRepository(BaseRepository[Step]):
         stmt = select(Step).where(Step.run_id == run_id).order_by(Step.number.desc()).limit(1)
         return self.session.scalar(stmt)
 
+    def get_first_suspended_for_run(self, run_id: str) -> Step | None:
+        """Get the single suspended step for a run.
+
+        Used by the webhook callback handler and the SuspensionSweeper to
+        locate the in-flight step without paying for a full
+        ``run_reads.detail()`` step+artifact join. A run has at most one
+        suspended step at a time (human.approval and webhook.wait both
+        flip the row to ``suspended`` and stop the executor).
+        """
+        stmt = (
+            select(Step)
+            .where(Step.run_id == run_id)
+            .where(Step.status == "suspended")
+            .order_by(Step.number.asc(), Step.attempt.desc())
+            .limit(1)
+        )
+        return self.session.scalar(stmt)
+
     def get_first_failed_for_run(self, run_id: str) -> Step | None:
         """Get first failed step for a run (latest attempt only).
 

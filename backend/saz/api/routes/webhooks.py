@@ -143,12 +143,23 @@ async def handle_webhook_callback(
         action=req.action,
     )
 
+    # Locate the suspended step ONCE so both approve and reject paths can
+    # emit events with the correct DB-level step.id (events.step_id has a
+    # foreign-key constraint to steps.id on PostgreSQL — passing the
+    # step *name* trips the FK and 500s the request).
+    assert uow.steps is not None
+    suspended_step = uow.steps.get_first_suspended_for_run(run.id)
+    suspended_step_db_id: str | None = suspended_step.id if suspended_step else None
+    suspended_step_name: str = (suspended_step.name if suspended_step else None) or (
+        run.error.get("step_id", "") if run.error else ""
+    )
+
     if req.action == "reject":
         # Rejection: fail the run
         reason = req.reason or "Rejected via webhook callback"
         emitter.approval_denied(
-            step_id=run.error.get("step_id", "") if run.error else "",
-            step_name=run.error.get("step_id", "") if run.error else "",
+            step_id=suspended_step_db_id or "",
+            step_name=suspended_step_name,
             reason=reason,
         )
 
@@ -177,22 +188,20 @@ async def handle_webhook_callback(
         **(req.data or {}),
     }
 
-    # Find and complete the suspended step
-    assert uow.steps is not None
-    assert uow.run_reads is not None
-    run_detail = uow.run_reads.detail(run.id)
-    if run_detail:
-        for step_dto in run_detail.steps:
-            if step_dto.status == "suspended":
-                step_entity = uow.steps.get(step_dto.id)
-                if step_entity:
-                    step_entity.output = resume_data
-                    uow.steps.mark_completed(step_dto.id)
-                break
+    # Complete the suspended step with the resume payload so downstream
+    # steps can template-access the callback data via $step('id').field.
+    if suspended_step_db_id is not None:
+        step_entity = uow.steps.get(suspended_step_db_id)
+        if step_entity:
+            step_entity.output = resume_data
+            uow.steps.mark_completed(suspended_step_db_id)
 
-    # Emit approval granted
-    step_id = run.error.get("step_id", "") if run.error else ""
-    emitter.approval_granted(step_id=step_id, step_name=step_id)
+    # Emit approval granted with the DB-level step id (FK-safe) and the
+    # human-readable step name for the audit trail.
+    emitter.approval_granted(
+        step_id=suspended_step_db_id or "",
+        step_name=suspended_step_name,
+    )
     emitter.run_resumed(resume_source="webhook_callback")
 
     # Mark run as queued, preserving callback_id for idempotent duplicate detection.

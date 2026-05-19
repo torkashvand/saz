@@ -16,6 +16,11 @@ from saz.agents import LLMPort, LLMResponse
 
 # Set test DATABASE_URL before importing saz modules (will be updated per test)
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# Disable the SuspensionSweeper background thread for tests — each test gets
+# its own temp-file SQLite engine, so a process-wide sweeper running against
+# a stale DATABASE_URL would error on "no such table: runs". Tests that need
+# the sweeper drive it synchronously via SuspensionSweeper(engine=...).sweep_once().
+os.environ["SUSPENSION_SWEEP_ENABLED"] = "False"
 
 from saz.api import app
 from saz.db.dependencies import get_uow

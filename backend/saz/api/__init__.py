@@ -20,6 +20,7 @@ from saz.api.errors import (
     value_error_handler,
 )
 from saz.engine.scheduler import get_scheduler
+from saz.engine.suspension_sweeper import get_suspension_sweeper
 from saz.globals import initialize_globals
 from saz.settings import settings
 
@@ -37,6 +38,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     get_scheduler(database_url)
 
+    # Start the suspension sweeper so suspended runs whose deadline has
+    # passed are reaped and transitioned to failed/SuspensionTimeout.
+    if settings.SUSPENSION_SWEEP_ENABLED:
+        sweeper = get_suspension_sweeper(
+            database_url,
+            interval_seconds=settings.SUSPENSION_SWEEP_INTERVAL_SECONDS,
+            batch_limit=settings.SUSPENSION_SWEEP_BATCH_LIMIT,
+        )
+        sweeper.start()
+
     yield
 
     # Shutdown scheduler gracefully
@@ -45,6 +56,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler.shutdown(wait=False)
     except Exception:
         pass
+    if settings.SUSPENSION_SWEEP_ENABLED:
+        try:
+            get_suspension_sweeper().stop()
+        except Exception:
+            pass
 
 
 def create_app() -> FastAPI:

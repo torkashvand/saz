@@ -37,11 +37,17 @@ logger = logging.getLogger(__name__)
 
 def sanitize_error(error: dict | None, include_sensitive: bool) -> dict | None:
     """
-    Sanitize error object to remove stack traces unless explicitly requested.
+    Sanitize an error dict for outbound API responses.
+
+    The default strips stack traces / tracebacks (sensitive in production)
+    but keeps the operator-facing fields the UI needs to render suspended
+    and failed runs — most notably the ``callback_id`` that drives the
+    webhook + approval panels, and ``timeout_at`` for the suspension
+    countdown.
 
     Args:
         error: Error dictionary from Step.error or Run.error
-        include_sensitive: Whether to include stack traces
+        include_sensitive: Whether to include stack traces (debug only)
 
     Returns:
         Sanitized error dict or None
@@ -53,17 +59,30 @@ def sanitize_error(error: dict | None, include_sensitive: bool) -> dict | None:
         # Return full error including stack traces
         return error
 
-    # Return sanitized version WITHOUT stack traces
-    sanitized = {
-        "type": error.get("type"),
-        "message": error.get("message"),
-        # DO NOT include 'traceback' or 'stack_trace'
-    }
-
-    # Include HTTP status if present (not sensitive)
-    if "status_code" in error:
-        sanitized["status_code"] = error["status_code"]
-
+    # Whitelist of operator-safe fields. Anything not in this list is
+    # dropped — so `traceback` / `stack_trace` / arbitrary debug payloads
+    # never leak. New audit-relevant fields must be added here explicitly.
+    SAFE_FIELDS = (
+        "type",
+        "message",
+        "status_code",
+        # Suspension + callback wiring — read by HumanApprovalPanel and
+        # WebhookCallbackPanel on the frontend.
+        "callback_id",
+        "step_id",
+        "reasoning",
+        "suspended_at",
+        "timeout_at",
+        "timeout_minutes",
+        # Suspension timeout audit (set by the SuspensionSweeper) — needed
+        # so the UI can distinguish "timed out" from "still suspended" and
+        # so late callbacks return already_processed.
+        "original_type",
+        "timed_out_at",
+        # Webhook callback resolution marker
+        "resolved",
+    )
+    sanitized: dict[str, Any] = {k: error[k] for k in SAFE_FIELDS if k in error}
     return sanitized
 
 

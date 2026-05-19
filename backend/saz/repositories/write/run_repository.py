@@ -95,3 +95,38 @@ class RunRepository(BaseRepository[Run]):
             .limit(1)
         )
         return self.session.scalar(stmt)
+
+    def find_expired_suspensions(self, now: datetime, limit: int = 100) -> list[Run]:
+        """Return suspended runs whose timeout_at deadline has passed.
+
+        The executor writes ``error.timeout_at`` (ISO timestamp) when it
+        suspends on ``human.approval`` or ``webhook.wait``. The
+        SuspensionSweeper uses this to fail runs whose external callback
+        never arrived, so stuck runs do not accumulate.
+
+        SQLite's JSON_EXTRACT returns the raw stored text, which for our
+        ISO-8601 timestamps sorts lexicographically the same as
+        chronologically (both are zero-padded). Comparing strings keeps
+        this query portable across SQLite and PostgreSQL without any
+        per-dialect casting.
+
+        Args:
+            now: Current UTC time. Runs with timeout_at <= now are returned.
+            limit: Cap to avoid pulling thousands of runs in a single sweep.
+
+        Returns:
+            List of Run rows that have expired and are still suspended.
+        """
+        # Compare ISO timestamp strings directly. Both sides are
+        # zero-padded UTC ISO-8601 strings so string ordering matches
+        # chronological ordering.
+        now_iso = now.astimezone(UTC).isoformat()
+        stmt = (
+            select(Run)
+            .where(Run.status == "suspended")
+            .where(Run.error.isnot(None))
+            .where(Run.error["timeout_at"].as_string().isnot(None))
+            .where(Run.error["timeout_at"].as_string() <= now_iso)
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt).all())

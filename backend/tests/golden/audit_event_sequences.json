@@ -1,0 +1,18 @@
+{
+  "_about": "Golden event-type sequences asserted by tests/regression/test_audit_event_golden.py. Each entry lists the event_types we expect a flow to emit, in order, with duplicates allowed. Update this file alongside any intentional change to the audit timeline.",
+  "deterministic_one_step_success": [
+    "run.started",
+    "step.started",
+    "tool.started",
+    "tool.succeeded",
+    "step.completed",
+    "run.completed"
+  ],
+  "verifier_blocking_pre_execution": [
+    "run.started",
+    "step.started",
+    "verifier.rejected",
+    "step.failed",
+    "run.failed"
+  ]
+}

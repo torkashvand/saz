@@ -54,6 +54,52 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+# ---------------------------------------------------------------------------
+# Coverage configuration.
+# Run:   coverage run -m pytest -n 0 && python scripts/check_coverage.py
+# (-n 0 because pytest-xdist + coverage need extra wiring to combine workers;
+# the helper script asserts per-package thresholds from the report.)
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["saz"]
+omit = [
+    "saz/telemetry/*",
+    "saz/__init__.py",
+    "saz/api/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+skip_covered = false
+precision = 1
+
+# ---------------------------------------------------------------------------
+# Mutation testing config. Run with: mutmut run (slow; not for default CI).
+# Targets the failure-sensitive modules — these are the gates whose silent
+# regression would let unsafe behavior through.
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+paths_to_mutate = [
+    "saz/api/routes/runs.py",
+    "saz/agents/ai_ops.py",
+    "saz/agents/executor.py",
+    "saz/compiler/dsl.py",
+    "saz/policies/policy_engine.py",
+    "saz/policies/rate_limiter.py",
+    "saz/repositories/write/run_repository.py",
+    "saz/repositories/write/step_repository.py",
+    "saz/services/flow_service.py",
+    "saz/services/run_service.py",
+]
+runner = "python -m pytest -x -q tests/regression tests/unit tests/services"
+tests_dir = "tests"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

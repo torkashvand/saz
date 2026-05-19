@@ -37,7 +37,16 @@ export interface FlowPolicies {
 export interface WorkflowStepDraft {
   id: string;
   name: string;
-  type: 'ai.extract' | 'ai.route' | 'ai.score' | 'ai.generate' | 'tool.call' | 'artifact.store' | 'webhook.wait' | 'human.approval' | 'branching';
+  type:
+    | 'ai.extract'
+    | 'ai.route'
+    | 'ai.score'
+    | 'ai.generate'
+    | 'tool.call'
+    | 'artifact.store'
+    | 'webhook.wait'
+    | 'human.approval'
+    | 'branching';
   description?: string;
   instruction?: string;
   params?: Record<string, any>;

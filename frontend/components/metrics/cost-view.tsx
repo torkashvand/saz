@@ -15,22 +15,32 @@ interface CostMetricsViewProps {
 type SortField = 'step' | 'tokens' | 'cost';
 type SortOrder = 'asc' | 'desc';
 
-export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }: CostMetricsViewProps) {
+export function CostMetricsView({
+  steps,
+  totalTokens,
+  totalCost,
+  onSelectStep,
+}: CostMetricsViewProps) {
   const [sortField, setSortField] = useState<SortField>('cost');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   // Calculate derived metrics
-  const stepsWithCost = steps.filter(s => s.cost_usd && s.cost_usd > 0);
-  const avgTokensPerStep = stepsWithCost.length > 0
-    ? Math.round(stepsWithCost.reduce((sum, s) => sum + (s.tokens || 0), 0) / stepsWithCost.length)
-    : 0;
-  const avgCostPerStep = stepsWithCost.length > 0
-    ? stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / stepsWithCost.length
-    : 0;
+  const stepsWithCost = steps.filter((s) => s.cost_usd && s.cost_usd > 0);
+  const avgTokensPerStep =
+    stepsWithCost.length > 0
+      ? Math.round(
+          stepsWithCost.reduce((sum, s) => sum + (s.tokens || 0), 0) / stepsWithCost.length,
+        )
+      : 0;
+  const avgCostPerStep =
+    stepsWithCost.length > 0
+      ? stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / stepsWithCost.length
+      : 0;
 
-  const mostExpensiveStep = steps.reduce((max, step) =>
-    (step.cost_usd || 0) > (max.cost_usd || 0) ? step : max
-  , steps[0] || { cost_usd: 0 });
+  const mostExpensiveStep = steps.reduce(
+    (max, step) => ((step.cost_usd || 0) > (max.cost_usd || 0) ? step : max),
+    steps[0] || { cost_usd: 0 },
+  );
 
   // Sorted steps
   const sortedSteps = useMemo(() => {
@@ -70,19 +80,13 @@ export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }:
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">
-                Avg per AI Step
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-slate-500">Avg per AI Step</CardTitle>
               <Zap className="h-4 w-4 text-slate-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-slate-900">
-              {avgTokensPerStep.toLocaleString()}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              tokens • {formatCost(avgCostPerStep)}
-            </p>
+            <p className="text-2xl font-bold text-slate-900">{avgTokensPerStep.toLocaleString()}</p>
+            <p className="text-xs text-slate-500 mt-1">tokens • {formatCost(avgCostPerStep)}</p>
           </CardContent>
         </Card>
 
@@ -101,7 +105,7 @@ export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }:
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}
-              {((mostExpensiveStep.cost_usd || 0) / totalCost * 100).toFixed(1)}% of total
+              {(((mostExpensiveStep.cost_usd || 0) / totalCost) * 100).toFixed(1)}% of total
             </p>
           </CardContent>
         </Card>
@@ -117,11 +121,16 @@ export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }:
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-slate-900">
-              {((stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / totalCost) * 100).toFixed(0)}%
+              {(
+                (stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / totalCost) *
+                100
+              ).toFixed(0)}
+              %
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0))} AI •{' '}
-              {formatCost(totalCost - stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0))} other
+              {formatCost(totalCost - stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0))}{' '}
+              other
             </p>
           </CardContent>
         </Card>
@@ -178,12 +187,8 @@ export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }:
                       className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer"
                       onClick={() => onSelectStep && onSelectStep(step.number)}
                     >
-                      <td className="py-3 px-4 font-medium text-slate-900">
-                        {step.number + 1}
-                      </td>
-                      <td className="py-3 px-4 text-slate-700 truncate max-w-xs">
-                        {step.name}
-                      </td>
+                      <td className="py-3 px-4 font-medium text-slate-900">{step.number + 1}</td>
+                      <td className="py-3 px-4 text-slate-700 truncate max-w-xs">{step.name}</td>
                       <td className="py-3 px-4 text-right text-slate-900 font-mono">
                         {(step.tokens || 0).toLocaleString()}
                       </td>
@@ -208,7 +213,9 @@ export function CostMetricsView({ steps, totalTokens, totalCost, onSelectStep }:
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 font-semibold">
-                  <td className="py-3 px-4" colSpan={2}>Total</td>
+                  <td className="py-3 px-4" colSpan={2}>
+                    Total
+                  </td>
                   <td className="py-3 px-4 text-right font-mono">{totalTokens.toLocaleString()}</td>
                   <td className="py-3 px-4 text-right font-mono">{formatCost(totalCost)}</td>
                   <td className="py-3 px-4 text-right">100%</td>

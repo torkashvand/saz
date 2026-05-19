@@ -2,10 +2,10 @@
 
 /**
  * DEPRECATED: Use useRunEvents from 'use-run-events.ts' instead
- * 
+ *
  * This hook has been migrated to use the unified Event system
  * with proper WebSocket handling via api.connectRunEventStream()
- * 
+ *
  * Migration guide:
  * - Replace: import { useTelemetryEvents } from '@/lib/use-telemetry-events'
  * - With: import { useRunEvents } from '@/lib/use-run-events'
@@ -22,7 +22,7 @@ import { useRunEvents } from './use-run-events';
  */
 export function useTelemetryEvents(runId: string) {
   console.warn(
-    'useTelemetryEvents is deprecated. Please use useRunEvents from use-run-events.ts instead'
+    'useTelemetryEvents is deprecated. Please use useRunEvents from use-run-events.ts instead',
   );
   return useRunEvents(runId);
 }

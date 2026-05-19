@@ -1,7 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, DollarSign, FileText, AlertCircle, Check, Play, Settings, Zap, Globe, X, Loader2, Info, PauseCircle } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  DollarSign,
+  FileText,
+  AlertCircle,
+  Check,
+  Play,
+  Settings,
+  Zap,
+  Globe,
+  X,
+  Loader2,
+  Info,
+  PauseCircle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { CollapsibleJson } from '@/components/common/json-view';
@@ -61,7 +77,12 @@ function getStepTypeIcon(stepType: string | null | undefined) {
   return result;
 }
 
-export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardClick }: CompactStepCardProps) {
+export function CompactStepCard({
+  displayStep,
+  isSelected,
+  onViewLogs,
+  onCardClick,
+}: CompactStepCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isPlanned = displayStep.kind === 'planned';
@@ -125,8 +146,8 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
   const timingInfo = step?.start_ts
     ? `Started ${formatTime(step.start_ts)} • Duration ${formatDuration(step.duration_ms)}`
     : isPlanned
-    ? 'Not started'
-    : 'Not started yet';
+      ? 'Not started'
+      : 'Not started yet';
 
   // Help text for planned steps
   const helpText = planned ? getStepHelpText(planned) : null;
@@ -138,7 +159,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
         'border rounded-lg bg-white transition-all duration-200 shadow-sm',
         isSelected && 'ring-2 ring-blue-400 shadow-md',
         !isSelected && isPlanned && 'border-slate-100',
-        !isSelected && !isPlanned && 'border-slate-200'
+        !isSelected && !isPlanned && 'border-slate-200',
       )}
     >
       {/* Compact header */}
@@ -155,7 +176,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
         }}
         className={cn(
           'p-4 cursor-pointer transition-colors',
-          isPlanned ? 'hover:bg-slate-25' : 'hover:bg-slate-50'
+          isPlanned ? 'hover:bg-slate-25' : 'hover:bg-slate-50',
         )}
       >
         <div className="flex items-start justify-between gap-3">
@@ -168,7 +189,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
                   className={cn(
                     'h-10 w-10 rounded-full flex items-center justify-center',
                     iconBg,
-                    isPlanned && 'opacity-60'
+                    isPlanned && 'opacity-60',
                   )}
                 >
                   <StepIcon className={cn('h-5 w-5', iconColor)} />
@@ -207,10 +228,12 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
               {/* Step name - increased from text-sm to text-base for better visual hierarchy */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className={cn(
-                    'font-medium text-base truncate',
-                    isPlanned ? 'text-slate-600' : 'text-slate-900'
-                  )}>
+                  <h3
+                    className={cn(
+                      'font-medium text-base truncate',
+                      isPlanned ? 'text-slate-600' : 'text-slate-900',
+                    )}
+                  >
                     Step {stepNumber + 1}: {stepName}
                   </h3>
                   {step && step.attempt > 1 && (
@@ -230,10 +253,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
             </div>
 
             {/* Timing info - adjusted margin to align with 40px icon + 12px gap */}
-            <p className={cn(
-              'text-xs ml-[52px]',
-              isPlanned ? 'text-slate-400' : 'text-slate-500'
-            )}>
+            <p className={cn('text-xs ml-[52px]', isPlanned ? 'text-slate-400' : 'text-slate-500')}>
               {timingInfo}
             </p>
           </div>
@@ -251,9 +271,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
             ) : isPlanned ? (
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-slate-50 border border-slate-100">
                 <DollarSign className="h-4 w-4 text-slate-400" />
-                <span className="text-xs font-medium text-slate-400">
-                  –
-                </span>
+                <span className="text-xs font-medium text-slate-400">–</span>
               </div>
             ) : null}
 
@@ -287,9 +305,7 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
                 title="No logs yet"
               >
                 <FileText className="h-4 w-4 text-slate-400" />
-                <span className="text-xs font-medium text-slate-400">
-                  Logs: 0
-                </span>
+                <span className="text-xs font-medium text-slate-400">Logs: 0</span>
               </div>
             ) : null}
 
@@ -384,7 +400,9 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
               </div>
               <div>
                 <span className="text-slate-500">Duration:</span>{' '}
-                <span className="font-medium text-slate-900">{formatDuration(step.duration_ms)}</span>
+                <span className="font-medium text-slate-900">
+                  {formatDuration(step.duration_ms)}
+                </span>
               </div>
               {step.retry_count > 0 && (
                 <div>
@@ -410,7 +428,9 @@ export function CompactStepCard({ displayStep, isSelected, onViewLogs, onCardCli
               </div>
               <div>
                 <span className="text-slate-500">Step type:</span>{' '}
-                <span className="font-medium text-slate-600 font-mono text-[10px]">{stepType || 'unknown'}</span>
+                <span className="font-medium text-slate-600 font-mono text-[10px]">
+                  {stepType || 'unknown'}
+                </span>
               </div>
             </div>
           )}

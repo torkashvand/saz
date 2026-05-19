@@ -59,7 +59,11 @@ export function FlowBuilderHeader({
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold text-slate-900">
-                {isEditMode ? (flowName && flowName !== 'new_flow' ? `Edit Workflow: ${flowName}` : 'Edit Workflow') : 'Create Workflow'}
+                {isEditMode
+                  ? flowName && flowName !== 'new_flow'
+                    ? `Edit Workflow: ${flowName}`
+                    : 'Edit Workflow'
+                  : 'Create Workflow'}
               </h1>
               <SaveStatusChip
                 isValid={isValid}

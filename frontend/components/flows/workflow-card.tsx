@@ -70,9 +70,5 @@ function PlannerBadge({ mode }: { mode: string }) {
       ? 'bg-purple-100 text-purple-700 border-purple-300'
       : 'bg-green-100 text-green-700 border-green-300';
 
-  return (
-    <span className={`text-xs px-2 py-1 rounded border ${colors}`}>
-      {mode}
-    </span>
-  );
+  return <span className={`text-xs px-2 py-1 rounded border ${colors}`}>{mode}</span>;
 }

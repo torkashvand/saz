@@ -17,16 +17,12 @@ export type DisplayStep =
  */
 export function findExecutedStepForPlanned(
   executedSteps: RunStep[],
-  planned: PlannedStep
+  planned: PlannedStep,
 ): RunStep | undefined {
-  const matches = executedSteps.filter(
-    s => s.name === planned.id || s.name === planned.name
-  );
+  const matches = executedSteps.filter((s) => s.name === planned.id || s.name === planned.name);
   if (matches.length === 0) return undefined;
   // Return the latest attempt
-  return matches.reduce((latest, s) =>
-    (s.attempt ?? 1) > (latest.attempt ?? 1) ? s : latest
-  );
+  return matches.reduce((latest, s) => ((s.attempt ?? 1) > (latest.attempt ?? 1) ? s : latest));
 }
 
 /**
@@ -37,7 +33,7 @@ export function findExecutedStepForPlanned(
 export function buildDisplaySteps(
   plannerMode: PlannerMode,
   plannedSteps: PlannedStep[] | undefined,
-  executedSteps: RunStep[]
+  executedSteps: RunStep[],
 ): DisplayStep[] {
   // For agentic or when no planned steps available, show only executed.
   // After retry, a step name may appear multiple times (one per attempt).
@@ -53,7 +49,7 @@ export function buildDisplaySteps(
     }
     return [...latestByName.values()]
       .sort((a, b) => a.number - b.number)
-      .map(step => ({
+      .map((step) => ({
         kind: 'executed' as const,
         index: step.number,
         step,
@@ -93,7 +89,7 @@ export function buildDisplaySteps(
 export function resolveCanonicalStepIndex(
   event: { step_id: string | null; payload: Record<string, any>; summary: string },
   executedSteps: RunStep[],
-  plannedSteps: PlannedStep[]
+  plannedSteps: PlannedStep[],
 ): number | undefined {
   let stepName: string | undefined;
 
@@ -104,7 +100,7 @@ export function resolveCanonicalStepIndex(
 
   // 2. Match event.step_id (DB UUID) against executed steps to get workflow name
   if (!stepName && event.step_id) {
-    const matchingStep = executedSteps.find(s => s.id === event.step_id);
+    const matchingStep = executedSteps.find((s) => s.id === event.step_id);
     if (matchingStep) {
       stepName = matchingStep.name;
     }
@@ -120,9 +116,7 @@ export function resolveCanonicalStepIndex(
 
   // Map step name to canonical planned step index
   if (stepName) {
-    const idx = plannedSteps.findIndex(
-      p => p.id === stepName || p.name === stepName
-    );
+    const idx = plannedSteps.findIndex((p) => p.id === stepName || p.name === stepName);
     if (idx >= 0) return idx;
   }
 

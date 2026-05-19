@@ -37,7 +37,7 @@ export function SectionNav({ activeSection, onSectionClick }: SectionNavProps) {
               'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left',
               isActive
                 ? 'bg-blue-50 text-blue-700 border-l-2 border-blue-600'
-                : 'text-slate-700 hover:bg-slate-100'
+                : 'text-slate-700 hover:bg-slate-100',
             )}
           >
             <Icon className="h-4 w-4 flex-shrink-0" />

@@ -17,7 +17,7 @@ export function BasicsSection({ draft, onChange }: BasicsSectionProps) {
   };
 
   const removeLabel = (label: string) => {
-    onChange({ labels: draft.labels?.filter(l => l !== label) });
+    onChange({ labels: draft.labels?.filter((l) => l !== label) });
   };
 
   return (

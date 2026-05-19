@@ -77,7 +77,12 @@ export default function CredentialsPage() {
   const [jsonError, setJsonError] = useState<string | null>(null);
 
   // Fetch credentials
-  const { data: credentials, isLoading, error, isError } = useQuery({
+  const {
+    data: credentials,
+    isLoading,
+    error,
+    isError,
+  } = useQuery({
     queryKey: ['credentials'],
     queryFn: () => api.listCredentials(),
   });
@@ -106,7 +111,7 @@ export default function CredentialsPage() {
       // Force refetch of credentials list
       await queryClient.invalidateQueries({
         queryKey: ['credentials'],
-        refetchType: 'active'
+        refetchType: 'active',
       });
       showSuccess('Credential updated successfully');
       resetForm();
@@ -225,7 +230,8 @@ export default function CredentialsPage() {
       },
       ssh_key: {
         username: 'deploy',
-        private_key: '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----',
+        private_key:
+          '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----',
         host: 'example.com',
         port: '22',
       },
@@ -236,9 +242,12 @@ export default function CredentialsPage() {
         client_secret: 'GOCSPX-abcdefghijklmnop',
       },
       certificate: {
-        cert_pem: '-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIJAKZ...\n-----END CERTIFICATE-----',
-        key_pem: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0...\n-----END PRIVATE KEY-----',
-        ca_bundle: '-----BEGIN CERTIFICATE-----\nMIIEkjCCA3qgAwIBAgIQCgFB...\n-----END CERTIFICATE-----',
+        cert_pem:
+          '-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIJAKZ...\n-----END CERTIFICATE-----',
+        key_pem:
+          '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0...\n-----END PRIVATE KEY-----',
+        ca_bundle:
+          '-----BEGIN CERTIFICATE-----\nMIIEkjCCA3qgAwIBAgIQCgFB...\n-----END CERTIFICATE-----',
       },
     };
 
@@ -435,7 +444,8 @@ export default function CredentialsPage() {
               </div>
 
               <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                ⓘ For security, existing credential data cannot be displayed. Enter new credential data to update.
+                ⓘ For security, existing credential data cannot be displayed. Enter new credential
+                data to update.
               </div>
 
               {mode === 'simple' ? (
@@ -449,7 +459,9 @@ export default function CredentialsPage() {
                           id="token"
                           type="password"
                           value={simpleFields.token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, token: e.target.value })
+                          }
                           placeholder="sk-1234567890abcdef"
                           required={mode === 'simple'}
                         />
@@ -459,7 +471,9 @@ export default function CredentialsPage() {
                         <Input
                           id="endpoint"
                           value={simpleFields.endpoint}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, endpoint: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, endpoint: e.target.value })
+                          }
                           placeholder="https://api.example.com"
                         />
                       </div>
@@ -473,7 +487,9 @@ export default function CredentialsPage() {
                         <Input
                           id="username"
                           value={simpleFields.username}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, username: e.target.value })
+                          }
                           placeholder="admin"
                         />
                       </div>
@@ -483,7 +499,9 @@ export default function CredentialsPage() {
                           id="password"
                           type="password"
                           value={simpleFields.password}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, password: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, password: e.target.value })
+                          }
                           placeholder="secure-password-123"
                           required={mode === 'simple'}
                         />
@@ -498,7 +516,9 @@ export default function CredentialsPage() {
                         <Input
                           id="username"
                           value={simpleFields.username}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, username: e.target.value })
+                          }
                           placeholder="deploy"
                         />
                       </div>
@@ -508,7 +528,9 @@ export default function CredentialsPage() {
                           id="private_key"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.private_key}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, private_key: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, private_key: e.target.value })
+                          }
                           placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
                           rows={4}
                           required={mode === 'simple'}
@@ -520,7 +542,9 @@ export default function CredentialsPage() {
                           <Input
                             id="host"
                             value={simpleFields.host}
-                            onChange={(e) => setSimpleFields({ ...simpleFields, host: e.target.value })}
+                            onChange={(e) =>
+                              setSimpleFields({ ...simpleFields, host: e.target.value })
+                            }
                             placeholder="example.com"
                           />
                         </div>
@@ -529,7 +553,9 @@ export default function CredentialsPage() {
                           <Input
                             id="port"
                             value={simpleFields.port}
-                            onChange={(e) => setSimpleFields({ ...simpleFields, port: e.target.value })}
+                            onChange={(e) =>
+                              setSimpleFields({ ...simpleFields, port: e.target.value })
+                            }
                             placeholder="22"
                           />
                         </div>
@@ -545,7 +571,9 @@ export default function CredentialsPage() {
                           id="access_token"
                           type="password"
                           value={simpleFields.access_token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, access_token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, access_token: e.target.value })
+                          }
                           placeholder="ya29.a0AfH6SMBx..."
                           required={mode === 'simple'}
                         />
@@ -556,7 +584,9 @@ export default function CredentialsPage() {
                           id="refresh_token"
                           type="password"
                           value={simpleFields.refresh_token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, refresh_token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, refresh_token: e.target.value })
+                          }
                           placeholder="1//0gK3Z9X..."
                         />
                       </div>
@@ -565,7 +595,9 @@ export default function CredentialsPage() {
                         <Input
                           id="client_id"
                           value={simpleFields.client_id}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, client_id: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, client_id: e.target.value })
+                          }
                           placeholder="1234567890-abcdefg.apps.googleusercontent.com"
                         />
                       </div>
@@ -575,7 +607,9 @@ export default function CredentialsPage() {
                           id="client_secret"
                           type="password"
                           value={simpleFields.client_secret}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, client_secret: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, client_secret: e.target.value })
+                          }
                           placeholder="GOCSPX-abcdefghijklmnop"
                         />
                       </div>
@@ -590,7 +624,9 @@ export default function CredentialsPage() {
                           id="cert_pem"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.cert_pem}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, cert_pem: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, cert_pem: e.target.value })
+                          }
                           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                           rows={3}
                           required={mode === 'simple'}
@@ -602,7 +638,9 @@ export default function CredentialsPage() {
                           id="key_pem"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.key_pem}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, key_pem: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, key_pem: e.target.value })
+                          }
                           placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                           rows={3}
                         />
@@ -613,7 +651,9 @@ export default function CredentialsPage() {
                           id="ca_bundle"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.ca_bundle}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })
+                          }
                           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                           rows={3}
                         />
@@ -657,10 +697,7 @@ export default function CredentialsPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button
-                type="submit"
-                disabled={updateMutation.isPending || !!jsonError}
-              >
+              <Button type="submit" disabled={updateMutation.isPending || !!jsonError}>
                 {updateMutation.isPending ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">⏳</span>
@@ -698,9 +735,7 @@ export default function CredentialsPage() {
           <h1 className="text-3xl font-bold">Credentials</h1>
           <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
         </div>
-        {viewMode === 'list' && (
-          <Button onClick={handleStartCreate}>+ New Credential</Button>
-        )}
+        {viewMode === 'list' && <Button onClick={handleStartCreate}>+ New Credential</Button>}
       </div>
 
       {/* Create Form (only in create mode) */}
@@ -804,7 +839,9 @@ export default function CredentialsPage() {
                           id="token"
                           type="password"
                           value={simpleFields.token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, token: e.target.value })
+                          }
                           placeholder="sk-1234567890abcdef"
                           required={mode === 'simple'}
                         />
@@ -814,7 +851,9 @@ export default function CredentialsPage() {
                         <Input
                           id="endpoint"
                           value={simpleFields.endpoint}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, endpoint: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, endpoint: e.target.value })
+                          }
                           placeholder="https://api.example.com"
                         />
                       </div>
@@ -828,7 +867,9 @@ export default function CredentialsPage() {
                         <Input
                           id="username"
                           value={simpleFields.username}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, username: e.target.value })
+                          }
                           placeholder="admin"
                         />
                       </div>
@@ -838,7 +879,9 @@ export default function CredentialsPage() {
                           id="password"
                           type="password"
                           value={simpleFields.password}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, password: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, password: e.target.value })
+                          }
                           placeholder="secure-password-123"
                           required={mode === 'simple'}
                         />
@@ -853,7 +896,9 @@ export default function CredentialsPage() {
                         <Input
                           id="username"
                           value={simpleFields.username}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, username: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, username: e.target.value })
+                          }
                           placeholder="deploy"
                         />
                       </div>
@@ -863,7 +908,9 @@ export default function CredentialsPage() {
                           id="private_key"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.private_key}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, private_key: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, private_key: e.target.value })
+                          }
                           placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
                           rows={4}
                           required={mode === 'simple'}
@@ -875,7 +922,9 @@ export default function CredentialsPage() {
                           <Input
                             id="host"
                             value={simpleFields.host}
-                            onChange={(e) => setSimpleFields({ ...simpleFields, host: e.target.value })}
+                            onChange={(e) =>
+                              setSimpleFields({ ...simpleFields, host: e.target.value })
+                            }
                             placeholder="example.com"
                           />
                         </div>
@@ -884,7 +933,9 @@ export default function CredentialsPage() {
                           <Input
                             id="port"
                             value={simpleFields.port}
-                            onChange={(e) => setSimpleFields({ ...simpleFields, port: e.target.value })}
+                            onChange={(e) =>
+                              setSimpleFields({ ...simpleFields, port: e.target.value })
+                            }
                             placeholder="22"
                           />
                         </div>
@@ -900,7 +951,9 @@ export default function CredentialsPage() {
                           id="access_token"
                           type="password"
                           value={simpleFields.access_token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, access_token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, access_token: e.target.value })
+                          }
                           placeholder="ya29.a0AfH6SMBx..."
                           required={mode === 'simple'}
                         />
@@ -911,7 +964,9 @@ export default function CredentialsPage() {
                           id="refresh_token"
                           type="password"
                           value={simpleFields.refresh_token}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, refresh_token: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, refresh_token: e.target.value })
+                          }
                           placeholder="1//0gK3Z9X..."
                         />
                       </div>
@@ -920,7 +975,9 @@ export default function CredentialsPage() {
                         <Input
                           id="client_id"
                           value={simpleFields.client_id}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, client_id: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, client_id: e.target.value })
+                          }
                           placeholder="1234567890-abcdefg.apps.googleusercontent.com"
                         />
                       </div>
@@ -930,7 +987,9 @@ export default function CredentialsPage() {
                           id="client_secret"
                           type="password"
                           value={simpleFields.client_secret}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, client_secret: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, client_secret: e.target.value })
+                          }
                           placeholder="GOCSPX-abcdefghijklmnop"
                         />
                       </div>
@@ -945,7 +1004,9 @@ export default function CredentialsPage() {
                           id="cert_pem"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.cert_pem}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, cert_pem: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, cert_pem: e.target.value })
+                          }
                           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                           rows={3}
                           required={mode === 'simple'}
@@ -957,7 +1018,9 @@ export default function CredentialsPage() {
                           id="key_pem"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.key_pem}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, key_pem: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, key_pem: e.target.value })
+                          }
                           placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                           rows={3}
                         />
@@ -968,7 +1031,9 @@ export default function CredentialsPage() {
                           id="ca_bundle"
                           className="w-full border rounded-md p-2 font-mono text-sm"
                           value={simpleFields.ca_bundle}
-                          onChange={(e) => setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })}
+                          onChange={(e) =>
+                            setSimpleFields({ ...simpleFields, ca_bundle: e.target.value })
+                          }
                           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                           rows={3}
                         />
@@ -1012,10 +1077,7 @@ export default function CredentialsPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button
-                type="submit"
-                disabled={createMutation.isPending || !!jsonError}
-              >
+              <Button type="submit" disabled={createMutation.isPending || !!jsonError}>
                 {createMutation.isPending ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">⏳</span>

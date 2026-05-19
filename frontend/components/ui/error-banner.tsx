@@ -15,24 +15,23 @@ export function ErrorBanner({ error, title, onRetry, onDismiss }: ErrorBannerPro
   if (!error) return null;
 
   // Convert to AppError if needed
-  const appError: AppError = 'kind' in error
-    ? error
-    : { kind: 'unknown', message: error.message };
+  const appError: AppError = 'kind' in error ? error : { kind: 'unknown', message: error.message };
 
   const { kind, message } = appError;
 
   // Icon based on error kind
-  const Icon = {
-    network: WifiOff,
-    auth: ShieldAlert,
-    permission: ShieldAlert,
-    server: Server,
-    validation: AlertCircle,
-    not_found: AlertCircle,
-    conflict: AlertCircle,
-    rate_limit: AlertCircle,
-    unknown: AlertCircle,
-  }[kind] || AlertCircle;
+  const Icon =
+    {
+      network: WifiOff,
+      auth: ShieldAlert,
+      permission: ShieldAlert,
+      server: Server,
+      validation: AlertCircle,
+      not_found: AlertCircle,
+      conflict: AlertCircle,
+      rate_limit: AlertCircle,
+      unknown: AlertCircle,
+    }[kind] || AlertCircle;
 
   // Color scheme based on error kind
   const colorClass = {

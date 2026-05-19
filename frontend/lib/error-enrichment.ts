@@ -87,10 +87,7 @@ function categorizeError(error: any): ErrorCategory {
   }
 
   // Check for timeout
-  if (
-    errorMsg.toLowerCase().includes('timeout') ||
-    errorType.toLowerCase().includes('timeout')
-  ) {
+  if (errorMsg.toLowerCase().includes('timeout') || errorType.toLowerCase().includes('timeout')) {
     return 'timeout';
   }
 
@@ -127,11 +124,7 @@ function categorizeError(error: any): ErrorCategory {
 /**
  * Build human-readable error message.
  */
-function buildErrorMessage(
-  error: any,
-  category: ErrorCategory,
-  failedStep?: RunStep
-): string {
+function buildErrorMessage(error: any, category: ErrorCategory, failedStep?: RunStep): string {
   const errorMsg = typeof error === 'string' ? error : error.message || 'Unknown error';
 
   // Extract credential name from error message
@@ -175,10 +168,7 @@ function buildErrorMessage(
 /**
  * Suggest remediation actions based on error category.
  */
-function suggestRemediationActions(
-  category: ErrorCategory,
-  error: any
-): RemediationAction[] {
+function suggestRemediationActions(category: ErrorCategory, error: any): RemediationAction[] {
   switch (category) {
     case 'missing_credential':
       return ['configure_credential', 'view_logs'];

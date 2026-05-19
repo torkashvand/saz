@@ -25,11 +25,7 @@ function planned(index: number, id: string, name?: string): PlannedStep {
 }
 
 /** Minimal executed step factory */
-function executed(
-  name: string,
-  number: number,
-  status: RunStep['status'] = 'completed',
-): RunStep {
+function executed(name: string, number: number, status: RunStep['status'] = 'completed'): RunStep {
   return {
     id: `db-${name}-${number}`,
     number,
@@ -243,16 +239,14 @@ describe('buildDisplaySteps — persisted state after refresh', () => {
 
     const result = buildDisplaySteps('deterministic', PLANNED_STEPS, executedSteps);
 
-    const statuses = result.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
-    );
+    const statuses = result.map((ds) => (ds.kind === 'executed' ? ds.step.status : 'not_started'));
 
     expect(statuses).toEqual([
-      'completed',   // extract_requirements
-      'completed',   // validate_budget
-      'completed',   // draft_rfp
-      'completed',   // approve_rfp
-      'failed',      // create_rfp_record — CORRECT position
+      'completed', // extract_requirements
+      'completed', // validate_budget
+      'completed', // draft_rfp
+      'completed', // approve_rfp
+      'failed', // create_rfp_record — CORRECT position
       'not_started', // send_confirmation
     ]);
   });
@@ -352,9 +346,7 @@ describe('resolveCanonicalStepIndex', () => {
   });
 
   it('resolves by event.step_id → run.steps → planned index', () => {
-    const executedSteps: RunStep[] = [
-      executed('create_rfp_record', 0, 'running'),
-    ];
+    const executedSteps: RunStep[] = [executed('create_rfp_record', 0, 'running')];
     // Override the db id to match what the event references
     executedSteps[0].id = 'db-uuid-123';
 
@@ -390,9 +382,7 @@ describe('resolveCanonicalStepIndex', () => {
   });
 
   it('prefers payload.step_name over step_id lookup', () => {
-    const executedSteps: RunStep[] = [
-      executed('extract_requirements', 0, 'completed'),
-    ];
+    const executedSteps: RunStep[] = [executed('extract_requirements', 0, 'completed')];
     executedSteps[0].id = 'db-uuid-wrong';
 
     const event = makeEvent({
@@ -503,11 +493,14 @@ describe('buildDisplaySteps — deterministic mode after retry', () => {
     }
 
     // All 6 steps should be shown and completed
-    const statuses = result.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
-    );
+    const statuses = result.map((ds) => (ds.kind === 'executed' ? ds.step.status : 'not_started'));
     expect(statuses).toEqual([
-      'completed', 'completed', 'completed', 'completed', 'completed', 'completed',
+      'completed',
+      'completed',
+      'completed',
+      'completed',
+      'completed',
+      'completed',
     ]);
   });
 });

@@ -17,7 +17,11 @@ export default function FlowsPage() {
   const [plannerFilter, setPlannerFilter] = useState<string>('all');
   const limit = 20;
 
-  const { data: flows, isLoading, error } = useQuery({
+  const {
+    data: flows,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['flows', page],
     queryFn: () => api.listFlows({ limit, offset: page * limit }),
     retry: false,
@@ -29,8 +33,7 @@ export default function FlowsPage() {
       const matchesSearch =
         f.name.toLowerCase().includes(search.toLowerCase()) ||
         (f.description?.toLowerCase().includes(search.toLowerCase()) ?? false);
-      const matchesPlanner =
-        plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
+      const matchesPlanner = plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
       return matchesSearch && matchesPlanner;
     });
   }, [flows, search, plannerFilter]);

@@ -16,7 +16,11 @@ export function useRunEvents(runId: string) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Fetch run data
-  const { data: run, isLoading, error } = useQuery({
+  const {
+    data: run,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['run', runId],
     queryFn: () => api.getRunDetails(runId),
   });
@@ -30,7 +34,11 @@ export function useRunEvents(runId: string) {
   // Load historical events into state when fetched
   useEffect(() => {
     if (historicalEventsData?.events) {
-      console.log('[RunEvents] Loaded', historicalEventsData.events.length, 'historical events from DB');
+      console.log(
+        '[RunEvents] Loaded',
+        historicalEventsData.events.length,
+        'historical events from DB',
+      );
       setEvents(historicalEventsData.events);
     }
   }, [historicalEventsData]);
@@ -84,7 +92,7 @@ export function useRunEvents(runId: string) {
       (error) => {
         console.error('[RunEvents] WebSocket error:', error);
         const appError = fromNetworkError(
-          new Error('Failed to connect to event stream. Please check your connection.')
+          new Error('Failed to connect to event stream. Please check your connection.'),
         );
         setConnectionError(appError);
         setIsConnected(false);

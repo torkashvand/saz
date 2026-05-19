@@ -86,12 +86,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   }, [text]);
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleCopy}
-      className="h-7 text-xs gap-1.5"
-    >
+    <Button variant="outline" size="sm" onClick={handleCopy} className="h-7 text-xs gap-1.5">
       {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
       {copied ? 'Copied!' : label}
     </Button>
@@ -151,16 +146,11 @@ function AIOpDetail({ op, onBack }: { op: AIOpReference; onBack: () => void }) {
           <h4 className="text-xs font-medium text-slate-700 mb-2">Default output fields</h4>
           <div className="space-y-1">
             {Object.entries(properties).map(([name, prop]: [string, any]) => (
-              <div
-                key={name}
-                className="flex items-start gap-2 text-xs p-1.5 rounded bg-slate-50"
-              >
+              <div key={name} className="flex items-start gap-2 text-xs p-1.5 rounded bg-slate-50">
                 <code className="font-mono text-purple-700 flex-shrink-0">{name}</code>
                 <span className="text-slate-500">{prop.type || 'any'}</span>
                 {prop.enum && (
-                  <span className="text-slate-400 truncate">
-                    [{prop.enum.join(', ')}]
-                  </span>
+                  <span className="text-slate-400 truncate">[{prop.enum.join(', ')}]</span>
                 )}
                 {prop.minimum !== undefined && (
                   <span className="text-slate-400">
@@ -181,7 +171,7 @@ function AIOpDetail({ op, onBack }: { op: AIOpReference; onBack: () => void }) {
         <div>
           <h4 className="text-xs font-medium text-slate-700 mb-2">Extras (optional params)</h4>
           <div className="space-y-1">
-            {extraKeys.map(key => (
+            {extraKeys.map((key) => (
               <div key={key} className="flex items-center gap-2 text-xs p-1.5 rounded bg-blue-50">
                 <code className="font-mono text-blue-700">{key}</code>
                 <span className="text-slate-500">
@@ -224,10 +214,10 @@ function AIOpDetail({ op, onBack }: { op: AIOpReference; onBack: () => void }) {
 
       {/* Usage note */}
       <div className="text-[11px] text-slate-500 border-t pt-3">
-        <strong>Tip:</strong> Customize the <code className="bg-slate-100 px-1 rounded">expect</code>{' '}
-        to match your actual extraction needs. Use <code className="bg-slate-100 px-1 rounded">enum</code>{' '}
-        to constrain values and <code className="bg-slate-100 px-1 rounded">required</code>{' '}
-        to enforce mandatory fields.
+        <strong>Tip:</strong> Customize the{' '}
+        <code className="bg-slate-100 px-1 rounded">expect</code> to match your actual extraction
+        needs. Use <code className="bg-slate-100 px-1 rounded">enum</code> to constrain values and{' '}
+        <code className="bg-slate-100 px-1 rounded">required</code> to enforce mandatory fields.
       </div>
     </div>
   );
@@ -252,13 +242,7 @@ const OUTPUT_SUMMARY: Record<string, string> = {
   'ai.plan': 'calls[]',
 };
 
-function AIOpListItem({
-  op,
-  onSelect,
-}: {
-  op: AIOpReference;
-  onSelect: () => void;
-}) {
+function AIOpListItem({ op, onSelect }: { op: AIOpReference; onSelect: () => void }) {
   const extras = Object.keys(op.extras || {});
   const summary = OUTPUT_SUMMARY[op.name] || '';
 
@@ -271,21 +255,14 @@ function AIOpListItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <code className="text-xs font-mono font-semibold text-purple-700">{op.name}</code>
-            {extras.map(e => (
-              <span
-                key={e}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700"
-              >
+            {extras.map((e) => (
+              <span key={e} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
                 {e}
               </span>
             ))}
           </div>
           <p className="text-xs text-slate-600 line-clamp-1">{op.description}</p>
-          {summary && (
-            <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-              {summary}
-            </p>
-          )}
+          {summary && <p className="text-[10px] text-slate-400 mt-0.5 font-mono">{summary}</p>}
         </div>
         <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 mt-1 transition-colors" />
       </div>
@@ -311,7 +288,7 @@ export function AIOpsReferencePanel({ focusOp, onFocusHandled }: AIOpsReferenceP
   // Must be in useEffect, not during render, to avoid React state-during-render.
   useEffect(() => {
     if (focusOp && focusOp !== selectedOp && ops) {
-      const match = ops.find(o => o.name === focusOp);
+      const match = ops.find((o) => o.name === focusOp);
       if (match) {
         setSelectedOp(focusOp);
         onFocusHandled?.();
@@ -336,15 +313,10 @@ export function AIOpsReferencePanel({ focusOp, onFocusHandled }: AIOpsReferenceP
     );
   }
 
-  const selected = ops.find(o => o.name === selectedOp);
+  const selected = ops.find((o) => o.name === selectedOp);
 
   if (selected) {
-    return (
-      <AIOpDetail
-        op={selected}
-        onBack={() => setSelectedOp(null)}
-      />
-    );
+    return <AIOpDetail op={selected} onBack={() => setSelectedOp(null)} />;
   }
 
   return (
@@ -353,12 +325,8 @@ export function AIOpsReferencePanel({ focusOp, onFocusHandled }: AIOpsReferenceP
         Available AI operations. Click to see default output schema and copy a starter{' '}
         <code className="bg-slate-100 px-1 rounded">expect</code> block.
       </p>
-      {ops.map(op => (
-        <AIOpListItem
-          key={op.name}
-          op={op}
-          onSelect={() => setSelectedOp(op.name)}
-        />
+      {ops.map((op) => (
+        <AIOpListItem key={op.name} op={op} onSelect={() => setSelectedOp(op.name)} />
       ))}
     </div>
   );

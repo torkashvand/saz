@@ -340,7 +340,8 @@ export function FlowBuilder({
               <div className="text-sm font-semibold text-amber-900">Guided Builder Disabled</div>
               <div className="text-sm text-amber-800 mt-1">{advancedMessage}</div>
               <div className="text-xs text-amber-700 mt-1">
-                You can still edit YAML and view the preview. Simplify the YAML to re-enable the builder.
+                You can still edit YAML and view the preview. Simplify the YAML to re-enable the
+                builder.
               </div>
             </div>
           </div>
@@ -358,8 +359,8 @@ export function FlowBuilder({
                     Guided Builder Unavailable
                   </h3>
                   <p className="text-sm text-slate-600 max-w-md mx-auto">
-                    This flow uses advanced DSL features that cannot be edited in Guided Builder mode.
-                    Switch to YAML Expert mode to make changes.
+                    This flow uses advanced DSL features that cannot be edited in Guided Builder
+                    mode. Switch to YAML Expert mode to make changes.
                   </p>
                 </div>
               ) : (

@@ -36,14 +36,20 @@ export function useErrorHandler({
       error && typeof error === 'object' && 'kind' in error
         ? (error as AppError).message
         : error instanceof Error
-        ? error.message
-        : 'An unexpected error occurred';
+          ? error.message
+          : 'An unexpected error occurred';
 
     console.error(`Error while ${context}:`, {
       error,
       message: errorMessage,
-      kind: error && typeof error === 'object' && 'kind' in error ? (error as AppError).kind : undefined,
-      validationErrors: error && typeof error === 'object' && 'kind' in error ? (error as AppError).validationErrors : undefined,
+      kind:
+        error && typeof error === 'object' && 'kind' in error
+          ? (error as AppError).kind
+          : undefined,
+      validationErrors:
+        error && typeof error === 'object' && 'kind' in error
+          ? (error as AppError).validationErrors
+          : undefined,
     });
 
     if (showToast) {
@@ -60,9 +66,12 @@ export function useErrorHandler({
       error && typeof error === 'object' && 'kind' in error
         ? (error as AppError).message
         : error instanceof Error
-        ? error.message
-        : 'An unexpected error occurred',
-    errorDetails: error && typeof error === 'object' && 'kind' in error ? (error as AppError).validationErrors : undefined,
+          ? error.message
+          : 'An unexpected error occurred',
+    errorDetails:
+      error && typeof error === 'object' && 'kind' in error
+        ? (error as AppError).validationErrors
+        : undefined,
     requestId: undefined, // AppError doesn't have requestId
   };
 }

@@ -1,15 +1,15 @@
 // Unified error handling for Saz GUI
 
 export type ErrorKind =
-  | 'validation'      // 400, 422 - with field-level errors
-  | 'auth'            // 401 - not authenticated
-  | 'permission'      // 403 - not authorized
-  | 'not_found'       // 404
-  | 'conflict'        // 409
-  | 'rate_limit'      // 429
-  | 'server'          // 500-599
-  | 'network'         // Network/timeout errors
-  | 'unknown';        // Unexpected/unclassified
+  | 'validation' // 400, 422 - with field-level errors
+  | 'auth' // 401 - not authenticated
+  | 'permission' // 403 - not authorized
+  | 'not_found' // 404
+  | 'conflict' // 409
+  | 'rate_limit' // 429
+  | 'server' // 500-599
+  | 'network' // Network/timeout errors
+  | 'unknown'; // Unexpected/unclassified
 
 export interface ValidationError {
   field: string;
@@ -19,11 +19,11 @@ export interface ValidationError {
 export interface AppError {
   kind: ErrorKind;
   status?: number;
-  code?: string;              // Backend error code if available
-  message: string;             // User-facing message
+  code?: string; // Backend error code if available
+  message: string; // User-facing message
   validationErrors?: ValidationError[];
-  details?: unknown;           // Structured details from backend
-  raw?: unknown;               // Original error (for logging/debugging)
+  details?: unknown; // Structured details from backend
+  raw?: unknown; // Original error (for logging/debugging)
 }
 
 /**
@@ -32,7 +32,7 @@ export interface AppError {
 const ERROR_MESSAGES: Record<ErrorKind, string> = {
   validation: 'Please check your input and try again',
   auth: 'You need to log in to continue',
-  permission: 'You don\'t have permission to perform this action',
+  permission: "You don't have permission to perform this action",
   not_found: 'The requested resource was not found',
   conflict: 'This operation conflicts with existing data',
   rate_limit: 'Too many requests. Please slow down and try again',
@@ -85,7 +85,7 @@ function extractValidationErrors(data: any): ValidationError[] | undefined {
  */
 export async function fromHttpError(
   response: Response,
-  fallbackMessage?: string
+  fallbackMessage?: string,
 ): Promise<AppError> {
   const status = response.status;
   const kind = statusToKind(status);
@@ -134,9 +134,10 @@ export async function fromHttpError(
  * Create AppError from network/timeout error
  */
 export function fromNetworkError(error: unknown): AppError {
-  const message = error instanceof Error && error.name === 'AbortError'
-    ? 'Request timed out. Please try again'
-    : ERROR_MESSAGES.network;
+  const message =
+    error instanceof Error && error.name === 'AbortError'
+      ? 'Request timed out. Please try again'
+      : ERROR_MESSAGES.network;
 
   return {
     kind: 'network',
@@ -181,7 +182,7 @@ export function getErrorMessage(error: AppError | null | undefined): string {
  */
 export function getFieldError(
   error: AppError | null | undefined,
-  fieldName: string
+  fieldName: string,
 ): string | undefined {
-  return error?.validationErrors?.find(e => e.field === fieldName)?.message;
+  return error?.validationErrors?.find((e) => e.field === fieldName)?.message;
 }

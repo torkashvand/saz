@@ -7,15 +7,13 @@ export default function HomePage() {
       <div className="max-w-6xl mx-auto px-4 py-16">
         {/* Hero */}
         <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold text-slate-900 mb-4">
-            Saz Agentic Workflow Engine
-          </h1>
+          <h1 className="text-5xl font-bold text-slate-900 mb-4">Saz Agentic Workflow Engine</h1>
           <p className="text-xl text-slate-600 max-w-3xl mx-auto mb-2">
             Internal platform for auditable, policy-driven agentic workflows.
           </p>
           <p className="text-lg text-slate-500 max-w-3xl mx-auto">
-            Orchestrate multi-step flows with LLM-assisted decision-making, human approvals,
-            and strong guardrails for PII, budgets, and compliance.
+            Orchestrate multi-step flows with LLM-assisted decision-making, human approvals, and
+            strong guardrails for PII, budgets, and compliance.
           </p>
         </div>
 
@@ -44,8 +42,8 @@ export default function HomePage() {
         {/* Phase Info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
           <p className="text-sm text-blue-900">
-            <strong>Phase 1 Pilot:</strong> Human-in-the-loop workflows for incident triage,
-            change approvals, and ticket classification. All runs are auditable and policy-enforced.
+            <strong>Phase 1 Pilot:</strong> Human-in-the-loop workflows for incident triage, change
+            approvals, and ticket classification. All runs are auditable and policy-enforced.
           </p>
         </div>
       </div>

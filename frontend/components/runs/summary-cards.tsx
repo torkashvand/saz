@@ -69,9 +69,7 @@ export function RunSummaryCards({ metrics, isRunning }: RunSummaryCardsProps) {
         </CardHeader>
         <CardContent>
           {metrics.totalCost != null ? (
-            <p className="text-2xl font-bold text-slate-900">
-              {formatCost(metrics.totalCost)}
-            </p>
+            <p className="text-2xl font-bold text-slate-900">{formatCost(metrics.totalCost)}</p>
           ) : (
             <p className="text-lg text-slate-400">Not available</p>
           )}

@@ -102,7 +102,9 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
                   className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="0 9 * * *"
                 />
-                <p className="text-xs text-slate-500 mt-1">E.g., &quot;0 9 * * *&quot; = daily at 9 AM</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  E.g., &quot;0 9 * * *&quot; = daily at 9 AM
+                </p>
               </div>
             </div>
           )}

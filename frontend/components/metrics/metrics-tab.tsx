@@ -22,29 +22,30 @@ function formatCost(cost: number): string {
  * - Detailed breakdown table
  * - Visual representation of cost distribution
  */
-export function CostMetricsTab({
-  steps,
-  totalTokens,
-  totalCost,
-}: CostMetricsTabProps) {
+export function CostMetricsTab({ steps, totalTokens, totalCost }: CostMetricsTabProps) {
   // Calculate averages
-  const stepsWithTokens = steps.filter(s => s.tokens && s.tokens > 0);
-  const avgTokensPerStep = stepsWithTokens.length > 0
-    ? Math.round(stepsWithTokens.reduce((sum, s) => sum + (s.tokens || 0), 0) / stepsWithTokens.length)
-    : 0;
+  const stepsWithTokens = steps.filter((s) => s.tokens && s.tokens > 0);
+  const avgTokensPerStep =
+    stepsWithTokens.length > 0
+      ? Math.round(
+          stepsWithTokens.reduce((sum, s) => sum + (s.tokens || 0), 0) / stepsWithTokens.length,
+        )
+      : 0;
 
-  const stepsWithCost = steps.filter(s => s.cost_usd && s.cost_usd > 0);
-  const avgCostPerStep = stepsWithCost.length > 0
-    ? stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / stepsWithCost.length
-    : 0;
+  const stepsWithCost = steps.filter((s) => s.cost_usd && s.cost_usd > 0);
+  const avgCostPerStep =
+    stepsWithCost.length > 0
+      ? stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / stepsWithCost.length
+      : 0;
 
   // Find most expensive step
-  const mostExpensiveStep = steps.reduce((max, step) =>
-    (step.cost_usd || 0) > (max.cost_usd || 0) ? step : max
-  , steps[0] || { cost_usd: 0 });
+  const mostExpensiveStep = steps.reduce(
+    (max, step) => ((step.cost_usd || 0) > (max.cost_usd || 0) ? step : max),
+    steps[0] || { cost_usd: 0 },
+  );
 
   // Calculate LLM vs non-LLM split (heuristic: steps with tokens are LLM)
-  const llmSteps = steps.filter(s => s.tokens && s.tokens > 0);
+  const llmSteps = steps.filter((s) => s.tokens && s.tokens > 0);
   const llmCost = llmSteps.reduce((sum, s) => sum + (s.cost_usd || 0), 0);
   const nonLlmCost = totalCost - llmCost;
   const llmPercentage = totalCost > 0 ? (llmCost / totalCost) * 100 : 0;
@@ -56,19 +57,13 @@ export function CostMetricsTab({
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">
-                Avg per AI Step
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-slate-500">Avg per AI Step</CardTitle>
               <Zap className="h-4 w-4 text-slate-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-slate-900">
-              {avgTokensPerStep.toLocaleString()}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              tokens • {formatCost(avgCostPerStep)}
-            </p>
+            <p className="text-2xl font-bold text-slate-900">{avgTokensPerStep.toLocaleString()}</p>
+            <p className="text-xs text-slate-500 mt-1">tokens • {formatCost(avgCostPerStep)}</p>
           </CardContent>
         </Card>
 
@@ -87,7 +82,7 @@ export function CostMetricsTab({
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}
-              {((mostExpensiveStep.cost_usd || 0) / totalCost * 100).toFixed(1)}% of total
+              {(((mostExpensiveStep.cost_usd || 0) / totalCost) * 100).toFixed(1)}% of total
             </p>
           </CardContent>
         </Card>
@@ -102,9 +97,7 @@ export function CostMetricsTab({
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-slate-900">
-              {llmPercentage.toFixed(0)}%
-            </p>
+            <p className="text-2xl font-bold text-slate-900">{llmPercentage.toFixed(0)}%</p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(llmCost)} AI • {formatCost(nonLlmCost)} other
             </p>
@@ -137,12 +130,8 @@ export function CostMetricsTab({
 
                   return (
                     <tr key={step.id} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-4 text-slate-900 font-medium">
-                        {step.number}
-                      </td>
-                      <td className="py-3 px-4 text-slate-900">
-                        {step.name}
-                      </td>
+                      <td className="py-3 px-4 text-slate-900 font-medium">{step.number}</td>
+                      <td className="py-3 px-4 text-slate-900">{step.name}</td>
                       <td className="py-3 px-4 text-right text-slate-700">
                         {tokens > 0 ? tokens.toLocaleString() : '-'}
                       </td>
@@ -179,9 +168,7 @@ export function CostMetricsTab({
                   <td className="py-3 px-4 text-right text-slate-900 font-mono">
                     {formatCost(totalCost)}
                   </td>
-                  <td className="py-3 px-4 text-right text-slate-900">
-                    100%
-                  </td>
+                  <td className="py-3 px-4 text-right text-slate-900">100%</td>
                 </tr>
               </tbody>
             </table>

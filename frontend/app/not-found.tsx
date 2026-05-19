@@ -11,18 +11,14 @@ export default function NotFound() {
             <FileQuestion className="h-8 w-8 text-slate-600" />
           </div>
 
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Page Not Found
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Page Not Found</h1>
 
           <p className="text-gray-600 mb-6">
             The page you&apos;re looking for doesn&apos;t exist or has been moved.
           </p>
 
           <Link href="/" className="w-full">
-            <Button className="w-full">
-              Back to Home
-            </Button>
+            <Button className="w-full">Back to Home</Button>
           </Link>
         </div>
       </div>

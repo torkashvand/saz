@@ -22,14 +22,12 @@ export function NavHeader() {
           Saz
         </Link>
         <nav className="flex gap-6">
-          {links.map(link => (
+          {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               className={`text-sm font-medium transition-colors ${
-                pathname === link.href
-                  ? 'text-blue-600'
-                  : 'text-slate-600 hover:text-slate-900'
+                pathname === link.href ? 'text-blue-600' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               {link.label}

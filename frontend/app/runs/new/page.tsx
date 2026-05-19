@@ -26,7 +26,11 @@ function NewRunPageContent() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: flows, isLoading: flowsLoading, error: flowsError } = useQuery({
+  const {
+    data: flows,
+    isLoading: flowsLoading,
+    error: flowsError,
+  } = useQuery({
     queryKey: ['flows'],
     queryFn: () => api.listFlows({ limit: 100, offset: 0 }),
     retry: false,
@@ -51,8 +55,7 @@ function NewRunPageContent() {
       const matchesSearch =
         f.name.toLowerCase().includes(search.toLowerCase()) ||
         (f.description?.toLowerCase().includes(search.toLowerCase()) ?? false);
-      const matchesPlanner =
-        plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
+      const matchesPlanner = plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
       return matchesSearch && matchesPlanner;
     });
   }, [flows, search, plannerFilter]);
@@ -142,7 +145,9 @@ function NewRunPageContent() {
                             value={formData[field.name] || ''}
                             onChange={(e) => {
                               const value =
-                                fieldType === 'number' ? parseFloat(e.target.value) : e.target.value;
+                                fieldType === 'number'
+                                  ? parseFloat(e.target.value)
+                                  : e.target.value;
                               setFormData({ ...formData, [field.name]: value });
                             }}
                             required={isRequired}
@@ -263,12 +268,7 @@ function NewRunPageContent() {
       ) : filtered.length > 0 ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((flow) => (
-            <WorkflowCard
-              key={flow.id}
-              flow={flow}
-              showLaunch
-              onLaunch={handleLaunch}
-            />
+            <WorkflowCard key={flow.id} flow={flow} showLaunch onLaunch={handleLaunch} />
           ))}
         </div>
       ) : (
@@ -293,7 +293,15 @@ function NewRunPageContent() {
 
 export default function NewRunPage() {
   return (
-    <Suspense fallback={<div className="max-w-7xl mx-auto px-4 py-8"><div className="text-center py-12"><p className="text-slate-600">Loading...</p></div></div>}>
+    <Suspense
+      fallback={
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <p className="text-slate-600">Loading...</p>
+          </div>
+        </div>
+      }
+    >
       <NewRunPageContent />
     </Suspense>
   );

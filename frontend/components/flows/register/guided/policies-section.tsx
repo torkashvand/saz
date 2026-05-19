@@ -28,9 +28,7 @@ export function PoliciesSection({ draft, onChange }: PoliciesSectionProps) {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Budget (USD)
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Budget (USD)</label>
             <input
               type="number"
               step="0.01"

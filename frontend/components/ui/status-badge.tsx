@@ -65,12 +65,17 @@ export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
   );
 }
 
-export function StatusPill({ status, showLabel = false }: StatusBadgeProps & { showLabel?: boolean }) {
+export function StatusPill({
+  status,
+  showLabel = false,
+}: StatusBadgeProps & { showLabel?: boolean }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
   const Icon = config.icon;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.color}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.color}`}
+    >
       <Icon className={`h-3 w-3 ${status === 'running' ? 'animate-spin' : ''}`} />
       {showLabel && config.label}
     </span>

@@ -17,14 +17,21 @@ export default function RunsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const limit = 20;
 
-  const { data: runs, isLoading, error, isError, refetch } = useQuery({
+  const {
+    data: runs,
+    isLoading,
+    error,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['runs', page, flowFilter, statusFilter],
-    queryFn: () => api.listRuns({
-      limit,
-      offset: page * limit,
-      flow_id: flowFilter !== 'all' ? flowFilter : undefined,
-      status: statusFilter !== 'all' ? statusFilter : undefined,
-    }),
+    queryFn: () =>
+      api.listRuns({
+        limit,
+        offset: page * limit,
+        flow_id: flowFilter !== 'all' ? flowFilter : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+      }),
   });
 
   const { data: flows } = useQuery({
@@ -60,7 +67,9 @@ export default function RunsPage() {
         >
           <option value="all">All Flows</option>
           {flows?.items.map((f: FlowListItem) => (
-            <option key={f.id} value={f.id}>{f.name}</option>
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
           ))}
         </select>
         <select
@@ -93,16 +102,28 @@ export default function RunsPage() {
                   <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Flow</th>
                   <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Run ID</th>
                   <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Status</th>
-                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">Created</th>
+                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-700">
+                    Created
+                  </th>
                   <th className="text-right px-6 py-3 text-sm font-medium text-slate-700">Cost</th>
-                  <th className="text-right px-6 py-3 text-sm font-medium text-slate-700">Tokens</th>
+                  <th className="text-right px-6 py-3 text-sm font-medium text-slate-700">
+                    Tokens
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {runs.items.map((run: RunListItem) => (
-                  <tr key={run.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => router.push(`/runs/${run.id}`)}>
+                  <tr
+                    key={run.id}
+                    className="hover:bg-slate-50 cursor-pointer"
+                    onClick={() => router.push(`/runs/${run.id}`)}
+                  >
                     <td className="px-6 py-4">
-                      <Link href={`/runs/${run.id}`} className="font-medium text-blue-600 hover:underline" onClick={(e) => e.stopPropagation()}>
+                      <Link
+                        href={`/runs/${run.id}`}
+                        className="font-medium text-blue-600 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {run.flow_name}
                       </Link>
                     </td>
@@ -154,7 +175,9 @@ export default function RunsPage() {
         </>
       ) : (
         <div className="text-center py-12 text-slate-500">
-          {flowFilter !== 'all' || statusFilter !== 'all' ? 'No runs found matching your filters.' : 'No runs yet.'}
+          {flowFilter !== 'all' || statusFilter !== 'all'
+            ? 'No runs found matching your filters.'
+            : 'No runs yet.'}
         </div>
       )}
     </div>
@@ -170,7 +193,9 @@ function StatusBadge({ status }: { status: string }) {
   };
 
   return (
-    <span className={`inline-block px-2 py-1 text-xs rounded border ${colors[status] || 'bg-slate-100 text-slate-700 border-slate-300'}`}>
+    <span
+      className={`inline-block px-2 py-1 text-xs rounded border ${colors[status] || 'bg-slate-100 text-slate-700 border-slate-300'}`}
+    >
       {status.replace('_', ' ')}
     </span>
   );

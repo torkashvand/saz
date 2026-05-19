@@ -61,7 +61,7 @@ export function groupEventsByStep(events: Event[]): {
       completed_at: completeEvent?.timestamp || failedEvent?.timestamp || null,
       duration_ms,
       events: stepEvents.sort(
-        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       ),
     });
   }

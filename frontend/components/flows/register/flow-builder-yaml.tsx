@@ -69,7 +69,7 @@ export function FlowBuilderYaml({
 
     decorationsRef.current = editorRef.current.deltaDecorations(
       decorationsRef.current,
-      newDecorations
+      newDecorations,
     );
   }, [yaml, baselineYaml]);
 
@@ -191,7 +191,8 @@ export function FlowBuilderYaml({
               <div className="pl-4 space-y-1">
                 {validationResult.errors.slice(0, 5).map((err, idx) => (
                   <div key={idx} className="text-xs text-red-600">
-                    {err.section && <span className="font-mono">[{err.section}]</span>} {err.message}
+                    {err.section && <span className="font-mono">[{err.section}]</span>}{' '}
+                    {err.message}
                   </div>
                 ))}
                 {validationResult.errors.length > 5 && (

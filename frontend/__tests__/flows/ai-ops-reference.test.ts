@@ -14,10 +14,7 @@ import { describe, it, expect } from 'vitest';
 // the component, so we test the logic directly)
 // ---------------------------------------------------------------------------
 
-function schemaToExpectYaml(
-  schema: Record<string, any>,
-  indent: number = 6,
-): string {
+function schemaToExpectYaml(schema: Record<string, any>, indent: number = 6): string {
   const pad = ' '.repeat(indent);
   const lines: string[] = [];
 
@@ -154,20 +151,17 @@ describe('schemaToExpectYaml', () => {
 
 describe('extractAIOpFromError', () => {
   it('extracts ai.extract from compile error', () => {
-    const msg =
-      "step 'extract_ticket_data' (type: ai.extract) requires 'expect' field";
+    const msg = "step 'extract_ticket_data' (type: ai.extract) requires 'expect' field";
     expect(extractAIOpFromError(msg)).toBe('ai.extract');
   });
 
   it('extracts ai.score from compile error', () => {
-    const msg =
-      "step 'score_complexity' (type: ai.score) requires 'expect' field";
+    const msg = "step 'score_complexity' (type: ai.score) requires 'expect' field";
     expect(extractAIOpFromError(msg)).toBe('ai.score');
   });
 
   it('extracts ai.generate from compile error', () => {
-    const msg =
-      "step 'draft_email' (type: ai.generate) requires 'expect' field";
+    const msg = "step 'draft_email' (type: ai.generate) requires 'expect' field";
     expect(extractAIOpFromError(msg)).toBe('ai.generate');
   });
 
@@ -206,8 +200,7 @@ describe('validation error → AI ops reference flow', () => {
   it('non-expect error does not produce a reference link', () => {
     const errors = [
       {
-        message:
-          "step 'plan' (type: ai.generate) requires non-empty 'instruction' field",
+        message: "step 'plan' (type: ai.generate) requires non-empty 'instruction' field",
       },
     ];
 

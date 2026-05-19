@@ -34,17 +34,20 @@ export function ResizableSplit({
     document.body.style.userSelect = 'none';
   }, []);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDraggingRef.current || !containerRef.current) return;
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
 
-    const container = containerRef.current;
-    const rect = container.getBoundingClientRect();
-    const newLeftWidth = ((e.clientX - rect.left) / rect.width) * 100;
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+      const newLeftWidth = ((e.clientX - rect.left) / rect.width) * 100;
 
-    if (newLeftWidth >= minLeftWidth && newLeftWidth <= 100 - minRightWidth) {
-      setLeftWidth(newLeftWidth);
-    }
-  }, [minLeftWidth, minRightWidth]);
+      if (newLeftWidth >= minLeftWidth && newLeftWidth <= 100 - minRightWidth) {
+        setLeftWidth(newLeftWidth);
+      }
+    },
+    [minLeftWidth, minRightWidth],
+  );
 
   const handleMouseUp = useCallback(() => {
     if (isDraggingRef.current) {
@@ -67,10 +70,7 @@ export function ResizableSplit({
 
   return (
     <div ref={containerRef} className="flex h-full w-full overflow-hidden">
-      <div
-        className="overflow-auto"
-        style={{ width: `${leftWidth}%` }}
-      >
+      <div className="overflow-auto" style={{ width: `${leftWidth}%` }}>
         {left}
       </div>
 
@@ -81,10 +81,7 @@ export function ResizableSplit({
         aria-orientation="vertical"
       />
 
-      <div
-        className="overflow-auto"
-        style={{ width: `${100 - leftWidth}%` }}
-      >
+      <div className="overflow-auto" style={{ width: `${100 - leftWidth}%` }}>
         {right}
       </div>
     </div>

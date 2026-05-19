@@ -10,7 +10,12 @@ interface AccordionProps {
   className?: string;
 }
 
-export function Accordion({ title, children, defaultOpen = false, className = '' }: AccordionProps) {
+export function Accordion({
+  title,
+  children,
+  defaultOpen = false,
+  className = '',
+}: AccordionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -23,11 +28,7 @@ export function Accordion({ title, children, defaultOpen = false, className = ''
         {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
 
-      {isOpen && (
-        <div className="p-4 bg-white border-t border-slate-200">
-          {children}
-        </div>
-      )}
+      {isOpen && <div className="p-4 bg-white border-t border-slate-200">{children}</div>}
     </div>
   );
 }

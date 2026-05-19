@@ -74,9 +74,7 @@ export default function RunDetailPageRedesign() {
   // approver workflow — operators (or external systems) just POST to the
   // callback URL to resume.
   const webhookError: WebhookWaitError | null =
-    isSuspended && run?.error?.type === 'WebhookWait'
-      ? (run.error as WebhookWaitError)
-      : null;
+    isSuspended && run?.error?.type === 'WebhookWait' ? (run.error as WebhookWaitError) : null;
   const webhookCallbackUrl = webhookError
     ? `${(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/v1/webhooks/callback/${webhookError.callback_id}`
     : '';
@@ -120,7 +118,7 @@ export default function RunDetailPageRedesign() {
     const running = new Set<number>();
     if (!run?.planned_steps) return running;
 
-    events.forEach(event => {
+    events.forEach((event) => {
       // Run-level terminal / pause events: clear ALL running indicators.
       // When a run suspends (approval gate), completes, or fails, no step
       // should remain in the live "running" set.  Without this, a step
@@ -184,9 +182,8 @@ export default function RunDetailPageRedesign() {
       return runningStepNumbers;
     }
     const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
-    const nextStep = steps.find(s =>
-      s.kind === 'planned' ||
-      (s.kind === 'executed' && s.step.status === 'failed')
+    const nextStep = steps.find(
+      (s) => s.kind === 'planned' || (s.kind === 'executed' && s.step.status === 'failed'),
     );
     if (nextStep !== undefined) {
       const inferred = new Set(runningStepNumbers);
@@ -203,7 +200,7 @@ export default function RunDetailPageRedesign() {
     // Enhance with real-time running status from WebSocket
     // (effectiveRunningIndexes includes both confirmed step.started
     // events AND the inferred next-step during the planning gap)
-    return steps.map(displayStep => {
+    return steps.map((displayStep) => {
       if (!effectiveRunningIndexes.has(displayStep.index)) {
         return displayStep;
       }
@@ -260,7 +257,7 @@ export default function RunDetailPageRedesign() {
       {
         onSuccess: () => showSuccess('Run approved and resumed'),
         onError: showError,
-      }
+      },
     );
   };
 
@@ -270,7 +267,7 @@ export default function RunDetailPageRedesign() {
       {
         onSuccess: () => showSuccess('Run rejected'),
         onError: showError,
-      }
+      },
     );
   };
 
@@ -278,7 +275,7 @@ export default function RunDetailPageRedesign() {
   const scrollToStep = (index: number) => {
     setTimeout(() => {
       // Try to find the executed step first
-      const executedStep = run?.steps.find(s => s.number === index);
+      const executedStep = run?.steps.find((s) => s.number === index);
       const stepId = executedStep?.id || `planned-${index}`;
 
       const element = document.querySelector(`[data-step-id="${stepId}"]`);
@@ -353,7 +350,7 @@ export default function RunDetailPageRedesign() {
     );
   }
 
-  const drawerStep = drawerStepId ? run.steps.find(s => s.id === drawerStepId) : null;
+  const drawerStep = drawerStepId ? run.steps.find((s) => s.id === drawerStepId) : null;
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -449,25 +446,31 @@ export default function RunDetailPageRedesign() {
       </div>
 
       {/* Timeline (for Steps and Steps+Console modes) */}
-      {(viewMode === 'steps' || viewMode === 'steps-console') && run.planned_steps && run.planned_steps.length > 0 && (
-        <div className="mb-6" data-step-wizard>
-          <StepProgressTimeline
-            plannedSteps={run.planned_steps}
-            executedSteps={run.steps}
-            runStatus={isRunning ? 'running' : run.status}
-            selectedStepIndex={selectedStepIndex}
-            onSelectStep={handleSelectStep}
-            liveRunningIndexes={effectiveRunningIndexes}
-          />
-        </div>
-      )}
+      {(viewMode === 'steps' || viewMode === 'steps-console') &&
+        run.planned_steps &&
+        run.planned_steps.length > 0 && (
+          <div className="mb-6" data-step-wizard>
+            <StepProgressTimeline
+              plannedSteps={run.planned_steps}
+              executedSteps={run.steps}
+              runStatus={isRunning ? 'running' : run.status}
+              selectedStepIndex={selectedStepIndex}
+              onSelectStep={handleSelectStep}
+              liveRunningIndexes={effectiveRunningIndexes}
+            />
+          </div>
+        )}
 
       {/* Content area */}
       {viewMode === 'steps' && (
         <div className="space-y-3">
           {displaySteps.map((displayStep) => (
             <CompactStepCard
-              key={displayStep.kind === 'executed' ? displayStep.step.id : `planned-${displayStep.index}`}
+              key={
+                displayStep.kind === 'executed'
+                  ? displayStep.step.id
+                  : `planned-${displayStep.index}`
+              }
               displayStep={displayStep}
               isSelected={selectedStepIndex === displayStep.index}
               onViewLogs={
@@ -488,7 +491,11 @@ export default function RunDetailPageRedesign() {
               <div className="h-full overflow-y-auto p-4 space-y-3 bg-slate-50">
                 {displaySteps.map((displayStep) => (
                   <CompactStepCard
-                    key={displayStep.kind === 'executed' ? displayStep.step.id : `planned-${displayStep.index}`}
+                    key={
+                      displayStep.kind === 'executed'
+                        ? displayStep.step.id
+                        : `planned-${displayStep.index}`
+                    }
                     displayStep={displayStep}
                     isSelected={selectedStepIndex === displayStep.index}
                     onViewLogs={

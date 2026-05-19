@@ -11,11 +11,7 @@ interface ErrorStateProps {
 /**
  * @deprecated Use ErrorBanner from '@/components/ui/error-banner' instead
  */
-export function ErrorState({
-  error,
-  onRetry,
-  title = 'Something went wrong',
-}: ErrorStateProps) {
+export function ErrorState({ error, onRetry, title = 'Something went wrong' }: ErrorStateProps) {
   const getErrorMessage = () => {
     if (error && typeof error === 'object' && 'kind' in error) {
       return (error as AppError).message;
@@ -49,9 +45,7 @@ export function ErrorState({
       {getErrorDetails() && (
         <p className="text-xs text-red-600 mb-2 font-mono">{getErrorDetails()}</p>
       )}
-      {getRequestId() && (
-        <p className="text-xs text-red-500 mb-4">Request ID: {getRequestId()}</p>
-      )}
+      {getRequestId() && <p className="text-xs text-red-500 mb-4">Request ID: {getRequestId()}</p>}
       {onRetry && (
         <Button
           variant="outline"

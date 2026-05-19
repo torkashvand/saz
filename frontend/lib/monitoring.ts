@@ -138,7 +138,7 @@ export async function captureAppError(error: AppError, context?: Record<string, 
       // Add validation errors as context
       if (error.validationErrors && error.validationErrors.length > 0) {
         scope.setContext('validation_errors', {
-          fields: error.validationErrors.map(e => e.field),
+          fields: error.validationErrors.map((e) => e.field),
           count: error.validationErrors.length,
         });
       }
@@ -236,11 +236,7 @@ export async function clearUserContext() {
 /**
  * Add breadcrumb for debugging
  */
-export async function addBreadcrumb(
-  message: string,
-  category: string,
-  data?: Record<string, any>
-) {
+export async function addBreadcrumb(message: string, category: string, data?: Record<string, any>) {
   if (!isSentryEnabled()) return;
 
   try {
@@ -297,7 +293,7 @@ function sanitizeDetails(details: unknown): any {
 
   for (const [key, value] of Object.entries(details)) {
     const lowerKey = key.toLowerCase();
-    const isSensitive = sensitiveKeys.some(k => lowerKey.includes(k));
+    const isSensitive = sensitiveKeys.some((k) => lowerKey.includes(k));
 
     if (isSensitive) {
       sanitized[key] = '[Redacted]';

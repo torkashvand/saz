@@ -62,12 +62,17 @@ function executedStep(
  * exercise the real lifecycle behavior, not a stale copy.
  */
 function deriveRunningIndexes(
-  events: Array<{ event_type: string; step_id: string | null; payload: Record<string, any>; summary: string }>,
+  events: Array<{
+    event_type: string;
+    step_id: string | null;
+    payload: Record<string, any>;
+    summary: string;
+  }>,
   executedSteps: RunStep[],
   plannedSteps: PlannedStep[],
 ): Set<number> {
   const running = new Set<number>();
-  events.forEach(event => {
+  events.forEach((event) => {
     // Run-level terminal / pause events: clear ALL running indicators.
     if (
       event.event_type === 'run.suspended' ||
@@ -109,11 +114,8 @@ function deriveRunningIndexes(
  * Simulate the page-level display step overlay from page.tsx's useMemo.
  * Applies live running state to canonical display steps.
  */
-function applyLiveOverlay(
-  steps: DisplayStep[],
-  runningIndexes: Set<number>,
-): DisplayStep[] {
-  return steps.map(displayStep => {
+function applyLiveOverlay(steps: DisplayStep[], runningIndexes: Set<number>): DisplayStep[] {
+  return steps.map((displayStep) => {
     if (!runningIndexes.has(displayStep.index)) {
       return displayStep;
     }
@@ -149,11 +151,7 @@ function applyLiveOverlay(
   });
 }
 
-function makeEvent(
-  type: string,
-  stepName: string,
-  stepId?: string,
-) {
+function makeEvent(type: string, stepName: string, stepId?: string) {
   return {
     event_type: type,
     step_id: stepId ?? null,
@@ -200,9 +198,7 @@ describe('live overlay — retry running indicator', () => {
 
     // After retry, backend emits step.started for create_rfp_record
     // with event-local step_number=0 (new execution segment)
-    const events = [
-      makeEvent('step.started', 'create_rfp_record'),
-    ];
+    const events = [makeEvent('step.started', 'create_rfp_record')];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
 
@@ -352,9 +348,7 @@ describe('live overlay — repeated execution segments', () => {
   });
 
   it('step.completed after retry clears running indicator', () => {
-    const executed: RunStep[] = [
-      executedStep('create_rfp_record', 3, 'failed', 1),
-    ];
+    const executed: RunStep[] = [executedStep('create_rfp_record', 3, 'failed', 1)];
 
     const events = [
       makeEvent('step.started', 'create_rfp_record'),
@@ -366,9 +360,7 @@ describe('live overlay — repeated execution segments', () => {
   });
 
   it('step.failed after retry clears running indicator', () => {
-    const executed: RunStep[] = [
-      executedStep('create_rfp_record', 3, 'failed', 1),
-    ];
+    const executed: RunStep[] = [executedStep('create_rfp_record', 3, 'failed', 1)];
 
     const events = [
       makeEvent('step.started', 'create_rfp_record'),
@@ -388,9 +380,7 @@ describe('live overlay — normal execution (no retry)', () => {
   it('shows correct running step during first execution', () => {
     const executed: RunStep[] = [];
 
-    const events = [
-      makeEvent('step.started', 'extract_requirements'),
-    ];
+    const events = [makeEvent('step.started', 'extract_requirements')];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
     expect(runningIndexes.has(0)).toBe(true);
@@ -453,10 +443,10 @@ describe('live overlay — suspension clears running state', () => {
     const executed: RunStep[] = [];
 
     const events = [
-      makeEvent('step.started', 'create_rfp_record'),   // approval step starts
-      makeRunEvent('run.suspended'),                      // run suspends — must clear
+      makeEvent('step.started', 'create_rfp_record'), // approval step starts
+      makeRunEvent('run.suspended'), // run suspends — must clear
       // ... time passes, approval granted, run resumes ...
-      makeEvent('step.started', 'send_confirmation'),     // next step starts
+      makeEvent('step.started', 'send_confirmation'), // next step starts
     ];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
@@ -501,9 +491,7 @@ describe('live overlay — suspension clears running state', () => {
       executedStep('validate_budget', 1, 'completed'), // approved
     ];
 
-    const events = [
-      makeEvent('step.started', 'draft_rfp'),
-    ];
+    const events = [makeEvent('step.started', 'draft_rfp')];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
     expect(runningIndexes.has(2)).toBe(true);
@@ -519,10 +507,7 @@ describe('live overlay — run terminal events', () => {
   it('run.completed clears all running indicators', () => {
     const executed: RunStep[] = [];
 
-    const events = [
-      makeEvent('step.started', 'send_confirmation'),
-      makeRunEvent('run.completed'),
-    ];
+    const events = [makeEvent('step.started', 'send_confirmation'), makeRunEvent('run.completed')];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
     expect(runningIndexes.size).toBe(0);
@@ -531,10 +516,7 @@ describe('live overlay — run terminal events', () => {
   it('run.failed clears all running indicators', () => {
     const executed: RunStep[] = [];
 
-    const events = [
-      makeEvent('step.started', 'create_rfp_record'),
-      makeRunEvent('run.failed'),
-    ];
+    const events = [makeEvent('step.started', 'create_rfp_record'), makeRunEvent('run.failed')];
 
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
     expect(runningIndexes.size).toBe(0);
@@ -570,9 +552,7 @@ describe('live overlay — full integration', () => {
       executedStep('create_rfp_record', 3, 'failed', 1),
     ];
 
-    const events = [
-      makeEvent('step.started', 'create_rfp_record'),
-    ];
+    const events = [makeEvent('step.started', 'create_rfp_record')];
 
     // Step 1: Build canonical steps
     const canonical = buildDisplaySteps('deterministic', PLANNED, executed);
@@ -584,15 +564,13 @@ describe('live overlay — full integration', () => {
     const final = applyLiveOverlay(canonical, runningIndexes);
 
     // Verify all 5 steps
-    const statuses = final.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
-    );
+    const statuses = final.map((ds) => (ds.kind === 'executed' ? ds.step.status : 'not_started'));
     expect(statuses).toEqual([
-      'completed',    // extract_requirements
-      'completed',    // validate_budget
-      'completed',    // draft_rfp
-      'running',      // create_rfp_record — LIVE OVERLAY
-      'not_started',  // send_confirmation
+      'completed', // extract_requirements
+      'completed', // validate_budget
+      'completed', // draft_rfp
+      'running', // create_rfp_record — LIVE OVERLAY
+      'not_started', // send_confirmation
     ]);
 
     // Verify attempt on the running step
@@ -632,15 +610,13 @@ describe('live overlay — full integration', () => {
     const runningIndexes = deriveRunningIndexes(events, executed, PLANNED);
     const final = applyLiveOverlay(canonical, runningIndexes);
 
-    const statuses = final.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
-    );
+    const statuses = final.map((ds) => (ds.kind === 'executed' ? ds.step.status : 'not_started'));
     expect(statuses).toEqual([
-      'completed',    // extract_requirements
-      'completed',    // validate_budget
-      'completed',    // draft_rfp
-      'completed',    // create_rfp_record — approved
-      'running',      // send_confirmation — ONLY running step
+      'completed', // extract_requirements
+      'completed', // validate_budget
+      'completed', // draft_rfp
+      'completed', // create_rfp_record — approved
+      'running', // send_confirmation — ONLY running step
     ]);
 
     // Exactly one running step
@@ -659,9 +635,7 @@ describe('live overlay — full integration', () => {
  * from WebSocket events before the canonical run.status updates.
  * Uses last-event-wins so resumed-after-suspended works correctly.
  */
-function deriveIsRunningFromEvents(
-  events: Array<{ event_type: string }>,
-): boolean {
+function deriveIsRunningFromEvents(events: Array<{ event_type: string }>): boolean {
   let active = false;
   for (const e of events) {
     if (e.event_type === 'run.started' || e.event_type === 'run.resumed') {
@@ -684,9 +658,7 @@ describe('live overlay — immediate run-active detection', () => {
     const canonicalStatus = 'queued' as RunStatus;
     const isRunningCanonical = canonicalStatus === 'running' || canonicalStatus === 'pending';
 
-    const events = [
-      { event_type: 'run.started' },
-    ];
+    const events = [{ event_type: 'run.started' }];
     const isRunningFromEvents = deriveIsRunningFromEvents(events);
 
     // Canonical says not running, but events say it is
@@ -699,34 +671,22 @@ describe('live overlay — immediate run-active detection', () => {
   });
 
   it('plan.generated without terminal event keeps run active', () => {
-    const events = [
-      { event_type: 'run.started' },
-      { event_type: 'plan.generated' },
-    ];
+    const events = [{ event_type: 'run.started' }, { event_type: 'plan.generated' }];
     expect(deriveIsRunningFromEvents(events)).toBe(true);
   });
 
   it('run.completed clears active state from events', () => {
-    const events = [
-      { event_type: 'run.started' },
-      { event_type: 'run.completed' },
-    ];
+    const events = [{ event_type: 'run.started' }, { event_type: 'run.completed' }];
     expect(deriveIsRunningFromEvents(events)).toBe(false);
   });
 
   it('run.failed clears active state from events', () => {
-    const events = [
-      { event_type: 'run.started' },
-      { event_type: 'run.failed' },
-    ];
+    const events = [{ event_type: 'run.started' }, { event_type: 'run.failed' }];
     expect(deriveIsRunningFromEvents(events)).toBe(false);
   });
 
   it('run.suspended clears active state from events', () => {
-    const events = [
-      { event_type: 'run.started' },
-      { event_type: 'run.suspended' },
-    ];
+    const events = [{ event_type: 'run.started' }, { event_type: 'run.suspended' }];
     expect(deriveIsRunningFromEvents(events)).toBe(false);
   });
 
@@ -769,9 +729,8 @@ function computeEffectiveRunningIndexes(
     return runningStepNumbers;
   }
   const steps = buildDisplaySteps('deterministic', plannedSteps, executedSteps);
-  const nextStep = steps.find(s =>
-    s.kind === 'planned' ||
-    (s.kind === 'executed' && s.step.status === 'failed')
+  const nextStep = steps.find(
+    (s) => s.kind === 'planned' || (s.kind === 'executed' && s.step.status === 'failed'),
   );
   if (nextStep !== undefined) {
     const inferred = new Set(runningStepNumbers);
@@ -783,9 +742,7 @@ function computeEffectiveRunningIndexes(
 
 describe('inferred next-step during planning gap', () => {
   it('fresh run: first planned step gets spinner', () => {
-    const effective = computeEffectiveRunningIndexes(
-      new Set(), true, PLANNED, [],
-    );
+    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, []);
     expect(effective.has(0)).toBe(true);
     expect(effective.size).toBe(1);
   });
@@ -797,9 +754,7 @@ describe('inferred next-step during planning gap', () => {
       executedStep('draft_rfp', 2, 'completed'),
       executedStep('create_rfp_record', 3, 'failed', 1),
     ];
-    const effective = computeEffectiveRunningIndexes(
-      new Set(), true, PLANNED, executed,
-    );
+    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
     expect(effective.has(3)).toBe(true);
     expect(effective.has(0)).toBe(false);
     expect(effective.size).toBe(1);
@@ -812,9 +767,7 @@ describe('inferred next-step during planning gap', () => {
       executedStep('draft_rfp', 2, 'completed'),
       executedStep('create_rfp_record', 3, 'completed'),
     ];
-    const effective = computeEffectiveRunningIndexes(
-      new Set(), true, PLANNED, executed,
-    );
+    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
     // Step 4 (send_confirmation) is still planned
     expect(effective.has(4)).toBe(true);
     expect(effective.size).toBe(1);
@@ -828,25 +781,19 @@ describe('inferred next-step during planning gap', () => {
       executedStep('create_rfp_record', 3, 'completed'),
       executedStep('send_confirmation', 4, 'completed'),
     ];
-    const effective = computeEffectiveRunningIndexes(
-      new Set(), true, PLANNED, executed,
-    );
+    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
     expect(effective.size).toBe(0);
   });
 
   it('skipped when step.started already populated runningStepNumbers', () => {
-    const effective = computeEffectiveRunningIndexes(
-      new Set([2]), true, PLANNED, [],
-    );
+    const effective = computeEffectiveRunningIndexes(new Set([2]), true, PLANNED, []);
     // Should return original set unchanged
     expect(effective.has(2)).toBe(true);
     expect(effective.size).toBe(1);
   });
 
   it('skipped when run is not active from events', () => {
-    const effective = computeEffectiveRunningIndexes(
-      new Set(), false, PLANNED, [],
-    );
+    const effective = computeEffectiveRunningIndexes(new Set(), false, PLANNED, []);
     expect(effective.size).toBe(0);
   });
 });
@@ -870,7 +817,7 @@ describe('page-level user-visible state', () => {
     // 3. Derive isRunning (page.tsx logic)
     const isRunningCanonical = canonicalRunStatus === 'running';
     const isRunningFromLiveEvents = deriveIsRunningFromEvents(
-      events.map(e => ({ event_type: e.event_type })),
+      events.map((e) => ({ event_type: e.event_type })),
     );
     const isRunning = isRunningCanonical || isRunningFromLiveEvents;
     expect(isRunning).toBe(true);
@@ -881,7 +828,10 @@ describe('page-level user-visible state', () => {
 
     // 5. Compute effective running indexes (with inference)
     const effective = computeEffectiveRunningIndexes(
-      runningStepNumbers, isRunningFromLiveEvents, PLANNED, canonicalSteps,
+      runningStepNumbers,
+      isRunningFromLiveEvents,
+      PLANNED,
+      canonicalSteps,
     );
     expect(effective.has(0)).toBe(true); // first step inferred
 
@@ -890,15 +840,15 @@ describe('page-level user-visible state', () => {
     const finalSteps = applyLiveOverlay(displaySteps, effective);
 
     // USER-VISIBLE RESULT: first step shows spinner, rest show not started
-    const statuses = finalSteps.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
+    const statuses = finalSteps.map((ds) =>
+      ds.kind === 'executed' ? ds.step.status : 'not_started',
     );
     expect(statuses).toEqual([
-      'running',      // extract_requirements — SPINNER visible
-      'not_started',  // validate_budget
-      'not_started',  // draft_rfp
-      'not_started',  // create_rfp_record
-      'not_started',  // send_confirmation
+      'running', // extract_requirements — SPINNER visible
+      'not_started', // validate_budget
+      'not_started', // draft_rfp
+      'not_started', // create_rfp_record
+      'not_started', // send_confirmation
     ]);
 
     // Live badge visible
@@ -919,7 +869,7 @@ describe('page-level user-visible state', () => {
     const events = [makeRunEvent('run.started')];
 
     const isRunningFromLiveEvents = deriveIsRunningFromEvents(
-      events.map(e => ({ event_type: e.event_type })),
+      events.map((e) => ({ event_type: e.event_type })),
     );
     expect(isRunningFromLiveEvents).toBe(true);
 
@@ -927,22 +877,25 @@ describe('page-level user-visible state', () => {
     expect(runningStepNumbers.size).toBe(0);
 
     const effective = computeEffectiveRunningIndexes(
-      runningStepNumbers, isRunningFromLiveEvents, PLANNED, canonicalSteps,
+      runningStepNumbers,
+      isRunningFromLiveEvents,
+      PLANNED,
+      canonicalSteps,
     );
     expect(effective.has(3)).toBe(true); // failed step inferred
 
     const displaySteps = buildDisplaySteps('deterministic', PLANNED, canonicalSteps);
     const finalSteps = applyLiveOverlay(displaySteps, effective);
 
-    const statuses = finalSteps.map(ds =>
-      ds.kind === 'executed' ? ds.step.status : 'not_started'
+    const statuses = finalSteps.map((ds) =>
+      ds.kind === 'executed' ? ds.step.status : 'not_started',
     );
     expect(statuses).toEqual([
-      'completed',    // extract_requirements
-      'completed',    // validate_budget
-      'completed',    // draft_rfp
-      'running',      // create_rfp_record — SPINNER on failed step
-      'not_started',  // send_confirmation
+      'completed', // extract_requirements
+      'completed', // validate_budget
+      'completed', // draft_rfp
+      'running', // create_rfp_record — SPINNER on failed step
+      'not_started', // send_confirmation
     ]);
   });
 
@@ -950,17 +903,17 @@ describe('page-level user-visible state', () => {
     const canonicalSteps: RunStep[] = [];
 
     // run.started + step.started for step 0
-    const events = [
-      makeRunEvent('run.started'),
-      makeEvent('step.started', 'extract_requirements'),
-    ];
+    const events = [makeRunEvent('run.started'), makeEvent('step.started', 'extract_requirements')];
 
     const runningStepNumbers = deriveRunningIndexes(events, canonicalSteps, PLANNED);
     expect(runningStepNumbers.has(0)).toBe(true);
 
     // Since runningStepNumbers is non-empty, inference is skipped
     const effective = computeEffectiveRunningIndexes(
-      runningStepNumbers, true, PLANNED, canonicalSteps,
+      runningStepNumbers,
+      true,
+      PLANNED,
+      canonicalSteps,
     );
     expect(effective).toBe(runningStepNumbers); // same reference, no inference
   });

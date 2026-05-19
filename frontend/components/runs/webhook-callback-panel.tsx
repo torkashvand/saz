@@ -1,13 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  Clock,
-  ArrowRight,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-} from 'lucide-react';
+import { Clock, ArrowRight, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
@@ -149,8 +143,7 @@ export function WebhookCallbackPanel({
               <code className="rounded bg-slate-100 px-1 py-0.5 text-xs font-mono">
                 {'{"action":"approve",...}'}
               </code>{' '}
-              to the callback URL. The run will move to <strong>queued</strong>,
-              then resume.
+              to the callback URL. The run will move to <strong>queued</strong>, then resume.
             </p>
             <div>
               <label
@@ -219,8 +212,8 @@ export function WebhookCallbackPanel({
               <code className="rounded bg-slate-100 px-1 py-0.5 text-xs font-mono">
                 {'{"action":"reject","reason":"..."}'}
               </code>{' '}
-              to the callback URL. The run will be marked <strong>failed</strong>{' '}
-              with the reason preserved in the audit trail.
+              to the callback URL. The run will be marked <strong>failed</strong> with the reason
+              preserved in the audit trail.
             </p>
             <div>
               <label

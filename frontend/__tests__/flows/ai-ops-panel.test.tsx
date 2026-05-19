@@ -73,11 +73,7 @@ function createWrapper() {
     defaultOptions: { queries: { retry: false } },
   });
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    );
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
 }
 
@@ -240,10 +236,9 @@ describe('AIOpsReferencePanel — focusOp from validation error', () => {
   it('auto-selects the focused operation and shows detail view', async () => {
     const onFocusHandled = vi.fn();
 
-    render(
-      <AIOpsReferencePanel focusOp="ai.route" onFocusHandled={onFocusHandled} />,
-      { wrapper: createWrapper() },
-    );
+    render(<AIOpsReferencePanel focusOp="ai.route" onFocusHandled={onFocusHandled} />, {
+      wrapper: createWrapper(),
+    });
 
     // Should auto-open ai.route detail view (shows back button + copy actions)
     await waitFor(() => {
@@ -258,10 +253,9 @@ describe('AIOpsReferencePanel — focusOp from validation error', () => {
   it('ignores focusOp that does not match any operation', async () => {
     const onFocusHandled = vi.fn();
 
-    render(
-      <AIOpsReferencePanel focusOp="ai.nonexistent" onFocusHandled={onFocusHandled} />,
-      { wrapper: createWrapper() },
-    );
+    render(<AIOpsReferencePanel focusOp="ai.nonexistent" onFocusHandled={onFocusHandled} />, {
+      wrapper: createWrapper(),
+    });
 
     // Should stay on list view — multiple ops visible
     await waitFor(() => {

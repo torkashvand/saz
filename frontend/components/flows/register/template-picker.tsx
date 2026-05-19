@@ -58,14 +58,7 @@ export function TemplatePicker({ open, onClose, onSelect }: TemplatePickerProps)
     const needle = search.trim().toLowerCase();
     if (!needle) return list;
     return list.filter((t) => {
-      const haystack = [
-        t.title,
-        t.description,
-        ...(t.tags ?? []),
-        t.id,
-      ]
-        .join(' ')
-        .toLowerCase();
+      const haystack = [t.title, t.description, ...(t.tags ?? []), t.id].join(' ').toLowerCase();
       return haystack.includes(needle);
     });
   }, [templatesQuery.data, search]);
@@ -101,12 +94,10 @@ export function TemplatePicker({ open, onClose, onSelect }: TemplatePickerProps)
         {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-200 p-5">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Start from a template
-            </h2>
+            <h2 className="text-lg font-semibold text-slate-900">Start from a template</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Pick a pre-built workflow to populate the editor. Wedge demos are
-              highlighted — they're the recommended starting point.
+              Pick a pre-built workflow to populate the editor. Wedge demos are highlighted —
+              they&apos;re the recommended starting point.
             </p>
           </div>
           <button
@@ -162,27 +153,21 @@ export function TemplatePicker({ open, onClose, onSelect }: TemplatePickerProps)
               data-testid="template-picker-error"
               className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800"
             >
-              Failed to load templates. Make sure the backend is reachable at the
-              configured API base URL.
+              Failed to load templates. Make sure the backend is reachable at the configured API
+              base URL.
             </div>
           )}
 
-          {!templatesQuery.isLoading &&
-            !templatesQuery.error &&
-            sorted.length === 0 && (
-              <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600">
-                No templates match the current filters.
-              </div>
-            )}
+          {!templatesQuery.isLoading && !templatesQuery.error && sorted.length === 0 && (
+            <div className="rounded border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600">
+              No templates match the current filters.
+            </div>
+          )}
 
           {sorted.length > 0 && (
             <ul className="space-y-3" data-testid="template-picker-list">
               {sorted.map((tpl) => (
-                <TemplateRow
-                  key={tpl.id}
-                  template={tpl}
-                  onSelect={() => onSelect(tpl.id)}
-                />
+                <TemplateRow key={tpl.id} template={tpl} onSelect={() => onSelect(tpl.id)} />
               ))}
             </ul>
           )}
@@ -201,13 +186,7 @@ export function TemplatePicker({ open, onClose, onSelect }: TemplatePickerProps)
   return createPortal(modal, document.body);
 }
 
-function TemplateRow({
-  template,
-  onSelect,
-}: {
-  template: TemplateSummary;
-  onSelect: () => void;
-}) {
+function TemplateRow({ template, onSelect }: { template: TemplateSummary; onSelect: () => void }) {
   const isWedge = (template.tags || []).includes('wedge-demo');
   return (
     <li>
@@ -216,16 +195,12 @@ function TemplateRow({
         onClick={onSelect}
         data-testid={`template-picker-row-${template.id}`}
         className={`group flex w-full flex-col gap-2 rounded-lg border p-4 text-left transition-colors hover:border-blue-400 hover:bg-blue-50/40 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-          isWedge
-            ? 'border-amber-300 bg-amber-50/40'
-            : 'border-slate-200 bg-white'
+          isWedge ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200 bg-white'
         }`}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              {template.title}
-            </h3>
+            <h3 className="text-sm font-semibold text-slate-900">{template.title}</h3>
             <p className="mt-1 text-xs text-slate-500 font-mono">{template.id}</p>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -243,9 +218,7 @@ function TemplateRow({
             )}
           </div>
         </div>
-        {template.description && (
-          <p className="text-sm text-slate-700">{template.description}</p>
-        )}
+        {template.description && <p className="text-sm text-slate-700">{template.description}</p>}
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <span className="rounded bg-slate-100 px-2 py-0.5 font-medium">
             {template.steps_count} step{template.steps_count === 1 ? '' : 's'}

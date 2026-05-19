@@ -98,9 +98,10 @@ describe('api.retryRun (same-run)', () => {
       ok: false,
       status: 422,
       headers: new Headers({ 'content-type': 'application/json' }),
-      text: async () => JSON.stringify({
-        detail: [{ loc: ['body'], msg: 'field required', type: 'value_error.missing' }],
-      }),
+      text: async () =>
+        JSON.stringify({
+          detail: [{ loc: ['body'], msg: 'field required', type: 'value_error.missing' }],
+        }),
     });
 
     await expect(callRetryRun('bad-id')).rejects.toMatchObject({

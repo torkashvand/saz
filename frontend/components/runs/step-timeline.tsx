@@ -29,14 +29,22 @@ function deriveStepStates(
   plannedSteps: PlannedStep[],
   executedSteps: RunStep[],
   runStatus: string,
-  liveRunningIndexes?: Set<number>
+  liveRunningIndexes?: Set<number>,
 ): StepVisualStatus[] {
   // Check if run has started
-  const runHasStarted = runStatus === 'running' || runStatus === 'completed' || runStatus === 'failed' || runStatus === 'suspended';
+  const runHasStarted =
+    runStatus === 'running' ||
+    runStatus === 'completed' ||
+    runStatus === 'failed' ||
+    runStatus === 'suspended';
 
   // Check if any step has started executing
   const anyStepStarted = executedSteps.some(
-    s => s.status === 'running' || s.status === 'completed' || s.status === 'failed' || s.status === 'suspended'
+    (s) =>
+      s.status === 'running' ||
+      s.status === 'completed' ||
+      s.status === 'failed' ||
+      s.status === 'suspended',
   );
 
   return plannedSteps.map((planned, index) => {
@@ -139,7 +147,7 @@ export function StepProgressTimeline({
                 className={cn(
                   'flex flex-col items-center gap-1.5',
                   executed && 'cursor-pointer',
-                  !executed && 'cursor-default'
+                  !executed && 'cursor-default',
                 )}
                 aria-label={`Step ${index + 1}: ${planned.name}. Status: ${getStatusLabel(status)}`}
               >
@@ -149,14 +157,12 @@ export function StepProgressTimeline({
                     'w-4 h-4 rounded-full transition-all',
                     dotColor,
                     isSelected && 'ring-2 ring-blue-400 ring-offset-2',
-                    executed && 'hover:scale-125'
+                    executed && 'hover:scale-125',
                   )}
                 />
 
                 {/* Step number label */}
-                <div className="text-xs font-medium text-slate-700">
-                  {index + 1}
-                </div>
+                <div className="text-xs font-medium text-slate-700">{index + 1}</div>
               </button>
 
               {/* Info box on click */}
@@ -165,9 +171,7 @@ export function StepProgressTimeline({
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
                       <div className="text-xs font-bold text-slate-900">Step {index + 1}</div>
-                      <div className="text-xs text-slate-700 mt-1">
-                        {planned.name}
-                      </div>
+                      <div className="text-xs text-slate-700 mt-1">{planned.name}</div>
                     </div>
                     <button
                       onClick={(e) => {
@@ -177,8 +181,18 @@ export function StepProgressTimeline({
                       className="text-slate-400 hover:text-slate-600 transition-colors"
                       aria-label="Close"
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </div>

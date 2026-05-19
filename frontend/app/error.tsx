@@ -31,19 +31,11 @@ export default function Error({
             <AlertTriangle className="h-8 w-8 text-red-600" />
           </div>
 
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Something went wrong
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
 
-          <p className="text-gray-600 mb-6">
-            {appError.message}
-          </p>
+          <p className="text-gray-600 mb-6">{appError.message}</p>
 
-          {error.digest && (
-            <p className="text-xs text-gray-500 mb-4">
-              Error ID: {error.digest}
-            </p>
-          )}
+          {error.digest && <p className="text-xs text-gray-500 mb-4">Error ID: {error.digest}</p>}
 
           <div className="flex gap-3 w-full">
             <Button onClick={reset} className="flex-1">
@@ -51,7 +43,7 @@ export default function Error({
             </Button>
             <Button
               variant="outline"
-              onClick={() => window.location.href = '/'}
+              onClick={() => (window.location.href = '/')}
               className="flex-1"
             >
               Go Home

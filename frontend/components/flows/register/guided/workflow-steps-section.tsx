@@ -178,7 +178,9 @@ export function WorkflowStepsSection({ draft, onChange }: WorkflowStepsSectionPr
                             max="2"
                             value={step.temperature ?? ''}
                             onChange={(e) =>
-                              updateStep(idx, { temperature: parseFloat(e.target.value) || undefined })
+                              updateStep(idx, {
+                                temperature: parseFloat(e.target.value) || undefined,
+                              })
                             }
                             className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
                             placeholder="0.1"

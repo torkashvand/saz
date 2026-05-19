@@ -36,9 +36,11 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
     const steps = run.steps || [];
 
     // Calculate step counts
-    const completedSteps = steps.filter(s => s.status === 'completed').length;
-    const failedSteps = steps.filter(s => s.status === 'failed').length;
-    const runningSteps = steps.filter(s => s.status === 'running' || s.status === 'queued').length;
+    const completedSteps = steps.filter((s) => s.status === 'completed').length;
+    const failedSteps = steps.filter((s) => s.status === 'failed').length;
+    const runningSteps = steps.filter(
+      (s) => s.status === 'running' || s.status === 'queued',
+    ).length;
 
     // Calculate tokens: prefer run.total_tokens, fallback to sum of steps
     let totalTokens: number | null = null;
@@ -46,7 +48,7 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
       totalTokens = run.total_tokens;
     } else {
       // Aggregate from steps
-      const stepsWithTokens = steps.filter(s => s.tokens != null && s.tokens > 0);
+      const stepsWithTokens = steps.filter((s) => s.tokens != null && s.tokens > 0);
       if (stepsWithTokens.length > 0) {
         totalTokens = stepsWithTokens.reduce((sum, s) => sum + (s.tokens || 0), 0);
       }
@@ -58,7 +60,7 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
       totalCost = run.total_cost_usd;
     } else {
       // Aggregate from steps
-      const stepsWithCost = steps.filter(s => s.cost_usd != null && s.cost_usd > 0);
+      const stepsWithCost = steps.filter((s) => s.cost_usd != null && s.cost_usd > 0);
       if (stepsWithCost.length > 0) {
         totalCost = stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0);
       }

@@ -71,7 +71,7 @@ function LogLine({
   const highlightedMessage = highlight
     ? message.replace(
         new RegExp(highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
-        (match) => `<mark class="bg-yellow-300 text-yellow-900">${match}</mark>`
+        (match) => `<mark class="bg-yellow-300 text-yellow-900">${match}</mark>`,
       )
     : message;
 
@@ -111,9 +111,7 @@ function LogLine({
       {/* Level icon + event type - primary visual anchor */}
       <div className="flex items-center gap-1.5 flex-shrink-0 min-w-[140px]">
         <LevelIcon className={`h-3.5 w-3.5 ${config.color}`} />
-        <span className={`font-semibold ${config.color}`}>
-          {event.event_type}
-        </span>
+        <span className={`font-semibold ${config.color}`}>{event.event_type}</span>
       </div>
 
       {/* Message */}
@@ -144,7 +142,7 @@ export function EnhancedConsolePanel({
   // Get the selected step info for display
   const selectedStep = useMemo(() => {
     if (selectedStepIndex === null) return null;
-    return steps.find(s => s.number === selectedStepIndex);
+    return steps.find((s) => s.number === selectedStepIndex);
   }, [steps, selectedStepIndex]);
 
   // Filter events
@@ -153,7 +151,7 @@ export function EnhancedConsolePanel({
 
     // Filter by selected step (use step number)
     if (selectedStepIndex !== null) {
-      const selectedStepId = steps.find(s => s.number === selectedStepIndex)?.id;
+      const selectedStepId = steps.find((s) => s.number === selectedStepIndex)?.id;
       if (selectedStepId) {
         result = result.filter((e) => e.step_id === selectedStepId);
       }
@@ -172,10 +170,7 @@ export function EnhancedConsolePanel({
       const lower = search.toLowerCase();
       result = result.filter((e) => {
         const message = e.summary || JSON.stringify(e.payload);
-        return (
-          message.toLowerCase().includes(lower) ||
-          e.event_type.toLowerCase().includes(lower)
-        );
+        return message.toLowerCase().includes(lower) || e.event_type.toLowerCase().includes(lower);
       });
     }
 

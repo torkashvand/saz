@@ -50,7 +50,7 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
 async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit,
-  timeoutMs = DEFAULT_TIMEOUT
+  timeoutMs = DEFAULT_TIMEOUT,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const method = options?.method || 'GET';
@@ -59,15 +59,11 @@ async function fetchApi<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   // Add breadcrumb for debugging
-  addBreadcrumb(
-    `API Request: ${method} ${endpoint}`,
-    'api',
-    {
-      method,
-      endpoint,
-      hasBody: !!options?.body,
-    }
-  );
+  addBreadcrumb(`API Request: ${method} ${endpoint}`, 'api', {
+    method,
+    endpoint,
+    hasBody: !!options?.body,
+  });
 
   try {
     const response = await fetch(url, {
@@ -85,14 +81,10 @@ async function fetchApi<T>(
       const appError = await fromHttpError(response);
 
       // Add error breadcrumb
-      addBreadcrumb(
-        `API Error: ${response.status} ${endpoint}`,
-        'api',
-        {
-          status: response.status,
-          errorKind: appError.kind,
-        }
-      );
+      addBreadcrumb(`API Error: ${response.status} ${endpoint}`, 'api', {
+        status: response.status,
+        errorKind: appError.kind,
+      });
 
       // Capture server errors to Sentry
       if (response.status >= 500) {
@@ -107,11 +99,7 @@ async function fetchApi<T>(
     }
 
     // Add success breadcrumb
-    addBreadcrumb(
-      `API Success: ${method} ${endpoint}`,
-      'api',
-      { status: response.status }
-    );
+    addBreadcrumb(`API Success: ${method} ${endpoint}`, 'api', { status: response.status });
 
     // Handle empty responses (204, etc.)
     const contentType = response.headers.get('content-type');
@@ -249,13 +237,10 @@ export const api = {
    * the suspended run.
    */
   sendWebhookCallback: (callbackId: string, body: WebhookCallbackRequest) =>
-    fetchApi<WebhookCallbackResponse>(
-      `/api/v1/webhooks/callback/${callbackId}`,
-      {
-        method: 'POST',
-        body: JSON.stringify(body),
-      },
-    ),
+    fetchApi<WebhookCallbackResponse>(`/api/v1/webhooks/callback/${callbackId}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   /**
    * Get run summary with aggregated event metrics
@@ -315,16 +300,13 @@ export const api = {
     const query = new URLSearchParams();
     if (params?.recommendedOnly) query.set('recommended_only', 'true');
     const qs = query.toString();
-    return fetchApi<TemplateSummary[]>(
-      `/api/templates/${qs ? `?${qs}` : ''}`,
-    );
+    return fetchApi<TemplateSummary[]>(`/api/templates/${qs ? `?${qs}` : ''}`);
   },
 
   /**
    * Fetch the full YAML + metadata for a single template by id.
    */
-  getTemplate: (id: string) =>
-    fetchApi<TemplateDetail>(`/api/templates/${encodeURIComponent(id)}`),
+  getTemplate: (id: string) => fetchApi<TemplateDetail>(`/api/templates/${encodeURIComponent(id)}`),
 
   // ========== Credential Endpoints ==========
 

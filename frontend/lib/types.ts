@@ -320,23 +320,46 @@ export interface WSEvent {
 
 export type EventType =
   // Run lifecycle
-  | 'run.started' | 'run.completed' | 'run.failed' | 'run.cancelled' | 'run.suspended' | 'run.resumed'
+  | 'run.started'
+  | 'run.completed'
+  | 'run.failed'
+  | 'run.cancelled'
+  | 'run.suspended'
+  | 'run.resumed'
   // Step lifecycle
-  | 'step.started' | 'step.completed' | 'step.failed' | 'step.skipped' | 'step.suspended' | 'step.resumed'
+  | 'step.started'
+  | 'step.completed'
+  | 'step.failed'
+  | 'step.skipped'
+  | 'step.suspended'
+  | 'step.resumed'
   // Tool execution
-  | 'tool.started' | 'tool.succeeded' | 'tool.failed'
+  | 'tool.started'
+  | 'tool.succeeded'
+  | 'tool.failed'
   // Planner (agentic mode)
-  | 'plan.generated' | 'plan.updated' | 'branch.chosen'
+  | 'plan.generated'
+  | 'plan.updated'
+  | 'branch.chosen'
   // Policy & safety
-  | 'policy.pii.redacted' | 'policy.budget.updated' | 'policy.budget.exhausted' | 'policy.rate_limited' | 'policy.blocked'
+  | 'policy.pii.redacted'
+  | 'policy.budget.updated'
+  | 'policy.budget.exhausted'
+  | 'policy.rate_limited'
+  | 'policy.blocked'
   // Usage & progress
-  | 'usage.recorded' | 'progress.updated'
+  | 'usage.recorded'
+  | 'progress.updated'
   // Human interaction
-  | 'approval.requested' | 'approval.granted' | 'approval.denied' | 'action.aborted'
+  | 'approval.requested'
+  | 'approval.granted'
+  | 'approval.denied'
+  | 'action.aborted'
   // Artifacts
   | 'artifact.created'
   // System
-  | 'system.error' | 'system.warning';
+  | 'system.error'
+  | 'system.warning';
 
 export type Severity = 'info' | 'warn' | 'error';
 export type Actor = 'system' | 'user' | 'llm';

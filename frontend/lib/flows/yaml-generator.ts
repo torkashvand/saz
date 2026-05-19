@@ -24,11 +24,11 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
   }
   if (draft.owners && draft.owners.length > 0) {
     lines.push(`  owners:`);
-    draft.owners.forEach(owner => lines.push(`    - ${owner}`));
+    draft.owners.forEach((owner) => lines.push(`    - ${owner}`));
   }
   if (draft.labels && draft.labels.length > 0) {
     lines.push(`  labels:`);
-    draft.labels.forEach(label => lines.push(`    - ${label}`));
+    draft.labels.forEach((label) => lines.push(`    - ${label}`));
   }
   lines.push('');
 
@@ -36,7 +36,7 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
   if (draft.form_fields && draft.form_fields.length > 0) {
     lines.push('form:');
     lines.push('  fields:');
-    draft.form_fields.forEach(field => {
+    draft.form_fields.forEach((field) => {
       lines.push(`    - name: ${field.name}`);
       lines.push(`      type: ${field.type}`);
       lines.push(`      required: ${field.required}`);
@@ -96,7 +96,7 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
       if (step.instruction) {
         if (step.instruction.includes('\n')) {
           lines.push(`      instruction: |`);
-          step.instruction.split('\n').forEach(line => {
+          step.instruction.split('\n').forEach((line) => {
             lines.push(`        ${line}`);
           });
         } else {
@@ -119,7 +119,7 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
       }
       if (step.branches_enum && step.branches_enum.length > 0) {
         lines.push(`      branches_enum:`);
-        step.branches_enum.forEach(branch => lines.push(`        - ${branch}`));
+        step.branches_enum.forEach((branch) => lines.push(`        - ${branch}`));
       }
       if (step.tool) {
         lines.push(`      tool: ${step.tool}`);
@@ -150,7 +150,11 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
       lines.push(`    tokenize_model_inputs: true`);
     }
   }
-  if (draft.policies.timeout_ms || draft.policies.continue_on_fail !== undefined || draft.policies.rate_limits) {
+  if (
+    draft.policies.timeout_ms ||
+    draft.policies.continue_on_fail !== undefined ||
+    draft.policies.rate_limits
+  ) {
     lines.push('  defaults:');
     if (draft.policies.timeout_ms) {
       lines.push(`    timeout_ms: ${draft.policies.timeout_ms}`);
@@ -170,7 +174,7 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
   if (draft.credentials && draft.credentials.length > 0) {
     lines.push('credentials:');
     lines.push('  uses:');
-    draft.credentials.forEach(cred => lines.push(`    - ${cred}`));
+    draft.credentials.forEach((cred) => lines.push(`    - ${cred}`));
   }
 
   return lines.join('\n');
@@ -189,10 +193,10 @@ function yamlifyObject(obj: any, indent: number): string[] {
   const spaces = ' '.repeat(indent);
 
   if (Array.isArray(obj)) {
-    obj.forEach(item => {
+    obj.forEach((item) => {
       if (typeof item === 'object') {
         lines.push(`${spaces}- `);
-        lines.push(...yamlifyObject(item, indent + 2).map(l => `  ${l}`));
+        lines.push(...yamlifyObject(item, indent + 2).map((l) => `  ${l}`));
       } else {
         lines.push(`${spaces}- ${JSON.stringify(item)}`);
       }

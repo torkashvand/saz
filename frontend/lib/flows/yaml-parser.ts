@@ -136,9 +136,7 @@ function parseYamlStructure(yaml: string): ParsedYamlStructure {
 
   // workflow
   if (raw.workflow && typeof raw.workflow === 'object') {
-    const steps = Array.isArray(raw.workflow.steps)
-      ? raw.workflow.steps.map(normalizeStep)
-      : [];
+    const steps = Array.isArray(raw.workflow.steps) ? raw.workflow.steps.map(normalizeStep) : [];
     result.workflow = {
       planner_mode: raw.workflow.planner_mode,
       steps,
@@ -202,7 +200,10 @@ function normalizeStep(rawStep: any): WorkflowStepDraft {
  * Check for DSL features that the Guided Builder cannot represent.
  * Returns unsupported if any are found, so the UI can disable guided mode.
  */
-function checkForAdvancedFeatures(parsed: ParsedYamlStructure): { supported: boolean; reasons: string[] } {
+function checkForAdvancedFeatures(parsed: ParsedYamlStructure): {
+  supported: boolean;
+  reasons: string[];
+} {
   const reasons: string[] = [];
 
   if (!parsed.workflow?.steps) {
@@ -229,7 +230,10 @@ function checkForAdvancedFeatures(parsed: ParsedYamlStructure): { supported: boo
   };
 }
 
-function mapToDraft(compileResponse: CompileFlowResponse, parsedYaml: ParsedYamlStructure): FlowDraft {
+function mapToDraft(
+  compileResponse: CompileFlowResponse,
+  parsedYaml: ParsedYamlStructure,
+): FlowDraft {
   // Extract form fields from compile response (backend is source of truth for validation)
   const formFields: FlowFormField[] = [];
   if (compileResponse.form_schema?.properties) {
@@ -294,9 +298,10 @@ function mapToDraft(compileResponse: CompileFlowResponse, parsedYaml: ParsedYaml
     policies: {
       budget_usd: parsedYaml.policies?.budget_usd,
       pii_policy: piiPolicy,
-      timeout_ms: typeof parsedYaml.policies?.defaults?.timeout_ms === 'number'
-        ? parsedYaml.policies.defaults.timeout_ms
-        : undefined,
+      timeout_ms:
+        typeof parsedYaml.policies?.defaults?.timeout_ms === 'number'
+          ? parsedYaml.policies.defaults.timeout_ms
+          : undefined,
       continue_on_fail: parsedYaml.policies?.defaults?.continue_on_fail === true,
       rate_limits: parsedYaml.policies?.rate_limits,
     },

@@ -27,18 +27,12 @@ interface HumanApprovalPanelProps {
 }
 
 /** Find the index of the approval step in planned_steps by step_id */
-function findApprovalStepIndex(
-  plannedSteps: PlannedStep[],
-  approvalStepId: string
-): number {
+function findApprovalStepIndex(plannedSteps: PlannedStep[], approvalStepId: string): number {
   return plannedSteps.findIndex((s) => s.id === approvalStepId);
 }
 
 /** Get steps that come after the approval step */
-function getNextSteps(
-  plannedSteps: PlannedStep[],
-  approvalStepIndex: number
-): PlannedStep[] {
+function getNextSteps(plannedSteps: PlannedStep[], approvalStepIndex: number): PlannedStep[] {
   if (approvalStepIndex < 0) return [];
   return plannedSteps.slice(approvalStepIndex + 1);
 }
@@ -57,7 +51,7 @@ function stepTypeLabel(stepType: string | null): string {
     'webhook.wait': 'Webhook Wait',
     'human.approval': 'Human Approval',
     'artifact.store': 'Artifact Storage',
-    'condition': 'Condition',
+    condition: 'Condition',
   };
   // Try exact match first, then prefix match
   if (labels[stepType]) return labels[stepType];
@@ -81,9 +75,7 @@ function hasContent(value: unknown): boolean {
  * recipe in the docs works for both suspension types.
  */
 function buildApprovalCallbackUrl(callbackId: string): string {
-  const base = (
-    process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
-  ).replace(/\/$/, '');
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
   return `${base}/api/v1/webhooks/callback/${callbackId}`;
 }
 
@@ -100,28 +92,25 @@ export function HumanApprovalPanel({
 
   const completedSteps = useMemo(
     () => run.steps.filter((s) => s.status === 'completed'),
-    [run.steps]
+    [run.steps],
   );
 
-  const suspendedStep = useMemo(
-    () => run.steps.find((s) => s.status === 'suspended'),
-    [run.steps]
-  );
+  const suspendedStep = useMemo(() => run.steps.find((s) => s.status === 'suspended'), [run.steps]);
 
   const approvalStepIndex = useMemo(
     () => findApprovalStepIndex(run.planned_steps || [], approvalError.step_id),
-    [run.planned_steps, approvalError.step_id]
+    [run.planned_steps, approvalError.step_id],
   );
 
   const nextSteps = useMemo(
     () => getNextSteps(run.planned_steps || [], approvalStepIndex),
-    [run.planned_steps, approvalStepIndex]
+    [run.planned_steps, approvalStepIndex],
   );
 
   // Steps that have output worth reviewing
   const stepsWithOutput = useMemo(
     () => completedSteps.filter((s) => hasContent(s.output)),
-    [completedSteps]
+    [completedSteps],
   );
 
   const hasReviewableContent = stepsWithOutput.length > 0;
@@ -174,18 +163,12 @@ export function HumanApprovalPanel({
       <CardContent className="space-y-5">
         {/* Approval context */}
         <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <h4 className="text-sm font-semibold text-slate-900">
-            What needs approval
-          </h4>
+          <h4 className="text-sm font-semibold text-slate-900">What needs approval</h4>
           <p className="text-sm text-slate-700">{approvalError.message}</p>
           {approvalError.reasoning && (
-            <p className="text-sm text-slate-600 italic">
-              {approvalError.reasoning}
-            </p>
+            <p className="text-sm text-slate-600 italic">{approvalError.reasoning}</p>
           )}
-          <div className="text-xs text-slate-500 font-mono">
-            Step: {approvalError.step_id}
-          </div>
+          <div className="text-xs text-slate-500 font-mono">Step: {approvalError.step_id}</div>
           {approvalError.callback_id && (
             <details className="border-t border-slate-100 pt-3">
               <summary className="cursor-pointer select-none text-xs font-medium uppercase tracking-wide text-slate-600">
@@ -198,8 +181,8 @@ export function HumanApprovalPanel({
                 />
                 <p className="mt-2 text-xs text-slate-500">
                   Approving via the buttons below calls <code>POST /runs/{run.id}/resume</code>.
-                  External systems can resolve this gate by POSTing to the
-                  callback URL above instead — the audit trail records both paths.
+                  External systems can resolve this gate by POSTing to the callback URL above
+                  instead — the audit trail records both paths.
                 </p>
               </div>
             </details>
@@ -233,14 +216,9 @@ export function HumanApprovalPanel({
                 {completedSteps.length > 0 ? (
                   <div className="space-y-1.5">
                     {completedSteps.map((step) => (
-                      <div
-                        key={step.id}
-                        className="flex items-center gap-2 text-sm"
-                      >
+                      <div key={step.id} className="flex items-center gap-2 text-sm">
                         <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                        <span className="text-slate-800 font-medium">
-                          {step.name}
-                        </span>
+                        <span className="text-slate-800 font-medium">{step.name}</span>
                         <span className="text-slate-400 text-xs">
                           {stepTypeLabel(step.step_type)}
                         </span>
@@ -269,9 +247,7 @@ export function HumanApprovalPanel({
                   </h5>
                   <div className="flex items-center gap-2 text-sm">
                     <PauseCircle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-                    <span className="text-slate-800 font-medium">
-                      {suspendedStep.name}
-                    </span>
+                    <span className="text-slate-800 font-medium">{suspendedStep.name}</span>
                     <span className="text-slate-400 text-xs">
                       {stepTypeLabel(suspendedStep.step_type)}
                     </span>
@@ -314,19 +290,14 @@ export function HumanApprovalPanel({
               {nextSteps.length > 0 ? (
                 <div className="space-y-2">
                   {nextSteps.map((step, i) => (
-                    <div
-                      key={step.id}
-                      className="flex items-center gap-2 text-sm"
-                    >
+                    <div key={step.id} className="flex items-center gap-2 text-sm">
                       <div className="flex items-center gap-1.5 text-slate-400">
                         <ArrowRight className="h-3.5 w-3.5" />
                         <span className="text-xs font-mono w-5 text-right">
                           {approvalStepIndex + 2 + i}
                         </span>
                       </div>
-                      <span className="text-slate-800 font-medium">
-                        {step.name}
-                      </span>
+                      <span className="text-slate-800 font-medium">{step.name}</span>
                       <span className="text-slate-400 text-xs">
                         {stepTypeLabel(step.step_type)}
                       </span>
@@ -334,9 +305,7 @@ export function HumanApprovalPanel({
                   ))}
                   <p className="text-xs text-slate-500 mt-3 pt-2 border-t border-slate-100">
                     The workflow will continue with{' '}
-                    <span className="font-medium text-slate-700">
-                      {nextSteps[0].name}
-                    </span>{' '}
+                    <span className="font-medium text-slate-700">{nextSteps[0].name}</span>{' '}
                     immediately after approval.
                   </p>
                 </div>
@@ -377,16 +346,12 @@ export function HumanApprovalPanel({
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-green-600" />
-              <span className="text-sm font-semibold text-green-900">
-                Confirm Approval
-              </span>
+              <span className="text-sm font-semibold text-green-900">Confirm Approval</span>
             </div>
             <p className="text-sm text-green-800">
               The workflow will resume and continue with{' '}
               <span className="font-medium">
-                {nextSteps.length > 0
-                  ? nextSteps[0].name
-                  : 'completion'}
+                {nextSteps.length > 0 ? nextSteps[0].name : 'completion'}
               </span>
               .
             </p>
@@ -417,12 +382,7 @@ export function HumanApprovalPanel({
                   </>
                 )}
               </Button>
-              <Button
-                onClick={handleCancel}
-                disabled={isPending}
-                variant="ghost"
-                size="sm"
-              >
+              <Button onClick={handleCancel} disabled={isPending} variant="ghost" size="sm">
                 Back
               </Button>
             </div>
@@ -434,9 +394,7 @@ export function HumanApprovalPanel({
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
             <div className="flex items-center gap-2">
               <ShieldX className="h-5 w-5 text-red-600" />
-              <span className="text-sm font-semibold text-red-900">
-                Confirm Rejection
-              </span>
+              <span className="text-sm font-semibold text-red-900">Confirm Rejection</span>
             </div>
             <p className="text-sm text-red-800">
               The workflow will be marked as failed and will not continue.
@@ -469,12 +427,7 @@ export function HumanApprovalPanel({
                   </>
                 )}
               </Button>
-              <Button
-                onClick={handleCancel}
-                disabled={isPending}
-                variant="ghost"
-                size="sm"
-              >
+              <Button onClick={handleCancel} disabled={isPending} variant="ghost" size="sm">
                 Back
               </Button>
             </div>

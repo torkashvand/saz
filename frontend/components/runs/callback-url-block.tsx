@@ -47,15 +47,11 @@ export function CallbackUrlBlock({
   };
 
   const curlBody =
-    exampleAction === 'approve'
-      ? '{"action": "approve"}'
-      : '{"action": "reject", "reason": "..."}';
+    exampleAction === 'approve' ? '{"action": "approve"}' : '{"action": "reject", "reason": "..."}';
 
   return (
     <div data-testid="callback-url-block">
-      <label className="text-xs font-medium uppercase tracking-wide text-slate-600">
-        {label}
-      </label>
+      <label className="text-xs font-medium uppercase tracking-wide text-slate-600">{label}</label>
       <div className="mt-1 flex gap-2">
         <code
           data-testid="callback-url-value"
@@ -80,11 +76,9 @@ export function CallbackUrlBlock({
       </div>
       {showCurlExample && (
         <details className="mt-2 text-xs text-slate-600">
-          <summary className="cursor-pointer select-none">
-            Show curl example
-          </summary>
+          <summary className="cursor-pointer select-none">Show curl example</summary>
           <pre className="mt-2 overflow-x-auto rounded bg-slate-900 p-3 text-xs text-slate-100">
-{`curl -X POST ${url} \\
+            {`curl -X POST ${url} \\
   -H "Content-Type: application/json" \\
   -d '${curlBody}'`}
           </pre>

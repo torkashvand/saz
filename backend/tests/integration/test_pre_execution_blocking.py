@@ -18,7 +18,7 @@ from saz.agents.schemas import (
     ToolCall,
     Verdict,
 )
-from saz.db.models import Flow, Run
+from saz.db.models import Flow, Run, Step
 from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
@@ -219,6 +219,95 @@ def test_verifier_escalate_suspends_run(db_engine):
             assert run.status == "suspended"
             assert run.error["type"] == "EscalationRequired"
             assert "callback_id" in run.error
+        finally:
+            session2.close()
+    finally:
+        session.close()
+
+
+def test_verifier_escalate_emits_run_suspended_with_db_step_id(db_engine):
+    """Regression: when the verifier escalates, the run.suspended event must
+    carry the Step DB primary key as step_id, NOT the YAML step name.
+
+    Postgres enforces a foreign key on events.step_id → steps.id; passing the
+    YAML name causes ForeignKeyViolation and the executor crashes mid-flight.
+    The fix also requires flipping the Step row's status from "running" to
+    "suspended" so the UI doesn't show a stuck spinner forever.
+    """
+    flow_id = "flow-escalate-fk"
+    run_id = "run-escalate-fk"
+
+    with Session(db_engine) as session:
+        _setup_flow_and_run(session, flow_id, run_id)
+
+    plan = _make_plan(
+        [
+            PlanStep(
+                step_id="s1",
+                step_type="ai.extract",
+                reasoning="Extract data",
+                error_handling=ErrorHandling.ESCALATE,
+                max_retries=0,
+            )
+        ]
+    )
+
+    planner = MagicMock()
+    planner.plan = AsyncMock(return_value=plan)
+
+    critic = MagicMock()
+    critic.verify_proposal = AsyncMock(
+        return_value=_make_critique(Verdict.ESCALATE, "Production data access")
+    )
+    critic.critique = AsyncMock(return_value=_make_critique(Verdict.PASS))
+
+    tool_execute = AsyncMock(return_value={"result": "ok"})
+
+    # Capture every emitter the executor builds so we can inspect the
+    # specific run_suspended call kwargs at the end.
+    emitters_seen: list[MagicMock] = []
+
+    TestSession = sessionmaker(bind=db_engine)
+    session = TestSession()
+    try:
+        with UnitOfWork(session) as uow:
+
+            def make_committing_emitter(*args, **kwargs):
+                em = MagicMock()
+
+                async def commit_and_broadcast():
+                    uow.commit()
+
+                em.commit_and_broadcast = AsyncMock(side_effect=commit_and_broadcast)
+                emitters_seen.append(em)
+                return em
+
+            with patch("saz.engine.executor.EventEmitter", side_effect=make_committing_emitter):
+                executor = _build_executor(uow, planner, critic, tool_execute)
+                asyncio.run(executor.execute_run(run_id))
+
+        # Find the run_suspended call across all emitters created.
+        suspend_calls = [call for em in emitters_seen for call in em.run_suspended.call_args_list]
+        assert suspend_calls, "expected run_suspended to fire on escalation"
+        kwargs = suspend_calls[-1].kwargs
+        passed_step_id = kwargs.get("step_id")
+
+        # Pull the Step row for this run so we know the real DB PK and status.
+        session2 = TestSession()
+        try:
+            step_row = (
+                session2.query(Step)
+                .filter_by(run_id=run_id, name="s1")
+                .order_by(Step.attempt.desc())
+                .first()
+            )
+            assert step_row is not None, "Step row should exist for s1"
+            # The emitted step_id MUST be the DB PK so the events FK is satisfied
+            # under Postgres. It must NOT be the YAML step name.
+            assert passed_step_id == step_row.id
+            assert passed_step_id != "s1"
+            # And the step row should be flipped to suspended, not left running.
+            assert step_row.status == "suspended"
         finally:
             session2.close()
     finally:

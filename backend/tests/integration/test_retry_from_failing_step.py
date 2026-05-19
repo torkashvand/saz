@@ -1001,3 +1001,278 @@ def test_error_summary_ignores_old_failed_attempts_of_now_completed_steps(db_eng
         assert extract_latest.attempt == 2
     finally:
         session2.close()
+
+
+# ---------------------------------------------------------------------------
+# Cross-step $step('x').field templating must resolve
+# ---------------------------------------------------------------------------
+#
+# Regression: the executor stored `context["step_results"][id] = step_result`
+# (a flat dict) but TemplateContext._resolve_step_output reads
+# `step_results[id]["output"]`. Every cross-step reference resolved to None,
+# and downstream `artifact.store` calls handed the verifier a content blob
+# with empty fields (e.g. dry_run.status = ""), which the post-execution
+# critic correctly rejected. The fix wraps step results under "output" at
+# every executor write site so the templating contract holds.
+
+
+def test_cross_step_templating_resolves_through_executor(db_engine):
+    flow_id = "flow-cross-step-template"
+    run_id = "run-cross-step-template"
+
+    TestSession = sessionmaker(bind=db_engine)
+    with TestSession() as session:
+        flow = Flow(
+            id=flow_id,
+            name="cross-step-template-flow",
+            definition={
+                "workflow": {
+                    "planner_mode": "deterministic",
+                    "steps": [
+                        {"id": "produce", "type": "ai.extract", "instruction": "produce"},
+                        {
+                            "id": "consume",
+                            "type": "tool.call",
+                            "tool": "echo_tool",
+                            "input_template": {
+                                # This is the bit that breaks if step_results
+                                # isn't wrapped under "output".
+                                "received_status": "{{ $step('produce').status }}",
+                            },
+                        },
+                    ],
+                },
+                "policies": {"budget_usd": 1.0},
+            },
+        )
+        run = Run(
+            id=run_id,
+            flow_id=flow_id,
+            status="pending",
+            planner_mode="deterministic",
+            payload={},
+        )
+        session.add_all([flow, run])
+        session.commit()
+
+    plan = _make_plan(
+        [
+            PlanStep(
+                step_id="produce",
+                step_type="ai.extract",
+                reasoning="produce",
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+                input_template={"instruction": "produce", "data": {}},
+                tool_name="ai.extract",
+            ),
+            PlanStep(
+                step_id="consume",
+                step_type="tool.call",
+                reasoning="consume",
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+                input_template={"received_status": "{{ $step('produce').status }}"},
+                tool_name="echo_tool",
+            ),
+        ]
+    )
+    planner = MagicMock()
+    planner.plan = AsyncMock(return_value=plan)
+
+    critic = MagicMock()
+    critic.verify_proposal = AsyncMock(return_value=_make_critique(Verdict.PASS))
+    critic.critique = AsyncMock(return_value=_make_critique(Verdict.PASS))
+
+    # Tool returns from each step:
+    #   produce → {"status": "ready", "kind": "demo"}
+    #   consume → captures its inbound arguments so we can assert
+    consume_calls: list[dict] = []
+
+    async def tool_execute(tool_name, arguments, **_kwargs):
+        if tool_name == "ai.extract":
+            return {"status": "ready", "kind": "demo"}
+        if tool_name == "echo_tool":
+            consume_calls.append(dict(arguments))
+            return {"echoed": True}
+        raise AssertionError(f"unexpected tool {tool_name}")
+
+    # Real ExecutorAgent so the template engine actually fires.
+    real_executor_agent = ExecutorAgent()
+    tool_registry = MagicMock(spec=ToolRegistry)
+    tool_registry.get_tool_specs.return_value = []
+    tool_registry.get_tool_specs_dict.return_value = {
+        "ai.extract": {"name": "ai.extract", "input_schema": {"properties": {}}},
+        "echo_tool": {"name": "echo_tool", "input_schema": {"properties": {}}},
+    }
+    tool_registry.execute_tool = AsyncMock(side_effect=tool_execute)
+
+    session = TestSession()
+    try:
+        with UnitOfWork(session) as uow:
+            with patch(
+                "saz.engine.executor.EventEmitter",
+                side_effect=_make_committing_emitter(uow),
+            ):
+                executor = WorkflowExecutor(
+                    uow=uow,
+                    tool_registry=tool_registry,
+                    planner=planner,
+                    executor_agent=real_executor_agent,
+                    critic=critic,
+                    policy_engine=PolicyEngine(),
+                )
+                asyncio.run(executor.execute_run(run_id))
+
+        # The consume step's arguments must include the value resolved from
+        # produce's output. If the executor regresses to storing step_results
+        # as a flat dict, this comes back empty/None and the assertion fails.
+        assert consume_calls, "consume step should have been invoked"
+        assert consume_calls[0].get("received_status") == "ready", (
+            "cross-step $step('produce').status must resolve to the real value, "
+            f"got arguments={consume_calls[0]!r}"
+        )
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Same-run retry must work after a PolicyViolation block
+# ---------------------------------------------------------------------------
+#
+# Regression: PolicyViolation (e.g. PII detected on a disallowed path of
+# artifact.store) was leaving the current Step row in "running" status.
+# StepRepository.get_first_failed_for_run filters to status='failed', so
+# it returned None, and service.retry() raised "No failing step found".
+# That blocked the retry button entirely for any policy-blocked run.
+
+
+def test_policy_violation_marks_step_failed_so_retry_can_find_it(db_engine):
+    flow_id = "flow-policy-retry"
+    run_id = "run-policy-retry"
+
+    # Build a single-step plan that the policy engine will block.
+    TestSession = sessionmaker(bind=db_engine)
+    with TestSession() as session:
+        flow = Flow(
+            id=flow_id,
+            name="policy-retry-flow",
+            definition={
+                "workflow": {
+                    "planner_mode": "deterministic",
+                    "steps": [
+                        {
+                            "id": "store_record",
+                            "type": "tool.call",
+                            "tool": "artifact.store",
+                            "input_template": {"content": {"requester": "alice@example.com"}},
+                        }
+                    ],
+                },
+                "policies": {"budget_usd": 1.0},
+            },
+        )
+        run = Run(
+            id=run_id,
+            flow_id=flow_id,
+            status="pending",
+            planner_mode="deterministic",
+            payload={},
+        )
+        session.add_all([flow, run])
+        session.commit()
+
+    plan = _make_plan(
+        [
+            PlanStep(
+                step_id="store_record",
+                step_type="tool.call",
+                reasoning="Audit record",
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+            )
+        ]
+    )
+
+    planner = MagicMock()
+    planner.plan = AsyncMock(return_value=plan)
+
+    critic = MagicMock()
+    critic.verify_proposal = AsyncMock(return_value=_make_critique(Verdict.PASS))
+    critic.critique = AsyncMock(return_value=_make_critique(Verdict.PASS))
+
+    tool_execute = AsyncMock(return_value={"result": "ok"})
+
+    # Drive the failure by short-circuiting the real policy engine's
+    # tool-call check. Using a real PolicyEngine keeps the rest of the
+    # executor's policy plumbing happy (budget tracker, replan limit,
+    # token vault) and avoids a brittle wall of MagicMock attributes.
+    blocking_policy = PolicyEngine()
+    blocking_policy.check_tool_call = MagicMock(  # type: ignore[method-assign]
+        return_value=(False, "PII detected on non-approved paths: ['content.requester']")
+    )
+
+    session = TestSession()
+    try:
+        with UnitOfWork(session) as uow:
+            with patch(
+                "saz.engine.executor.EventEmitter",
+                side_effect=_make_committing_emitter(uow),
+            ):
+                executor_agent = MagicMock(spec=ExecutorAgent)
+                executor_agent.ground.return_value = ToolCall(
+                    tool="artifact.store",
+                    arguments={"content": {"requester": "alice@example.com"}},
+                    idempotency_key="k",
+                    rationale="audit",
+                )
+                tool_registry = MagicMock(spec=ToolRegistry)
+                tool_registry.get_tool_specs.return_value = []
+                tool_registry.get_tool_specs_dict.return_value = {}
+                tool_registry.execute_tool = tool_execute
+                executor = WorkflowExecutor(
+                    uow=uow,
+                    tool_registry=tool_registry,
+                    planner=planner,
+                    executor_agent=executor_agent,
+                    critic=critic,
+                    policy_engine=blocking_policy,
+                )
+                asyncio.run(executor.execute_run(run_id))
+
+        # The tool was never executed — the policy short-circuited it.
+        tool_execute.assert_not_called()
+
+        # Run must be marked failed, AND the step row must be flipped to
+        # "failed" (this is the actual regression — it used to stay "running").
+        session2 = TestSession()
+        try:
+            run = session2.query(Run).filter_by(id=run_id).one()
+            assert run.status == "failed"
+            step = (
+                session2.query(Step)
+                .filter_by(run_id=run_id, name="store_record")
+                .order_by(Step.attempt.desc())
+                .first()
+            )
+            assert step is not None
+            assert (
+                step.status == "failed"
+            ), f"PolicyViolation should mark the step row failed, got {step.status!r}"
+            assert step.error is not None
+            assert step.error.get("type") == "PolicyViolation"
+        finally:
+            session2.close()
+
+        # And service.retry must be able to find the failed step — otherwise
+        # the retry button is a dead end for any policy-blocked run.
+        session3 = TestSession()
+        try:
+            with UnitOfWork(session3) as uow:
+                RunService(uow).retry(run_id)
+            run = session3.query(Run).filter_by(id=run_id).one()
+            assert run.status == "queued"
+        finally:
+            session3.close()
+    finally:
+        session.close()

@@ -23,7 +23,7 @@ Common features:
 import asyncio
 import logging
 import traceback
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -89,6 +89,64 @@ class RunSuspended(Exception):
     """
 
     pass
+
+
+# Maximum suspension duration when no timeout is declared. The runtime
+# always records an absolute deadline so the SuspensionSweeper can reap
+# stuck runs; unbounded suspensions are a memory + cost leak.
+_DEFAULT_SUSPENSION_TIMEOUT_MINUTES = 1440  # 24h
+
+# Minimum suspension duration. A YAML typo like ``timeout_minutes: 0.001``
+# would otherwise produce a near-instant timeout the operator cannot
+# realistically meet — and the SuspensionSweeper would reap the run before
+# the human/external system even saw it. The floor matches the sweeper's
+# default polling interval (60s), so anything below it is unenforceable.
+_MIN_SUSPENSION_TIMEOUT_MINUTES = 1.0
+
+
+def _attach_timeout_metadata(
+    error_payload: dict[str, Any], input_template: dict[str, Any] | None
+) -> None:
+    """Augment a suspension error payload with absolute timeout metadata.
+
+    Reads ``timeout_minutes`` or ``timeout_seconds`` from the step's
+    ``input_template`` (the DSL ``params`` block) and writes back:
+
+    - ``suspended_at`` — ISO timestamp of when the run was suspended
+    - ``timeout_at``   — ISO timestamp when the SuspensionSweeper should
+      fail the run if no callback / resume has arrived
+
+    Behaviour:
+
+    - Missing / non-numeric / non-positive values fall back to
+      ``_DEFAULT_SUSPENSION_TIMEOUT_MINUTES`` so the run still has a bound.
+    - Positive values smaller than ``_MIN_SUSPENSION_TIMEOUT_MINUTES`` are
+      clamped UP to that floor. A near-instant timeout would be reaped by
+      the sweeper before any approver/callback could act, which is worse
+      UX than a one-minute pause.
+    """
+    params = input_template or {}
+    minutes: float | None = None
+    if "timeout_minutes" in params:
+        try:
+            minutes = float(params["timeout_minutes"])
+        except (TypeError, ValueError):
+            minutes = None
+    if minutes is None and "timeout_seconds" in params:
+        try:
+            minutes = float(params["timeout_seconds"]) / 60.0
+        except (TypeError, ValueError):
+            minutes = None
+    if minutes is None or minutes <= 0:
+        minutes = float(_DEFAULT_SUSPENSION_TIMEOUT_MINUTES)
+    elif minutes < _MIN_SUSPENSION_TIMEOUT_MINUTES:
+        minutes = _MIN_SUSPENSION_TIMEOUT_MINUTES
+
+    now = datetime.now(UTC)
+    deadline = now + timedelta(minutes=minutes)
+    error_payload["suspended_at"] = now.isoformat()
+    error_payload["timeout_at"] = deadline.isoformat()
+    error_payload["timeout_minutes"] = minutes
 
 
 class WorkflowExecutor:
@@ -215,7 +273,11 @@ class WorkflowExecutor:
 
                 for step in latest_by_name.values():
                     if step.status == "completed" and step.output:
-                        context["step_results"][step.name] = step.output
+                        # TemplateContext reads step_results[id]["output"] —
+                        # see saz/engine/templating.py::_resolve_step_output.
+                        # Store under that key so $step('name').field works
+                        # after a resume/retry restore.
+                        context["step_results"][step.name] = {"output": step.output}
                         context["completed_steps"].append(step.name)
                         logger.info(
                             f"Restored step result for '{step.name}' "
@@ -286,8 +348,10 @@ class WorkflowExecutor:
                         run_id=run_id, step_number=step_number, plan_step=plan_step, context=context
                     )
 
-                    # Update context with step result
-                    context["step_results"][plan_step.step_id] = step_result
+                    # Update context with step result. TemplateContext reads
+                    # step_results[id]["output"] — wrap so $step(...) syntax
+                    # resolves on subsequent steps.
+                    context["step_results"][plan_step.step_id] = {"output": step_result}
                     context["completed_steps"].append(plan_step.step_id)
 
                     # Record step execution in policy engine
@@ -315,7 +379,31 @@ class WorkflowExecutor:
                     await emitter.commit_and_broadcast()
 
                 except PolicyViolation as step_error:
-                    # Policy violation - always fail immediately
+                    # Policy violation - always fail immediately. The Step DB
+                    # row was created by _execute_plan_step in "running" state
+                    # and the inner retry loop's (PolicyViolation,
+                    # EscalationRequired) clause re-raises without touching it.
+                    # If we don't flip it to "failed" here, the row is stuck in
+                    # "running" forever — which then makes
+                    # StepRepository.get_first_failed_for_run() return None,
+                    # and same-run retry blows up with "No failing step found".
+                    current_step: Step | None = context.get("current_step")
+                    if current_step is not None:
+                        current_step.status = "failed"
+                        current_step.end_ts = datetime.now(UTC)
+                        if current_step.start_ts is not None:
+                            start = (
+                                current_step.start_ts
+                                if current_step.start_ts.tzinfo
+                                else current_step.start_ts.replace(tzinfo=UTC)
+                            )
+                            current_step.duration_ms = int(
+                                (current_step.end_ts - start).total_seconds() * 1000
+                            )
+                        current_step.error = {
+                            "message": str(step_error),
+                            "type": "PolicyViolation",
+                        }
                     error_dict = {
                         "message": str(step_error),
                         "type": "PolicyViolation",
@@ -340,7 +428,17 @@ class WorkflowExecutor:
                     return
 
                 except EscalationRequired as step_error:
-                    # Escalation required - suspend run
+                    # Escalation required - suspend run.
+                    # The Step DB record was created by _execute_plan_step and
+                    # stashed on the context. Use its PK (not the YAML step
+                    # name) when emitting events; events.step_id has an FK to
+                    # steps.id, and passing the name violates that constraint
+                    # under PostgreSQL. Also flip the step row to "suspended"
+                    # so the UI doesn't keep showing it as still running.
+                    current_step = context.get("current_step")
+                    step_db_id = current_step.id if current_step else None
+                    if current_step is not None:
+                        current_step.status = "suspended"
                     callback_id = uuid4().hex
                     error_dict = {
                         "message": str(step_error),
@@ -354,7 +452,7 @@ class WorkflowExecutor:
                     self.uow.runs.mark_suspended(run_id, error_dict)
                     emitter.run_suspended(
                         reason=str(step_error),
-                        step_id=plan_step.step_id,
+                        step_id=step_db_id,
                     )
                     await emitter.commit_and_broadcast()
                     return
@@ -408,8 +506,12 @@ class WorkflowExecutor:
 
                     elif plan_step.error_handling == ErrorHandling.CONTINUE:
                         logger.warning(f"Step {plan_step.step_id} failed, continuing: {step_error}")
-                        # Store error in step result
-                        context["step_results"][plan_step.step_id] = {"error": error_dict}
+                        # Store error in step result under the standard
+                        # ["output"] wrapper so $step('id').error templates
+                        # in downstream steps still resolve.
+                        context["step_results"][plan_step.step_id] = {
+                            "output": {"error": error_dict}
+                        }
                         context["completed_steps"].append(plan_step.step_id)
                         continue
 
@@ -1206,16 +1308,15 @@ class WorkflowExecutor:
 
         # Suspend run with callback_id for webhook lookup
         assert self.uow.runs is not None
-        self.uow.runs.mark_suspended(
-            run_id,
-            {
-                "message": f"Human approval required for step {plan_step.step_id}",
-                "type": "HumanApprovalRequired",
-                "step_id": plan_step.step_id,
-                "reasoning": plan_step.reasoning,
-                "callback_id": callback_id,
-            },
-        )
+        error_payload: dict[str, Any] = {
+            "message": f"Human approval required for step {plan_step.step_id}",
+            "type": "HumanApprovalRequired",
+            "step_id": plan_step.step_id,
+            "reasoning": plan_step.reasoning,
+            "callback_id": callback_id,
+        }
+        _attach_timeout_metadata(error_payload, plan_step.input_template)
+        self.uow.runs.mark_suspended(run_id, error_payload)
 
         # Emit run suspended event
         emitter.run_suspended(
@@ -1256,15 +1357,14 @@ class WorkflowExecutor:
 
         # Suspend run with callback_id
         assert self.uow.runs is not None
-        self.uow.runs.mark_suspended(
-            run_id,
-            {
-                "message": f"Webhook wait for step {plan_step.step_id}",
-                "type": "WebhookWait",
-                "step_id": plan_step.step_id,
-                "callback_id": callback_id,
-            },
-        )
+        error_payload: dict[str, Any] = {
+            "message": f"Webhook wait for step {plan_step.step_id}",
+            "type": "WebhookWait",
+            "step_id": plan_step.step_id,
+            "callback_id": callback_id,
+        }
+        _attach_timeout_metadata(error_payload, plan_step.input_template)
+        self.uow.runs.mark_suspended(run_id, error_payload)
 
         # Emit run suspended event
         emitter.run_suspended(

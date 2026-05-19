@@ -275,7 +275,7 @@ def test_resume_invalid_json(app_client, suspended_run_with_approval):
     """POST /api/v1/runs/{id}/resume rejects invalid JSON."""
     response = app_client.post(
         "/api/v1/runs/run_suspended_1/resume",
-        data="not valid json",
+        content="not valid json",
         headers={"Content-Type": "application/json"},
     )
 

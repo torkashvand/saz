@@ -53,6 +53,13 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    # Tests that exercise the executor with the real LiteLLMPort cause
+    # litellm to re-serialize its OpenAI-compatible response objects.
+    # Pydantic complains because litellm's Message/Choices model has
+    # fewer fields than the canonical schema. Cosmetic, third-party.
+    "ignore:Pydantic serializer warnings:UserWarning:pydantic.main",
+]
 
 # ---------------------------------------------------------------------------
 # Coverage configuration.

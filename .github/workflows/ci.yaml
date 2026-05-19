@@ -29,9 +29,6 @@ jobs:
             frontend:
               - 'frontend/**'
               - '.github/workflows/ci.yaml'
-              - '.eslintrc*'
-              - '.prettierrc*'
-              - '.prettierignore'
 
   backend:
     name: Backend (lint, types, tests)

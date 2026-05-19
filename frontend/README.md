@@ -1,127 +1,150 @@
 # Saz Frontend
 
-Modern Next.js 14 frontend for YAML forms & workflow engine.
+Next.js 14 (App Router) UI for the Saz backend. TypeScript, Tailwind CSS,
+TanStack React Query, Vitest. Renders flows, runs, events, and the human
+approval / webhook callback panels.
 
-## Prerequisites
+See the [root README](../README.md) for what Saz is and the overall
+repository layout.
 
-- Node.js 18+ (recommend 20+)
-- npm
-- Backend API running on `http://localhost:8000`
-
-## Quick Setup
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Start development server
-npm run dev
-```
-
-Open http://localhost:3000
-
-**Note:** All component files are now in place. The `.env.local` file has been created with the default API URL.
-
-## Project Structure
+## Architecture overview
 
 ```
 frontend/
-├── app/
-│   ├── layout.tsx              # Root layout
-│   ├── page.tsx                # Home page
-│   ├── providers.tsx           # React Query
-│   ├── globals.css             # Tailwind
-│   ├── register/
-│   │   └── page.tsx           # Register forms
-│   └── runs/
-│       ├── new/page.tsx       # Create run
-│       └── [id]/page.tsx      # Run detail
+├── app/                # App Router pages
+│   ├── flows/          # List, detail, new flow
+│   ├── runs/           # List, detail (with step timeline + event stream)
+│   ├── credentials/    # Credential management UI
+│   ├── layout.tsx      # Root layout + providers
+│   ├── providers.tsx   # React Query client
+│   └── globals.css     # Tailwind
 ├── components/
-│   ├── ui/                    # shadcn/ui
-│   ├── YAMLPanel.tsx
-│   ├── SchemaForm.tsx
-│   ├── StateCard.tsx
-│   ├── Timeline.tsx
-│   └── FlowBadge.tsx
+│   ├── ui/             # Low-level primitives (button, tabs, switch, toast, ...)
+│   ├── common/         # Shared layout / state cards / badges
+│   ├── flows/          # Flow editor, template picker, AI ops panel
+│   ├── runs/           # Run header, step timeline, approval/callback panels
+│   ├── workflows/      # Workflow graph and live-overlay rendering
+│   ├── metrics/        # Run metrics widgets
+│   └── layout/         # Page chrome
 ├── lib/
-│   ├── api.ts                 # API client
-│   ├── hooks.ts               # React Query
-│   ├── types.ts               # TypeScript
-│   └── utils.ts               # Utilities
+│   ├── api.ts          # Typed API client (matches backend routes)
+│   ├── types.ts        # Backend contract types
+│   ├── types-enhanced.ts
+│   ├── hooks.ts        # React Query hooks
+│   ├── flows/, runs/   # Domain-scoped helpers
+│   ├── use-*.ts        # Event/metric/error hooks
+│   └── errors.ts, format-utils.ts, timeline-utils.ts
+├── __tests__/          # Vitest tests (flows, runs)
+├── vitest.config.ts
+├── tsconfig.json
 └── package.json
 ```
 
-## Available Scripts
+State flow: a page mounts → a React Query hook in `lib/hooks.ts` calls into
+`lib/api.ts` → the API client hits the FastAPI backend → response is shaped
+against `lib/types.ts`. Live updates for an open run come through the
+`/api/v1/runs/{id}/stream` WebSocket via `lib/use-run-events.ts`.
 
-- `npm run dev` - Start development server (port 3000)
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Lint code
+## Install
 
-## Environment Variables
+Requirements: Node.js 20+ (CI uses Node 20) and npm.
 
-Create `.env.local`:
+```bash
+cd frontend
+npm ci
+```
+
+## Run locally
+
+```bash
+cp .env.local.example .env.local       # or .env.example for the full template
+npm run dev
+```
+
+Open <http://localhost:3000>. The backend must be running and reachable at
+`NEXT_PUBLIC_API_BASE_URL`.
+
+## Configure the API URL
+
+`frontend/.env.local`:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-## Usage
+`.env.example` documents optional Sentry variables
+(`NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENABLED`, `SENTRY_ORG`,
+`SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`). Sentry is disabled when DSN is empty.
 
-### 1. Register a Form
+The backend's CORS middleware allow-lists `http://localhost:3000` and
+`http://127.0.0.1:3000`. Pointing the frontend at a different origin
+requires updating that allow-list in `backend/saz/api/__init__.py`.
 
-1. Go to http://localhost:3000/register
-2. Click "Load Example" to see sample YAML
-3. Click "Register & Preview"
-4. See live form on right side
+## Tests
 
-### 2. Create a Run
+Vitest is configured (`vitest.config.ts`) and tests live under `__tests__/`.
+There is no `npm test` script yet; run Vitest directly:
 
-1. Click "Create Run →" or go to /runs/new
-2. Fill the form with valid data
-3. Click "Create Run"
-4. Redirects to /runs/[id]
+```bash
+npx vitest run            # run once
+npx vitest                # watch mode
+npx vitest run __tests__/runs/step-mapping.test.ts
+```
 
-### 3. Advance Workflow
+CI does **not** run Vitest today — the frontend job runs typecheck, lint,
+format check, and build. Frontend test execution is therefore a local
+gate; keep tests passing before opening a PR.
 
-1. On run detail page, see current status
-2. Click "Advance Workflow"
-3. Watch state update in real-time
+## Typecheck, lint, build
 
-## Backend API
+```bash
+npm run typecheck         # tsc --noEmit
+npm run lint              # next lint
+npm run format            # prettier --write
+npm run format:check      # prettier --check
+npm run build             # next build
+npm run start             # serve the production build
+```
 
-Expects these endpoints:
+These are the same scripts CI runs.
 
-- `POST /register_forms`
-- `POST /runs`
-- `GET /runs/{id}`
-- `POST /runs/{id}/advance`
+## Important directories
 
-## Development Notes
+| Path                    | Purpose                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `app/flows/`            | Browse, create, and inspect flows. Uses Monaco for YAML editing.                    |
+| `app/runs/`             | Run list and run detail (steps, events, approval, callback).                        |
+| `app/credentials/`      | Credential CRUD UI.                                                                 |
+| `components/runs/`      | Approval panel, webhook callback panel, step timeline, retry/replay UI.             |
+| `components/workflows/` | Graph view (`@xyflow/react`) with live-event overlay.                               |
+| `lib/api.ts`            | Single source of truth for backend HTTP calls.                                      |
+| `lib/types.ts`          | TypeScript mirror of backend response/request shapes.                               |
+| `lib/use-run-events.ts` | WebSocket subscription for run events.                                              |
+| `__tests__/runs/`       | Run-page behavior tests (step mapping, live overlay, retry replay, callback panel). |
+| `__tests__/flows/`      | Flow editor tests (template picker, AI ops panel/reference).                        |
 
-- Auto-polls running workflows every 2s
-- LocalStorage saves last form/workflow
-- Toast notifications for errors
-- Form validation from JSON Schema
+## API contract alignment
 
-## Troubleshooting
+Frontend types in `lib/types.ts` mirror backend Pydantic schemas in
+`backend/saz/api/schemas/`. When changing an endpoint:
 
-**Components not found:**
-Run the setup script or manually create component files.
+1. Update the Pydantic schema in `backend/saz/api/schemas/`.
+2. Update or add the route in `backend/saz/api/routes/`.
+3. Update the matching TypeScript type in `frontend/lib/types.ts`.
+4. Update the call site in `frontend/lib/api.ts`.
+5. Update components that read the new shape.
+6. Update both backend tests and frontend tests.
 
-**API errors:**
+Don't introduce a parallel field for the same concept on either side. Don't
+leave legacy aliases unless they are explicitly needed and covered by tests.
 
-1. Check backend is running on port 8000
-2. Verify `.env.local` has correct URL
-3. Check browser console for CORS errors
+## Limitations
 
-**Monaco editor blank:**
-Monaco loads async, try refreshing.
-
-## Next Steps
-
-After setup works:
-
-1. Test with backend running
-2. Try example forms
-3. Create custom workflows
+- No authentication UI; the app assumes the backend is reachable and trusted
+  on `localhost`.
+- Live overlay relies on the backend WebSocket at
+  `/api/v1/runs/{id}/stream`; if the socket drops, polling fallback is used
+  to refresh canonical state from the DB.
+- Some pages depend on optional backend env vars (e.g. AI ops require a
+  configured LiteLLM provider). Steps surface clear errors when the backend
+  is misconfigured.

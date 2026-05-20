@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
 from saz.engine.suspension_sweeper import SuspensionSweeper
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -24,6 +25,7 @@ def expired_suspended_run(db_engine):
     past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_acc_timeout",
             name="acc_timeout",
             definition={
@@ -40,6 +42,7 @@ def expired_suspended_run(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_acc_timeout_1",
             flow_id="flow_acc_timeout",
             status="suspended",

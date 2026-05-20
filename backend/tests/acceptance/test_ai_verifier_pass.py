@@ -28,7 +28,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.registry import ToolRegistry
-from tests.conftest import MockLLMPort
+from tests.conftest import TEST_USER_ID, MockLLMPort
 from tests.fakes.critic import FakeCritic
 
 
@@ -36,6 +36,7 @@ from tests.fakes.critic import FakeCritic
 def ai_step_flow(db_engine):
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_acc_ai_pass",
             name="acc_ai_pass",
             definition={
@@ -62,6 +63,7 @@ def ai_step_flow(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_acc_ai_pass_1",
             flow_id="flow_acc_ai_pass",
             status="queued",

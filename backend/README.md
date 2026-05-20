@@ -257,7 +257,10 @@ Without a key, those steps fail with a clear, structured error.
 
 ## Limitations
 
-- No authentication, RBAC, or multi-tenant isolation.
+- Username/password authentication with JWT is implemented. RBAC,
+  roles, multi-tenant isolation, SSO/OIDC, password reset, and
+  invitation flows are not — every authenticated user has the same
+  level of access.
 - Scheduler and suspension sweeper run in-process; restart loses any
   in-memory state.
 - The Ansible tool's playbook-path allowlist defaults to empty (all paths

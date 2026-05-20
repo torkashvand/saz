@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -24,6 +25,7 @@ def suspended_run(db_engine):
     callback_id = "cb_acc_callback_xyz123"
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_acc_callback",
             name="acc_callback",
             definition={
@@ -40,6 +42,7 @@ def suspended_run(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_acc_callback_1",
             flow_id="flow_acc_callback",
             status="suspended",

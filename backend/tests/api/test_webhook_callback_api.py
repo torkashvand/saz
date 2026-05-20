@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -15,6 +16,7 @@ def suspended_run_with_callback(db_engine):
     """Create a suspended run with callback_id for webhook callback testing."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_webhook_api",
             name="Webhook Test Flow",
             definition={
@@ -34,6 +36,7 @@ def suspended_run_with_callback(db_engine):
         session.commit()
 
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_webhook_api_1",
             flow_id="flow_webhook_api",
             status="suspended",
@@ -155,6 +158,7 @@ def suspended_run_for_reject(db_engine):
     """Separate suspended run fixture for rejection tests (avoids fixture reuse conflicts)."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_webhook_reject",
             name="Webhook Reject Flow",
             definition={
@@ -170,6 +174,7 @@ def suspended_run_for_reject(db_engine):
         session.commit()
 
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_webhook_reject_1",
             flow_id="flow_webhook_reject",
             status="suspended",
@@ -344,6 +349,7 @@ def many_runs_with_errors(db_engine):
     """Create multiple runs with various error dicts, only one with the target callback."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_perf_test",
             name="Perf Test",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
@@ -354,6 +360,7 @@ def many_runs_with_errors(db_engine):
         # Create 50 runs with various errors (none with our callback)
         for i in range(50):
             run = Run(
+                created_by_user_id=TEST_USER_ID,
                 id=f"run_noise_{i}",
                 flow_id="flow_perf_test",
                 status="failed",
@@ -365,6 +372,7 @@ def many_runs_with_errors(db_engine):
 
         # One run with the target callback
         target = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_target",
             flow_id="flow_perf_test",
             status="suspended",

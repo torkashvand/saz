@@ -23,6 +23,7 @@ class EventResponse(BaseModel):
     planner_mode: Literal["deterministic", "agentic"]
     severity: Literal["info", "warn", "error"]
     actor: Literal["system", "user", "llm"]
+    actor_user_id: str | None = None
 
     summary: str
     payload: dict[str, Any]

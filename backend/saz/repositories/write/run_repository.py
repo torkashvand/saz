@@ -16,7 +16,7 @@ class RunRepository(BaseRepository[Run]):
     def __init__(self, session: Session):
         super().__init__(session, Run)
 
-    def create(self, flow_id: str, payload: dict) -> Run:
+    def create(self, flow_id: str, payload: dict, created_by_user_id: str) -> Run:
         """Create new run.
 
         Copies the parent Flow's planner_mode onto the Run row so the API
@@ -39,6 +39,7 @@ class RunRepository(BaseRepository[Run]):
             payload=payload,
             cost_cents=0,
             created_at=datetime.now(UTC),
+            created_by_user_id=created_by_user_id,
         )
         return self.add(run)
 

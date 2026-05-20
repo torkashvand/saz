@@ -10,7 +10,7 @@ class RunService:
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
 
-    def create(self, flow_id: str, payload: dict) -> str:
+    def create(self, flow_id: str, payload: dict, created_by_user_id: str) -> str:
         """Create a new run."""
         assert self.uow.flows is not None
         assert self.uow.runs is not None
@@ -20,7 +20,7 @@ class RunService:
             raise ValueError(f"Flow not found: {flow_id}")
 
         # Create run
-        run = self.uow.runs.create(flow_id, payload)
+        run = self.uow.runs.create(flow_id, payload, created_by_user_id=created_by_user_id)
         self.uow.commit()
 
         return run.id

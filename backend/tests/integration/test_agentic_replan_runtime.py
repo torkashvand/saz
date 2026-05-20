@@ -27,6 +27,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 
 
 def _make_plan(steps, plan_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"):
@@ -52,6 +53,7 @@ def _make_critique(verdict, reasoning="test", confidence=0.9):
 
 def _setup_flow_and_run(session, flow_id, run_id, planner_mode="agentic"):
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=flow_id,
         name="test-flow",
         definition={
@@ -63,6 +65,7 @@ def _setup_flow_and_run(session, flow_id, run_id, planner_mode="agentic"):
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
         status="pending",

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from saz.audit.event_bus import event_bus
 from saz.db.models import Flow, Run
 from saz.domain.event_schema import Event, EventType
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -15,6 +16,7 @@ def run_for_stream(db_engine):
     """Create a run for WebSocket testing."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_ws",
             name="WS Test Flow",
             definition={"workflow": {"planner_mode": "deterministic"}},
@@ -23,6 +25,7 @@ def run_for_stream(db_engine):
         session.commit()
 
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_ws_123",
             flow_id="flow_ws",
             status="running",
@@ -34,10 +37,12 @@ def run_for_stream(db_engine):
     return "run_ws_123"
 
 
-def test_websocket_connect_and_receive(app_client, run_for_stream):
+def test_websocket_connect_and_receive(app_client, run_for_stream, test_user_token):
     """WebSocket connects and receives events."""
     # Connect WebSocket
-    with app_client.websocket_connect(f"/api/v1/runs/{run_for_stream}/stream") as ws:
+    with app_client.websocket_connect(
+        f"/api/v1/runs/{run_for_stream}/stream?token={test_user_token}"
+    ) as ws:
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
@@ -73,9 +78,11 @@ def test_websocket_connect_and_receive(app_client, run_for_stream):
             pytest.fail(f"Failed to receive event: {e}")
 
 
-def test_websocket_multiple_events(app_client, run_for_stream):
+def test_websocket_multiple_events(app_client, run_for_stream, test_user_token):
     """WebSocket receives multiple events."""
-    with app_client.websocket_connect(f"/api/v1/runs/{run_for_stream}/stream") as ws:
+    with app_client.websocket_connect(
+        f"/api/v1/runs/{run_for_stream}/stream?token={test_user_token}"
+    ) as ws:
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
@@ -122,9 +129,11 @@ def test_websocket_multiple_events(app_client, run_for_stream):
         assert received[2]["event_type"] == "tool.succeeded"
 
 
-def test_websocket_ping_pong(app_client, run_for_stream):
+def test_websocket_ping_pong(app_client, run_for_stream, test_user_token):
     """WebSocket handles ping/pong."""
-    with app_client.websocket_connect(f"/api/v1/runs/{run_for_stream}/stream") as ws:
+    with app_client.websocket_connect(
+        f"/api/v1/runs/{run_for_stream}/stream?token={test_user_token}"
+    ) as ws:
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
@@ -142,24 +151,39 @@ def test_websocket_ping_pong(app_client, run_for_stream):
             pass
 
 
-def test_websocket_only_receives_own_run_events(app_client, db_engine):
+def test_websocket_only_receives_own_run_events(app_client, db_engine, test_user_token):
     """WebSocket only receives events for its run_id."""
     # Create two runs
     with Session(db_engine) as session:
-        flow = Flow(id="flow_iso", name="Isolation Test", definition={})
+        flow = Flow(
+            id="flow_iso",
+            name="Isolation Test",
+            definition={},
+            created_by_user_id=TEST_USER_ID,
+        )
         session.add(flow)
 
         run1 = Run(
-            id="run_iso_1", flow_id="flow_iso", status="running", planner_mode="deterministic"
+            created_by_user_id=TEST_USER_ID,
+            id="run_iso_1",
+            flow_id="flow_iso",
+            status="running",
+            planner_mode="deterministic",
         )
         run2 = Run(
-            id="run_iso_2", flow_id="flow_iso", status="running", planner_mode="deterministic"
+            created_by_user_id=TEST_USER_ID,
+            id="run_iso_2",
+            flow_id="flow_iso",
+            status="running",
+            planner_mode="deterministic",
         )
         session.add_all([run1, run2])
         session.commit()
 
     # Connect to run_iso_1
-    with app_client.websocket_connect("/api/v1/runs/run_iso_1/stream") as ws:
+    with app_client.websocket_connect(
+        f"/api/v1/runs/run_iso_1/stream?token={test_user_token}"
+    ) as ws:
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
@@ -190,11 +214,13 @@ def test_websocket_only_receives_own_run_events(app_client, db_engine):
         assert data["summary"] == "My run event"
 
 
-def test_websocket_connection_to_nonexistent_run(app_client):
-    """WebSocket connection to nonexistent run is accepted."""
-    # WebSocket endpoint accepts connections even for nonexistent runs
-    # This allows clients to connect and wait for events before run starts
-    with app_client.websocket_connect("/api/v1/runs/nonexistent/stream") as ws:
+def test_websocket_connection_to_nonexistent_run(app_client, test_user_token):
+    """WebSocket connection to nonexistent run is accepted (auth required)."""
+    # WebSocket endpoint accepts connections even for nonexistent runs as
+    # long as the caller is authenticated.
+    with app_client.websocket_connect(
+        f"/api/v1/runs/nonexistent/stream?token={test_user_token}"
+    ) as ws:
         # Should receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"

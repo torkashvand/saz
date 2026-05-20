@@ -29,6 +29,7 @@ from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.services.run_service import RunService
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,6 +99,7 @@ PLAN_STEPS = [
 def _setup_failed_run(session, flow_id, run_id, failing_step_number=2):
     """Create a flow and a failed run where steps 0..failing-1 completed."""
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=flow_id,
         name=f"test-flow-{flow_id}",
         definition={
@@ -109,6 +111,7 @@ def _setup_failed_run(session, flow_id, run_id, failing_step_number=2):
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
         status="failed",
@@ -401,6 +404,7 @@ def test_executor_restores_context_from_latest_attempt(db_engine):
     session = TestSession()
     try:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-ctx-latest",
             definition={
@@ -412,6 +416,7 @@ def test_executor_restores_context_from_latest_attempt(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="queued",
@@ -497,11 +502,13 @@ def test_retry_non_failed_run_raises(db_engine):
     session = TestSession()
     try:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-retry-nonfailed",
             definition={"workflow": {"steps": []}, "policies": {"budget_usd": 1.0}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="completed",
@@ -722,6 +729,7 @@ def test_retry_accepts_error_status(db_engine):
     session = TestSession()
     try:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-retry-error",
             definition={
@@ -733,6 +741,7 @@ def test_retry_accepts_error_status(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="error",
@@ -792,6 +801,7 @@ def test_error_summary_uses_latest_attempt_after_retry(db_engine):
     session = TestSession()
     try:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-errsummary",
             definition={
@@ -804,6 +814,7 @@ def test_error_summary_uses_latest_attempt_after_retry(db_engine):
         )
         # Run failed after retry — step "draft" has two failed attempts
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="failed",
@@ -904,6 +915,7 @@ def test_error_summary_ignores_old_failed_attempts_of_now_completed_steps(db_eng
     session = TestSession()
     try:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-errsummary-mixed",
             definition={
@@ -915,6 +927,7 @@ def test_error_summary_ignores_old_failed_attempts_of_now_completed_steps(db_eng
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="failed",
@@ -1023,6 +1036,7 @@ def test_cross_step_templating_resolves_through_executor(db_engine):
     TestSession = sessionmaker(bind=db_engine)
     with TestSession() as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="cross-step-template-flow",
             definition={
@@ -1046,6 +1060,7 @@ def test_cross_step_templating_resolves_through_executor(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="pending",
@@ -1155,6 +1170,7 @@ def test_policy_violation_marks_step_failed_so_retry_can_find_it(db_engine):
     TestSession = sessionmaker(bind=db_engine)
     with TestSession() as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="policy-retry-flow",
             definition={
@@ -1173,6 +1189,7 @@ def test_policy_violation_marks_step_failed_so_retry_can_find_it(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="pending",

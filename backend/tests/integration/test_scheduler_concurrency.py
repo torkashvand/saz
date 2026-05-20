@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from saz.engine.scheduler import RunScheduler
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -98,11 +99,13 @@ def test_shutdown_no_wait_marks_inflight_runs_failed(fresh_scheduler, db_engine,
 
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_sched_shut",
             name="sched_shut",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_sched_shut_1",
             flow_id="flow_sched_shut",
             status="running",

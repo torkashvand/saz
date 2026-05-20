@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from saz.api.dependencies import CredentialServiceDep
+from saz.api.dependencies import CredentialServiceDep, CurrentUserDep
 from saz.api.errors import NotFoundError
 from saz.api.schemas.credential_schemas import (
     CreateCredentialRequest,
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])
 @router.get("", response_model=CredentialListResponse)
 async def list_credentials(
     service: CredentialServiceDep,
+    _user: CurrentUserDep,
 ) -> CredentialListResponse:
     """List all stored credentials (metadata only, no sensitive data)."""
     credentials = service.list()
@@ -40,6 +41,7 @@ async def list_credentials(
 async def create_credential(
     req: CreateCredentialRequest,
     service: CredentialServiceDep,
+    user: CurrentUserDep,
 ) -> CredentialResponse:
     """Create a new encrypted credential."""
     credential_name = service.create(
@@ -47,6 +49,7 @@ async def create_credential(
         credential_type=req.type,
         data=req.data,
         description=req.description,
+        created_by_user_id=user.id,
     )
 
     # Get the created credential metadata
@@ -68,6 +71,7 @@ async def create_credential(
 async def get_credential(
     name: str,
     service: CredentialServiceDep,
+    _user: CurrentUserDep,
 ) -> CredentialResponse:
     """Get credential metadata (not the actual sensitive data)."""
     # Get metadata from list
@@ -90,6 +94,7 @@ async def update_credential(
     name: str,
     req: UpdateCredentialRequest,
     service: CredentialServiceDep,
+    _user: CurrentUserDep,
 ) -> CredentialResponse:
     """Update an existing credential."""
     credential_name = service.update(
@@ -117,6 +122,7 @@ async def update_credential(
 async def delete_credential(
     name: str,
     service: CredentialServiceDep,
+    _user: CurrentUserDep,
 ) -> dict:
     """Delete a credential."""
     service.delete(name)

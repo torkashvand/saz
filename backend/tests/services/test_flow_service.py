@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from saz.db.unit_of_work import UnitOfWork
 from saz.services.flow_service import FlowService
+from tests.conftest import TEST_USER_ID
 
 VALID_YAML = """
 schema_version: 1
@@ -53,7 +54,7 @@ def test_register_rejects_invalid_dsl(db_engine):
     service, session, uow = _service(db_engine)
     try:
         with pytest.raises(ValueError):
-            service.register(INVALID_AI_YAML)
+            service.register(INVALID_AI_YAML, created_by_user_id=TEST_USER_ID)
     finally:
         uow.__exit__(None, None, None)
         session.close()
@@ -62,7 +63,7 @@ def test_register_rejects_invalid_dsl(db_engine):
 def test_register_persists_valid_flow_and_returns_id(db_engine):
     service, session, uow = _service(db_engine)
     try:
-        flow_id = service.register(VALID_YAML)
+        flow_id = service.register(VALID_YAML, created_by_user_id=TEST_USER_ID)
         assert flow_id, "register must return a non-empty id"
         detail = service.get(flow_id)
         assert detail is not None
@@ -76,8 +77,8 @@ def test_register_same_name_updates_existing_flow(db_engine):
     """Re-registering a flow by name updates rather than creating a duplicate."""
     service, session, uow = _service(db_engine)
     try:
-        first_id = service.register(VALID_YAML)
-        second_id = service.register(VALID_YAML)
+        first_id = service.register(VALID_YAML, created_by_user_id=TEST_USER_ID)
+        second_id = service.register(VALID_YAML, created_by_user_id=TEST_USER_ID)
         assert first_id == second_id, (
             "Re-registering the same flow name must update the existing row, "
             f"got first_id={first_id!r} second_id={second_id!r}"

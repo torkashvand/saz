@@ -32,12 +32,14 @@ from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.artifact_tool import ArtifactTool
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 
 
 def _setup_flow_and_run(session: Session) -> tuple[str, str]:
     flow_id = "flow_artifact_persist"
     run_id = "run_artifact_persist_1"
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=flow_id,
         name="artifact_persist",
         definition={
@@ -57,6 +59,7 @@ def _setup_flow_and_run(session: Session) -> tuple[str, str]:
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
         status="queued",

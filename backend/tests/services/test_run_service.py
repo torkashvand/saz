@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 from saz.db.models import Flow, Run, Step
 from saz.db.unit_of_work import UnitOfWork
 from saz.services.run_service import RunService
+from tests.conftest import TEST_USER_ID
 
 
 def _seed_flow(session: Session, planner_mode: str = "deterministic") -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow_svc_run",
         name="svc_run",
         definition={
@@ -38,6 +40,7 @@ def _seed_flow(session: Session, planner_mode: str = "deterministic") -> str:
 
 def _seed_failed_run_with_failed_step(session: Session, flow_id: str) -> str:
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id="run_svc_run_failed",
         flow_id=flow_id,
         status="failed",
@@ -68,7 +71,7 @@ def test_create_run_returns_id_and_persists(db_engine):
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             service = RunService(uow)
-            run_id = service.create(flow_id, payload={"k": "v"})
+            run_id = service.create(flow_id, payload={"k": "v"}, created_by_user_id=TEST_USER_ID)
             assert run_id
 
     with Session(db_engine) as session:
@@ -83,7 +86,9 @@ def test_create_rejects_unknown_flow(db_engine):
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             with pytest.raises(ValueError, match="Flow not found"):
-                RunService(uow).create("flow_does_not_exist", payload={})
+                RunService(uow).create(
+                    "flow_does_not_exist", payload={}, created_by_user_id=TEST_USER_ID
+                )
 
 
 def test_retry_only_allowed_on_failed_or_error(db_engine):
@@ -91,6 +96,7 @@ def test_retry_only_allowed_on_failed_or_error(db_engine):
     with Session(db_engine) as session:
         flow_id = _seed_flow(session)
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_svc_run_running",
             flow_id=flow_id,
             status="running",
@@ -125,6 +131,7 @@ def test_resume_rejects_non_suspended_run(db_engine):
     with Session(db_engine) as session:
         flow_id = _seed_flow(session)
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_svc_run_completed",
             flow_id=flow_id,
             status="completed",

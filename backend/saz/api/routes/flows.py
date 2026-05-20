@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query
 
-from saz.api.dependencies import FlowServiceDep
+from saz.api.dependencies import CurrentUserDep, FlowServiceDep
 from saz.api.errors import NotFoundError
 from saz.api.schemas.flow_schemas import (
     CompileFlowRequest,
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
 @router.get("", response_model=FlowListResponse)
 async def list_flows(
     service: FlowServiceDep,
+    _user: CurrentUserDep,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> FlowListResponse:
@@ -49,9 +50,10 @@ async def list_flows(
 async def register_flow(
     req: RegisterFlowRequest,
     service: FlowServiceDep,
+    user: CurrentUserDep,
 ) -> RegisterFlowResponse:
     """Register a new flow from YAML definition."""
-    flow_id = service.register(req.yaml)
+    flow_id = service.register(req.yaml, created_by_user_id=user.id)
     flow = service.get(flow_id)
 
     if not flow:
@@ -68,6 +70,7 @@ async def register_flow(
 async def compile_flow(
     req: CompileFlowRequest,
     service: FlowServiceDep,
+    _user: CurrentUserDep,
 ) -> CompileFlowResponse:
     """Compile and validate a flow YAML without persisting."""
     compiled = compile_dsl(req.yaml)
@@ -93,7 +96,7 @@ async def compile_flow(
 
 
 @router.get("/ai-ops")
-async def list_ai_ops() -> list[dict]:
+async def list_ai_ops(_user: CurrentUserDep) -> list[dict]:
     """Return available AI operations with their default output schemas.
 
     Helps workflow authors write correct `expect` fields by showing
@@ -121,6 +124,7 @@ async def list_ai_ops() -> list[dict]:
 async def get_flow(
     flow_id: str,
     service: FlowServiceDep,
+    _user: CurrentUserDep,
 ) -> FlowDetail:
     """Get detailed flow information."""
     flow = service.get(flow_id)
@@ -155,6 +159,7 @@ async def get_flow(
 async def get_flow_graph(
     flow_id: str,
     service: FlowServiceDep,
+    _user: CurrentUserDep,
 ) -> FlowGraphResponse:
     """Get flow execution graph (nodes and edges)."""
     flow = service.get(flow_id)

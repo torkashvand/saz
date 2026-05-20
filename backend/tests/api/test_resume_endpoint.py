@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -12,6 +13,7 @@ def suspended_run_with_approval(db_engine):
     with Session(db_engine) as session:
         # Create flow with human.approval step
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_approval_1",
             name="Approval Test Flow",
             definition={
@@ -48,6 +50,7 @@ def suspended_run_with_approval(db_engine):
 
         # Create run
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_suspended_1",
             flow_id="flow_approval_1",
             status="suspended",
@@ -93,6 +96,7 @@ def completed_run(db_engine):
     """Create a completed run (not resumable)."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_completed",
             name="Completed Flow",
             definition={"workflow": {"planner_mode": "deterministic"}},
@@ -100,6 +104,7 @@ def completed_run(db_engine):
         session.add(flow)
 
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_completed_1",
             flow_id="flow_completed",
             status="completed",

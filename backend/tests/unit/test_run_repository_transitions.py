@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run
 from saz.db.unit_of_work import UnitOfWork
+from tests.conftest import TEST_USER_ID
 
 
 def _make_agentic_flow(session: Session) -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow_agentic_meta",
         name="agentic_meta",
         definition={
@@ -43,7 +45,7 @@ def test_create_run_copies_planner_mode_from_flow(db_engine):
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             assert uow.runs is not None
-            run = uow.runs.create(flow_id, payload={"x": 1})
+            run = uow.runs.create(flow_id, payload={"x": 1}, created_by_user_id=TEST_USER_ID)
             uow.commit()
             created_run_id = run.id
 
@@ -61,6 +63,7 @@ def test_mark_running_sets_started_at(db_engine):
     """started_at distinguishes queue/wait time from actual execution time."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_started_at",
             name="started_at_test",
             definition={
@@ -71,6 +74,7 @@ def test_mark_running_sets_started_at(db_engine):
         )
         session.add(flow)
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_started_at_1",
             flow_id="flow_started_at",
             status="queued",
@@ -100,6 +104,7 @@ def test_mark_completed_sets_duration_ms(db_engine):
 
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_duration",
             name="duration_test",
             definition={
@@ -110,6 +115,7 @@ def test_mark_completed_sets_duration_ms(db_engine):
         )
         session.add(flow)
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_duration_1",
             flow_id="flow_duration",
             status="running",

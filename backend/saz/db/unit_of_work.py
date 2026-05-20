@@ -15,6 +15,7 @@ from saz.repositories.write.event_repository import EventRepository
 from saz.repositories.write.flow_repository import FlowRepository
 from saz.repositories.write.run_repository import RunRepository
 from saz.repositories.write.step_repository import StepRepository
+from saz.repositories.write.user_repository import UserRepository
 
 
 class UnitOfWork:
@@ -31,6 +32,7 @@ class UnitOfWork:
         self.credentials: CredentialRepository | None = None
         self.artifacts: ArtifactRepository | None = None
         self.events_repo: EventRepository | None = None
+        self.users: UserRepository | None = None
 
         # Read repositories
         self.run_reads: RunReadRepository | None = None
@@ -46,6 +48,7 @@ class UnitOfWork:
         self.credentials = CredentialRepository(self._session)
         self.artifacts = ArtifactRepository(self._session)
         self.events_repo = EventRepository(self._session)
+        self.users = UserRepository(self._session)
 
         # Read repositories
         self.run_reads = RunReadRepository(self._session)

@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def two_step_flow(db_engine):
     """A flow definition with two ordered workflow steps and a queued run."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_graph",
             name="graph_flow",
             definition={
@@ -44,6 +46,7 @@ def two_step_flow(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_graph_1",
             flow_id="flow_graph",
             status="completed",
@@ -86,6 +89,7 @@ def test_run_graph_endpoint_returns_empty_graph_when_flow_missing(app_client, db
     endpoint must respond with an empty graph rather than 500."""
     with Session(db_engine) as session:
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_no_flow",
             flow_id="missing_flow",
             status="failed",
@@ -108,11 +112,13 @@ def test_run_compliance_endpoint_aggregates_step_tokens_and_cost(app_client, db_
     compliance_score=1.0 only for completed runs."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_c",
             name="compliance_flow",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_c_1",
             flow_id="flow_c",
             status="completed",
@@ -163,11 +169,13 @@ def test_run_compliance_endpoint_aggregates_step_tokens_and_cost(app_client, db_
 def test_run_compliance_endpoint_reports_partial_score_for_failed(app_client, db_engine):
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_cf",
             name="compliance_failed",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_cf_1",
             flow_id="flow_cf",
             status="failed",
@@ -199,11 +207,13 @@ def test_retry_endpoint_rejects_non_failed_run(app_client, db_engine):
     error (not as a 200 that silently does nothing)."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_retry_bad",
             name="rb",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_retry_bad",
             flow_id="flow_retry_bad",
             status="completed",

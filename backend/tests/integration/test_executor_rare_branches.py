@@ -34,6 +34,7 @@ from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.settings import settings
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 
 # --------------------------- helpers ---------------------------
 
@@ -97,11 +98,13 @@ def test_execute_run_fails_run_when_flow_relationship_broken(db_engine) -> None:
         # the schema prevents broken FKs in normal operation, but we
         # simulate the "run loaded with a stale flow row" path.
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="will-delete-this",
             name="ghost",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run-broken-flow",
             flow_id="will-delete-this",
             status="queued",
@@ -135,6 +138,7 @@ def test_execute_run_completes_when_workflow_spec_is_empty(db_engine) -> None:
     """A flow with no workflow section must complete cleanly (no plan run)."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow-empty-wf",
             name="empty",
             definition={
@@ -143,6 +147,7 @@ def test_execute_run_completes_when_workflow_spec_is_empty(db_engine) -> None:
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run-empty-wf",
             flow_id="flow-empty-wf",
             status="queued",
@@ -172,6 +177,7 @@ def test_execute_run_fails_when_budget_exceeded_before_first_step(db_engine) -> 
     tool calls must have been issued."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow-budget",
             name="budget-flow",
             definition={
@@ -189,6 +195,7 @@ def test_execute_run_fails_when_budget_exceeded_before_first_step(db_engine) -> 
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run-budget",
             flow_id="flow-budget",
             status="queued",
@@ -297,6 +304,7 @@ def test_resolve_secret_returns_value_from_encrypted_credential(
 
     with Session(db_engine) as session:
         cred = Credential(
+            created_by_user_id=TEST_USER_ID,
             name="MY_API_KEY",
             type="api_token",
             data_encrypted=_fernet_encrypt(key, {"api_key": "shhh-secret-value"}),
@@ -323,6 +331,7 @@ def test_resolve_secret_returns_none_when_decrypt_fails(db_engine) -> None:
     so the template resolver raises a clear 'Secret X not found'."""
     with Session(db_engine) as session:
         cred = Credential(
+            created_by_user_id=TEST_USER_ID,
             name="BAD_SECRET",
             type="api_token",
             data_encrypted=b"not-real-ciphertext",
@@ -408,11 +417,13 @@ def test_get_current_step_raises_when_step_row_missing(db_engine) -> None:
     helper must raise rather than return None."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow-no-step",
             name="noStep",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run-no-step",
             flow_id="flow-no-step",
             status="running",

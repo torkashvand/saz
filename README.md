@@ -74,10 +74,16 @@ Requirements: Python 3.12+, [uv], and either SQLite (default) or PostgreSQL.
 ```bash
 cd backend
 uv sync                                  # install pinned dependencies
-cp .env.example .env                     # set DATABASE_URL, OPENAI_API_KEY, etc.
+cp .env.example .env                     # set DATABASE_URL, JWT_SECRET_KEY, ...
 uv run alembic upgrade head              # apply migrations
+uv run python -m saz.scripts.create_user \
+    --username alice --email alice@example.com   # create the first user
 uv run uvicorn saz.api:app --reload --port 8000
 ```
+
+`JWT_SECRET_KEY` is required — leave it blank and login fails closed.
+Generate one with `openssl rand -hex 32` or
+`python -c "import secrets; print(secrets.token_hex(32))"`.
 
 API docs: <http://localhost:8000/api/v1/docs>
 
@@ -158,6 +164,10 @@ Backend env vars (see `backend/.env.example`):
 | `SUSPENSION_SWEEP_ENABLED`                     | `true`                        | Background sweeper that fails suspended runs past their deadline. Tests set this to `false`.                  |
 | `SUSPENSION_SWEEP_INTERVAL_SECONDS`            | `60`                          | Sweep cadence.                                                                                                |
 | `SUSPENSION_SWEEP_BATCH_LIMIT`                 | `100`                         | Max rows per sweep.                                                                                           |
+| `JWT_SECRET_KEY`                               | (empty)                       | HMAC secret used to sign access tokens. **Required** — login fails closed when empty.                          |
+| `JWT_ALGORITHM`                                | `HS256`                       | JWT signing algorithm.                                                                                        |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`              | `720`                         | Access-token lifetime in minutes. No refresh tokens — users log in again after expiry.                        |
+| `ALLOW_USER_REGISTRATION`                      | `true`                        | If `false`, `POST /api/v1/auth/register` returns 403. Disable in production once you have an alternative onboarding path. |
 
 LiteLLM picks up provider credentials from the standard environment variables
 (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). Without a configured provider, any
@@ -172,11 +182,59 @@ Frontend env vars (see `frontend/.env.example`):
 
 `.env` and `.env*.local` are gitignored; commit `.env.example` only.
 
+## Authentication
+
+Saz uses username/password login with JWT-based bearer tokens.
+
+- Users authenticate against `POST /api/v1/auth/login` with either their
+  username or email and receive a JWT access token. All other protected
+  endpoints expect that token in `Authorization: Bearer <token>`.
+- Passwords are stored as bcrypt hashes (cost 12). Plaintext passwords
+  are never logged or returned by any endpoint.
+- Token lifetime defaults to 12 hours. There are no refresh tokens or
+  server-side session revocation yet — when the token expires the user
+  signs in again.
+- The WebSocket event stream accepts the same JWT as a query parameter
+  (`?token=…`) because browsers cannot set headers on a WS upgrade.
+- The webhook callback endpoint (`POST /api/v1/webhooks/callback/{id}`)
+  intentionally remains public. It authenticates the caller via the
+  unguessable callback id embedded in the URL, which is what external
+  systems use to resume a suspended run. Treat that id as a credential.
+
+**Bootstrap a user:**
+
+```bash
+# Recommended for production deployments
+uv run python -m saz.scripts.create_user \
+    --username alice --email alice@example.com
+```
+
+**Or hit the open registration endpoint** while `ALLOW_USER_REGISTRATION`
+is `true`:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+    -H 'content-type: application/json' \
+    -d '{"username": "alice", "email": "alice@example.com", "password": "..."}'
+```
+
+Set `ALLOW_USER_REGISTRATION=false` in production once you have an
+alternative onboarding path.
+
+**What this is not:** there is no RBAC, no roles, no permissions, no
+teams, no organizations, no tenants, no SSO/OIDC, no OAuth, no password
+reset, no invitation flow, and no admin dashboard. Every authenticated
+user currently has the same level of access. Do not market this as
+enterprise-identity-ready.
+
 ## Status
 
 Public prototype. Practical limitations to be aware of:
 
-- No built-in authentication, RBAC, or multi-tenancy.
+- Username/password authentication with JWT is available, but RBAC,
+  multi-tenancy, SSO/OIDC, password reset, and invitation flows are not.
+  All authenticated users currently have the same access level — the
+  system knows *who* is calling, not *what* they are allowed to do.
 - CORS is hard-coded to `http://localhost:3000`.
 - Background scheduler and suspension sweeper run in-process; there is no
   separate worker pool.

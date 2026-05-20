@@ -18,6 +18,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 from tests.fakes.critic import FakeCritic
 from tests.fakes.tools import RecordingTool
 
@@ -34,6 +35,7 @@ HTTP_SPEC = {
 
 def _seed_one_step_run(session: Session) -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow_evt_timeline",
         name="evt_timeline",
         definition={
@@ -55,6 +57,7 @@ def _seed_one_step_run(session: Session) -> str:
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id="run_evt_timeline_1",
         flow_id="flow_evt_timeline",
         status="queued",

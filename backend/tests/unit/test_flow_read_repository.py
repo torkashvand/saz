@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from saz.db.models import Flow
 from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
 from saz.repositories.read.flow_read_repository import FlowReadRepository
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -35,6 +36,7 @@ def _add_flow(
 ) -> None:
     session.add(
         Flow(
+            created_by_user_id=TEST_USER_ID,
             id=id,
             name=name,
             description=description,

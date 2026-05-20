@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from saz.api.dependencies import CurrentUserDep
 from saz.examples import get_template_manager
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
@@ -50,7 +51,7 @@ class TemplateDetailResponse(BaseModel):
 
 
 @router.get("/", response_model=list[TemplateSummaryResponse])
-async def list_templates(recommended_only: bool = False):
+async def list_templates(_user: CurrentUserDep, recommended_only: bool = False):
     """
     List all available flow templates.
 
@@ -86,7 +87,7 @@ async def list_templates(recommended_only: bool = False):
 
 
 @router.get("/{template_id}", response_model=TemplateDetailResponse)
-async def get_template(template_id: str):
+async def get_template(template_id: str, _user: CurrentUserDep):
     """
     Get full details and YAML content for a specific template.
 

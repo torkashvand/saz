@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from saz.db.models import Flow, Run
 from saz.domain.event_schema import Event, EventType
 from saz.repositories.write.event_repository import EventRepository
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -16,6 +17,7 @@ def run_with_events(db_engine, app_client):
     with Session(db_engine) as session:
         # Create flow
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_1",
             name="Test Flow",
             definition={"workflow": {"planner_mode": "deterministic"}},
@@ -25,6 +27,7 @@ def run_with_events(db_engine, app_client):
 
         # Create run
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_123",
             flow_id="flow_1",
             status="completed",

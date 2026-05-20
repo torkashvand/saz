@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from saz.api.dependencies import RunServiceDep
+from saz.api.dependencies import CurrentUserDep, RunServiceDep
 from saz.api.errors import NotFoundError
 from saz.api.schemas.event_schemas import EventListResponse, EventResponse
 from saz.api.schemas.run_schemas import (
@@ -27,7 +27,9 @@ from saz.api.schemas.run_schemas import (
     StepSummary,
     TriggeredBySchema,
 )
+from saz.audit.event_emitter import EventEmitter
 from saz.domain.error_enrichment import ErrorEnrichmentService
+from saz.domain.event_schema import EventType
 from saz.engine.scheduler import get_scheduler
 from saz.settings import settings
 
@@ -89,6 +91,7 @@ def sanitize_error(error: dict | None, include_sensitive: bool) -> dict | None:
 @router.get("", response_model=RunListResponse)
 async def list_runs(
     service: RunServiceDep,
+    _user: CurrentUserDep,
     flow_id: str | None = Query(None),
     status: str | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),
@@ -134,26 +137,24 @@ async def list_runs(
 async def create_run(
     req: CreateRunRequest,
     service: RunServiceDep,
+    user: CurrentUserDep,
 ) -> CreateRunResponse:
     """Create and start a new run."""
-    # RunService.create returns run_id string, not run object
     run_id = service.create(
         flow_id=req.flow_id,
         payload=req.payload or {},
+        created_by_user_id=user.id,
     )
 
-    # Get the created run to enrich with triggered_by
     assert service.uow.runs is not None
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found after creation: {run_id}")
 
-    # Set triggered_by information (for now, mark as system since we don't have auth yet)
-    # In production, you would get the current user from authentication context
     run.triggered_by = {
-        "type": "user",  # or "system", "schedule", "webhook"
-        "user_id": None,  # Replace with actual user ID from auth context
-        "user_name": "System",  # Replace with actual user name from auth context
+        "type": "user",
+        "user_id": user.id,
+        "user_name": user.display_name or user.username,
         "trigger_source": "manual",
     }
     service.uow.commit()
@@ -177,6 +178,7 @@ async def create_run(
 async def get_run_summary(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
 ) -> RunSummary:
     """Get run summary with basic information."""
     # Access Run model directly to get all fields
@@ -203,6 +205,7 @@ async def get_run_summary(
 async def get_run_events(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
     event_type: list[str] | None = Query(None),
     severity: str | None = Query(None),
     since: str | None = Query(None),
@@ -245,6 +248,7 @@ async def get_run_events(
 async def get_run_detail(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
     include_sensitive: bool = Query(False, description="Include stack traces (for debugging only)"),
 ) -> RunDetailResponse:
     """Get run detail with steps and enhanced UX fields.
@@ -392,6 +396,7 @@ async def get_run_detail(
 async def get_run_steps(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
 ) -> RunStepsResponse:
     """Get execution steps for a run."""
     # Access Run model directly
@@ -432,6 +437,7 @@ async def get_run_steps(
 async def get_run_graph(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
 ) -> ExecutionGraphResponse:
     """Get execution graph for a run (nodes and edges)."""
     # Access Run model directly
@@ -481,6 +487,7 @@ async def get_run_graph(
 async def retry_run_endpoint(
     run_id: str,
     service: RunServiceDep,
+    user: CurrentUserDep,
     req: RetryRunRequest | None = None,
 ) -> RetryRunResponse:
     """Retry a failed run from the point of failure (same-run semantics).
@@ -496,7 +503,25 @@ async def retry_run_endpoint(
     if run.status not in ["failed", "error"]:
         raise ValueError(f"Run {run_id} cannot be retried (status: {run.status})")
 
-    # Same-run retry: resets status, preserves history
+    # Pre-buffer the user-attributed event so retry+attribution share one
+    # UoW commit. See webhooks.resume_run for why a second commit here
+    # would widen pre-existing test races around scheduler timing.
+    emitter = EventEmitter(
+        uow=service.uow,
+        run_id=run.id,
+        planner_mode=run.planner_mode or "deterministic",
+        pii_policy="redact",
+        actor_user_id=user.id,
+    )
+    emitter.emit(
+        EventType.RUN_RESUMED,
+        f"Run retried by {user.username}",
+        payload={"resume_source": "retry", "username": user.username},
+        actor="user",
+    )
+
+    # Same-run retry: resets status, preserves history, commits — also
+    # flushes the buffered event in the same transaction.
     service.retry(run_id)
 
     # Refresh run state after service mutation
@@ -518,6 +543,7 @@ async def retry_run_endpoint(
 async def get_compliance_report(
     run_id: str,
     service: RunServiceDep,
+    _user: CurrentUserDep,
 ) -> ComplianceReportResponse:
     """Generate compliance audit report for a run."""
     # Access Run model directly

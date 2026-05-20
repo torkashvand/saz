@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -13,6 +14,7 @@ def approval_workflow(db_engine):
     # This demonstrates the DSL format but we create the flow directly in code for testing
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="approval_flow_1",
             name="Purchase Approval Workflow",
             definition={
@@ -63,6 +65,7 @@ def test_approval_workflow_suspend_and_resume(app_client, approval_workflow, db_
     with Session(db_engine) as session:
         # Create the run
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id="approval_flow_1",
             status="suspended",
@@ -145,6 +148,7 @@ def test_approval_workflow_denial(app_client, approval_workflow, db_engine):
 
     with Session(db_engine) as session:
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id="approval_flow_1",
             status="suspended",
@@ -193,6 +197,7 @@ def test_approval_workflow_context_restoration(app_client, approval_workflow, db
 
     with Session(db_engine) as session:
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id="approval_flow_1",
             status="suspended",
@@ -241,12 +246,26 @@ def test_approval_workflow_context_restoration(app_client, approval_workflow, db
     assert extract_step["output"]["vendor"] == "SupplierCo"
 
 
-def test_multiple_approvals_in_workflow(app_client, db_engine):
-    """Test workflow with multiple approval gates."""
+def test_multiple_approvals_in_workflow(app_client, db_engine, monkeypatch):
+    """Test workflow with multiple approval gates.
+
+    The test simulates execution by hand (direct ORM inserts + manual
+    status flips) and never actually wants the executor to run. We
+    monkey-patch ``scheduler.schedule`` to a no-op so the background
+    thread can't race with our manual state injection and overwrite the
+    "suspended" status we set between the two /resume calls.
+    """
+    # Patch both call sites (resume + retry) so any background scheduling
+    # the route does becomes a no-op while this test runs.
+    monkeypatch.setattr(
+        "saz.api.routes.webhooks.get_scheduler",
+        lambda: type("FakeSched", (), {"schedule": lambda self, _rid: True})(),
+    )
 
     # Create flow with two approval steps
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="multi_approval_flow",
             name="Multi Approval Flow",
             definition={
@@ -277,6 +296,7 @@ def test_multiple_approvals_in_workflow(app_client, db_engine):
 
     with Session(db_engine) as session:
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id="multi_approval_flow",
             status="suspended",
@@ -346,6 +366,7 @@ def test_approval_with_timeout_simulation(app_client, approval_workflow, db_engi
 
     with Session(db_engine) as session:
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id="approval_flow_1",
             status="suspended",

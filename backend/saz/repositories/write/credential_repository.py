@@ -15,9 +15,19 @@ class CredentialRepository:
         self.session = session
 
     def upsert(
-        self, name: str, credential_type: str, data_encrypted: bytes, description: str | None = None
+        self,
+        name: str,
+        credential_type: str,
+        data_encrypted: bytes,
+        created_by_user_id: str,
+        description: str | None = None,
     ) -> Credential:
-        """Create or update credential."""
+        """Create or update credential.
+
+        ``created_by_user_id`` records the original creator on insert; on
+        update we keep the existing owner so audit history isn't rewritten
+        every time a credential rotates.
+        """
         stmt = select(Credential).where(Credential.name == name)
         credential = self.session.scalar(stmt)
 
@@ -37,6 +47,7 @@ class CredentialRepository:
                 data_encrypted=data_encrypted,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
+                created_by_user_id=created_by_user_id,
             )
             self.session.add(credential)
 

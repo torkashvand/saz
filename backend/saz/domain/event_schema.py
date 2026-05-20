@@ -103,6 +103,8 @@ class Event:
     planner_mode: Literal["deterministic", "agentic"] = "deterministic"
     severity: Literal["info", "warn", "error"] = "info"
     actor: Literal["system", "user", "llm"] = "system"
+    # Set only when actor == "user". NULL for system/LLM events by design.
+    actor_user_id: str | None = None
 
     # Content
     summary: str = ""  # Human-readable one-liner
@@ -124,6 +126,7 @@ class Event:
             "planner_mode": self.planner_mode,
             "severity": self.severity,
             "actor": self.actor,
+            "actor_user_id": self.actor_user_id,
             "summary": self.summary,
             "payload": self.payload,
             "tags": self.tags,
@@ -155,6 +158,7 @@ class Event:
             planner_mode=data.get("planner_mode", "deterministic"),
             severity=data.get("severity", "info"),
             actor=data.get("actor", "system"),
+            actor_user_id=data.get("actor_user_id"),
             summary=data.get("summary", ""),
             payload=data.get("payload", {}),
             tags=data.get("tags", {}),

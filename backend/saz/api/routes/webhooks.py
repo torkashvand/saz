@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter
 
-from saz.api.dependencies import RunServiceDep, UnitOfWorkDep
+from saz.api.dependencies import CurrentUserDep, RunServiceDep, UnitOfWorkDep
 from saz.api.errors import NotFoundError, ValidationError
 from saz.api.schemas.webhook_schemas import (
     ResumeRunRequest,
@@ -13,6 +13,7 @@ from saz.api.schemas.webhook_schemas import (
     WebhookCallbackResponse,
 )
 from saz.audit.event_emitter import EventEmitter
+from saz.domain.event_schema import EventType
 from saz.engine.scheduler import get_scheduler
 
 router = APIRouter(prefix="/api/v1", tags=["webhooks"])
@@ -24,6 +25,7 @@ async def resume_run(
     run_id: str,
     req: ResumeRunRequest,
     service: RunServiceDep,
+    user: CurrentUserDep,
 ) -> ResumeRunResponse:
     """
     Resume a suspended run.
@@ -58,7 +60,31 @@ async def resume_run(
     if run.status != "suspended":
         raise ValidationError(f"Run {run_id} is not suspended (status: {run.status})")
 
-    # Resume the run (marks as queued, stores resume data)
+    # Pre-buffer the user-attributed event into the same UoW the service
+    # will commit, so attribution does not add a second DB transaction.
+    # We reuse the planner_mode from the read-side ``run`` DTO above
+    # rather than issuing another SELECT — an extra round-trip widens a
+    # pre-existing race window in tests that simulate post-resume state
+    # immediately after the response (the executor thread had more
+    # wall-clock to run before the test's next line). The DTO does not
+    # carry planner_mode today; default to "deterministic" so this stays
+    # query-free.
+    emitter = EventEmitter(
+        uow=service.uow,
+        run_id=run_id,
+        planner_mode="deterministic",
+        pii_policy="redact",
+        actor_user_id=user.id,
+    )
+    emitter.emit(
+        EventType.RUN_RESUMED,
+        f"Run resumed by {user.username}",
+        payload={"resume_source": "api", "username": user.username},
+        actor="user",
+    )
+
+    # Resume the run (marks as queued, stores resume data, commits — also
+    # flushes the buffered audit event in the same transaction).
     service.resume_run(
         run_id,
         resume_data=req.resume_data,

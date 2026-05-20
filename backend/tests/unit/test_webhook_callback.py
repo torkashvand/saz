@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from saz.db.models import Flow, Run
 from saz.repositories.write.run_repository import RunRepository
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def suspended_run_with_callback(db_engine, repo):
     session = TestSession()
 
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow-webhook-test",
         name="webhook-test",
         definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
@@ -36,6 +38,7 @@ def suspended_run_with_callback(db_engine, repo):
     session.commit()
 
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id="run-webhook-test",
         flow_id="flow-webhook-test",
         status="suspended",
@@ -106,11 +109,13 @@ def test_mark_suspended_stores_callback_id(db_engine):
     session = TestSession()
 
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow-suspend-test",
         name="test",
         definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id="run-suspend-test",
         flow_id="flow-suspend-test",
         status="running",
@@ -166,6 +171,7 @@ def test_multiple_suspended_runs_distinct_callbacks(db_engine):
     session = TestSession()
 
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow-multi",
         name="multi-test",
         definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
@@ -175,6 +181,7 @@ def test_multiple_suspended_runs_distinct_callbacks(db_engine):
 
     for i in range(3):
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=f"run-multi-{i}",
             flow_id="flow-multi",
             status="suspended",

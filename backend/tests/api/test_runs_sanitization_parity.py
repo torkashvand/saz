@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 SENSITIVE_RUN_ERROR = {
     "type": "RuntimeError",
@@ -34,12 +35,14 @@ SENSITIVE_STEP_ERROR = {
 def failed_run_with_traceback(db_engine):
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_sanitize",
             name="sanitize_test",
             definition={"workflow": {"planner_mode": "deterministic", "steps": []}},
         )
         session.add(flow)
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_sanitize_1",
             flow_id="flow_sanitize",
             status="failed",

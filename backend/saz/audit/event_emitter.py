@@ -22,12 +22,22 @@ class EventEmitter:
         run_id: str,
         planner_mode: str,
         pii_policy: str = "redact",
+        actor_user_id: str | None = None,
     ):
+        """
+        Args:
+            actor_user_id: When set, every event emitted with ``actor="user"``
+                is automatically attributed to this user id. System and LLM
+                events ignore it. Pass the authenticated user's id from the
+                route layer so retry/resume/approval events carry attribution
+                without each call site having to remember.
+        """
         self.uow = uow
         self.run_id = run_id
         self.planner_mode = planner_mode
         self.sanitizer = AuditSanitizer()
         self.pii_policy = pii_policy
+        self.actor_user_id = actor_user_id
 
     def emit(
         self,
@@ -39,6 +49,7 @@ class EventEmitter:
         severity: str = "info",
         actor: str = "system",
         tags: dict[str, str] | None = None,
+        actor_user_id: str | None = None,
     ) -> None:
         """
         Emit an audit event.
@@ -52,9 +63,18 @@ class EventEmitter:
             severity: Event severity (info, warn, error)
             actor: Who triggered the event (system, user, llm)
             tags: Additional tags for filtering
+            actor_user_id: Overrides the emitter-level default user id for
+                this single event. Only meaningful when ``actor == "user"``.
         """
         # Sanitize payload
         sanitized_payload = self.sanitizer.redact_payload(payload or {}, self.pii_policy)
+
+        # Only attribute to a user when the event is actually a user action.
+        resolved_user_id = (
+            (actor_user_id if actor_user_id is not None else self.actor_user_id)
+            if actor == "user"
+            else None
+        )
 
         event = Event(
             event_type=event_type,
@@ -64,6 +84,7 @@ class EventEmitter:
             planner_mode=cast(Literal["deterministic", "agentic"], self.planner_mode),
             severity=cast(Literal["info", "warn", "error"], severity),
             actor=cast(Literal["system", "user", "llm"], actor),
+            actor_user_id=resolved_user_id,
             summary=summary,
             payload=sanitized_payload,
             tags=tags or {},

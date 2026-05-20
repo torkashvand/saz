@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
 from saz.repositories.write.step_repository import StepRepository
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -27,11 +28,13 @@ def session(db_engine):
 @pytest.fixture
 def run_id(session: Session) -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id="flow_step_repo",
         name="step_repo_flow",
         definition={"workflow": {"steps": []}},
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id="run_step_repo_1",
         flow_id="flow_step_repo",
         status="running",

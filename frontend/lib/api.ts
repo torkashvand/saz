@@ -37,11 +37,17 @@ import type {
   TemplateDetail,
   // Graph
   RunGraphResponse,
+  // Auth
+  LoginRequest,
+  RegisterRequest,
+  TokenResponse,
+  CurrentUser,
   // Legacy
   FlowGraphResponse,
 } from './types';
 import { fromHttpError, fromNetworkError, fromUnknownError } from './errors';
 import { addBreadcrumb, captureAppError } from './monitoring';
+import { getAccessToken } from './auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
@@ -66,12 +72,16 @@ async function fetchApi<T>(
   });
 
   try {
+    const token = getAccessToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...((options?.headers as Record<string, string>) || {}),
+    };
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers,
       signal: controller.signal,
     });
 
@@ -131,6 +141,33 @@ async function fetchApi<T>(
 }
 
 export const api = {
+  // ========== Auth ==========
+
+  /**
+   * Exchange username-or-email + password for a JWT access token.
+   */
+  login: (data: LoginRequest) =>
+    fetchApi<TokenResponse>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Create a new user account. Open while user registration is enabled on
+   * the backend (ALLOW_USER_REGISTRATION); will 403 otherwise.
+   */
+  register: (data: RegisterRequest) =>
+    fetchApi<TokenResponse>('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Return the currently-authenticated user. Used to bootstrap the
+   * session on page reload.
+   */
+  getCurrentUser: () => fetchApi<CurrentUser>('/api/v1/auth/me'),
+
   // ========== Flow Endpoints ==========
 
   /**
@@ -352,7 +389,11 @@ export const api = {
     onError?: (error: globalThis.Event) => void,
     onClose?: () => void,
   ): WebSocket => {
-    const ws = new WebSocket(`${WS_BASE_URL}/api/v1/runs/${runId}/stream`);
+    // Browsers can't set Authorization headers on a WebSocket upgrade, so
+    // the backend accepts the JWT via a query parameter instead.
+    const token = getAccessToken();
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+    const ws = new WebSocket(`${WS_BASE_URL}/api/v1/runs/${runId}/stream${tokenQuery}`);
 
     ws.onmessage = (message) => {
       try {

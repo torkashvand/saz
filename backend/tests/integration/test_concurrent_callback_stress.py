@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -20,6 +21,7 @@ def suspended_run(db_engine):
     callback_id = "cb_concurrent_stress_777"
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_concurrent",
             name="concurrent_stress",
             definition={
@@ -36,6 +38,7 @@ def suspended_run(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_concurrent_stress_1",
             flow_id="flow_concurrent",
             status="suspended",

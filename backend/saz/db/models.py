@@ -3,7 +3,17 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -11,6 +21,37 @@ class Base(DeclarativeBase):
     """Base class for all models."""
 
     pass
+
+
+class User(Base):
+    """User aggregate - a person who can authenticate to Saz.
+
+    Identity-only: this model knows *who* a user is, not what they're
+    *allowed* to do. RBAC and multi-tenancy are intentionally out of scope —
+    all authenticated users currently have the same access level.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<User {self.username}>"
 
 
 class Flow(Base):
@@ -26,6 +67,9 @@ class Flow(Base):
     source_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     # Relationship
@@ -67,6 +111,9 @@ class Run(Base):
     error_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     run_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     triggered_by: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
 
     # Relationships
     flow: Mapped["Flow"] = relationship("Flow", back_populates="runs")
@@ -170,6 +217,9 @@ class Credential(Base):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
 
 
 class Event(Base):
@@ -196,6 +246,11 @@ class Event(Base):
     planner_mode: Mapped[str] = mapped_column(String(20), nullable=False)
     severity: Mapped[str] = mapped_column(String(10), nullable=False, default="info")
     actor: Mapped[str] = mapped_column(String(10), nullable=False, default="system")
+    # NULL when actor in {"system", "llm"} — those events have no human owner
+    # by definition. Set only when actor == "user".
+    actor_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Content
     summary: Mapped[str] = mapped_column(Text, nullable=False)

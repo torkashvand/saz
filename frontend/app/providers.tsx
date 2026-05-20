@@ -4,6 +4,7 @@ import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-qu
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AppError } from '@/lib/errors';
+import { AuthProvider, _internalAuth } from '@/lib/auth';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -17,10 +18,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
             if (error && typeof error === 'object' && 'kind' in error) {
               const appError = error as AppError;
 
-              // Auto-redirect on auth errors
+              // On auth errors, clear the stale token and push to /login
+              // unless we're already there. This guarantees the user never
+              // stays "ghost-logged-in" with cached UI behind a 401.
               if (appError.kind === 'auth') {
-                // Optionally redirect to login page
-                // router.push('/login');
+                _internalAuth.setAccessToken(null);
+                if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+                  router.replace('/login');
+                }
               }
 
               // Log structured error
@@ -64,10 +69,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
               if (error && typeof error === 'object' && 'kind' in error) {
                 const appError = error as AppError;
 
-                // Auto-redirect on auth errors
                 if (appError.kind === 'auth') {
-                  // Optionally redirect to login
-                  // router.push('/login');
+                  _internalAuth.setAccessToken(null);
+                  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+                    router.replace('/login');
+                  }
                 }
 
                 // Log all mutation errors
@@ -83,5 +89,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }),
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  );
 }

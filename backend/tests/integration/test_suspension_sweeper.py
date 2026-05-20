@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
 from saz.engine.suspension_sweeper import SuspensionSweeper
+from tests.conftest import TEST_USER_ID
 
 
 def _make_flow(session: Session, flow_id: str = "flow_sweeper_test") -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=flow_id,
         name="Sweeper Test Flow",
         definition={
@@ -51,6 +53,7 @@ def _make_suspended_run(
     callback_id: str | None = None,
 ) -> str:
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
         status="suspended",

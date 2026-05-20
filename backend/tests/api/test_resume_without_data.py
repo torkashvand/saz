@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import Flow, Run, Step
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture
@@ -22,6 +23,7 @@ def suspended_run(db_engine):
     """Run suspended at a human.approval gate. Mirrors test_resume_endpoint fixture."""
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id="flow_resume_nodata",
             name="resume_nodata",
             definition={
@@ -50,6 +52,7 @@ def suspended_run(db_engine):
         session.commit()
 
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id="run_resume_nodata_1",
             flow_id="flow_resume_nodata",
             status="suspended",

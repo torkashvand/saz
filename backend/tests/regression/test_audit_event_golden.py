@@ -24,6 +24,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 from tests.fakes.critic import FakeCritic
 from tests.fakes.tools import RecordingTool
 
@@ -48,6 +49,7 @@ def _load_golden() -> dict[str, list[str]]:
 
 def _seed_one_step_run(session: Session, run_id: str = "run_golden_1") -> str:
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=f"flow_{run_id}",
         name=f"flow_{run_id}",
         definition={
@@ -69,6 +71,7 @@ def _seed_one_step_run(session: Session, run_id: str = "run_golden_1") -> str:
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=f"flow_{run_id}",
         status="queued",

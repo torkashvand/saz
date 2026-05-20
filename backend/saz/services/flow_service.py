@@ -13,7 +13,7 @@ class FlowService:
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
 
-    def register(self, yaml_content: str) -> str:
+    def register(self, yaml_content: str, created_by_user_id: str) -> str:
         """Register a new flow from YAML DSL.
 
         Runs the full DSL compiler before persisting so /flows and
@@ -47,14 +47,20 @@ class FlowService:
         existing = self.uow.flows.get_by_name(name)
 
         if existing:
-            # Update existing flow
+            # Update existing flow — keep the original creator on the row.
             flow = self.uow.flows.update_definition(name, dsl, version, description, yaml_content)
             assert flow is not None
             self.uow.commit()
             return flow.id
         else:
-            # Create new flow
-            flow = self.uow.flows.create(name, dsl, version, description, yaml_content)
+            flow = self.uow.flows.create(
+                name=name,
+                definition=dsl,
+                version=version,
+                description=description,
+                source_yaml=yaml_content,
+                created_by_user_id=created_by_user_id,
+            )
             self.uow.commit()
             return flow.id
 

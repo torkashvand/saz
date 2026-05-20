@@ -25,6 +25,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
 from saz.tools.registry import ToolRegistry
+from tests.conftest import TEST_USER_ID
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,6 +55,7 @@ def _make_critique(verdict, reasoning="ok", confidence=0.9):
 
 def _setup_flow_and_run(session, flow_id, run_id, steps_def, status="pending"):
     flow = Flow(
+        created_by_user_id=TEST_USER_ID,
         id=flow_id,
         name="test-flow",
         definition={
@@ -65,6 +67,7 @@ def _setup_flow_and_run(session, flow_id, run_id, steps_def, status="pending"):
         },
     )
     run = Run(
+        created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
         status=status,
@@ -322,6 +325,7 @@ def test_resume_after_approval_continues_from_correct_step(db_engine):
     # Phase 1: Set up flow and run with s1 completed, s2 completed (approved), run queued
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-flow",
             definition={
@@ -333,6 +337,7 @@ def test_resume_after_approval_continues_from_correct_step(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="pending",  # Will be set to running by executor
@@ -446,6 +451,7 @@ def test_resume_after_webhook_continues_from_correct_step(db_engine):
 
     with Session(db_engine) as session:
         flow = Flow(
+            created_by_user_id=TEST_USER_ID,
             id=flow_id,
             name="test-flow",
             definition={
@@ -457,6 +463,7 @@ def test_resume_after_webhook_continues_from_correct_step(db_engine):
             },
         )
         run = Run(
+            created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
             status="pending",

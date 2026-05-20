@@ -46,5 +46,30 @@ class Settings(BaseSettings):
     """Disable the sweeper entirely (e.g. for in-process tests where the
     background thread would race with synchronous assertions)."""
 
+    # --- Authentication ---
+    JWT_SECRET_KEY: str = ""
+    """HMAC secret used to sign and verify JWT access tokens.
+
+    Production deployments MUST set this to a strong random value.
+    A blank value disables auth-token issuance (login will fail) so an
+    unconfigured deployment fails closed rather than minting tokens
+    anyone with the source code could forge.
+    """
+    JWT_ALGORITHM: str = "HS256"
+    """JWT signing algorithm. HS256 (HMAC-SHA256) is the default; do not
+    change without also rotating ``JWT_SECRET_KEY`` and reviewing the
+    decode path."""
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
+    """Access-token lifetime in minutes. Refresh tokens and revocation are
+    out of scope — when this expires the user must log in again."""
+    ALLOW_USER_REGISTRATION: bool = True
+    """Whether POST /api/v1/auth/register is open to anonymous callers.
+
+    Until RBAC and invitation flows land, this is the only programmatic way
+    to create a user; the CLI bootstrap script (saz.scripts.create_user) is
+    the recommended path for production. Set to False once those mechanisms
+    exist to prevent anonymous account creation.
+    """
+
 
 settings = Settings()

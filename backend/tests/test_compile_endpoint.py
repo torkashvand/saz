@@ -1,14 +1,9 @@
 """Test the /api/v1/flows/compile endpoint (strict DSL)."""
 
-from fastapi.testclient import TestClient
 
-from saz.api import app
-
-client = TestClient(app)
-
-
-def test_compile_valid_flow():
+def test_compile_valid_flow(app_client):
     """Compiles a valid, strict DSL flow."""
+    client = app_client
     yaml_content = """
 schema_version: 1
 flow:
@@ -74,19 +69,19 @@ credentials:
     assert "api_key" in data["workflow_summary"]["credentials"]
 
 
-def test_compile_invalid_yaml():
+def test_compile_invalid_yaml(app_client):
     """Bad YAML should produce 400 with an error body."""
     yaml_content = """
 flow:
   name: InvalidFlow
 # Missing workflow and schema_version
 """
-    response = client.post("/api/v1/flows/compile", json={"yaml": yaml_content})
+    response = app_client.post("/api/v1/flows/compile", json={"yaml": yaml_content})
     assert response.status_code == 400
     assert "error" in response.json()
 
 
-def test_compile_missing_required_fields():
+def test_compile_missing_required_fields(app_client):
     """Missing required top-level keys should be rejected."""
     yaml_content = """
 schema_version: 1
@@ -97,6 +92,6 @@ form:
 workflow:
   steps: []
 """
-    response = client.post("/api/v1/flows/compile", json={"yaml": yaml_content})
+    response = app_client.post("/api/v1/flows/compile", json={"yaml": yaml_content})
     assert response.status_code == 400
     assert "error" in response.json()

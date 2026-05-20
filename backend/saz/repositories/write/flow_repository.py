@@ -20,6 +20,7 @@ class FlowRepository(BaseRepository[Flow]):
         self,
         name: str,
         definition: dict,
+        created_by_user_id: str,
         version: str | None = None,
         description: str | None = None,
         source_yaml: str | None = None,
@@ -33,6 +34,7 @@ class FlowRepository(BaseRepository[Flow]):
             definition=definition,
             source_yaml=source_yaml,
             created_at=datetime.now(UTC),
+            created_by_user_id=created_by_user_id,
         )
         return self.add(flow)
 

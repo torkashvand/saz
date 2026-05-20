@@ -3,10 +3,13 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 
 from saz.audit.event_bus import event_bus
+from saz.db.dependencies import get_uow
+from saz.db.unit_of_work import UnitOfWork
 from saz.domain.event_schema import Event
+from saz.services.auth_service import AuthError, AuthService
 
 router = APIRouter()
 
@@ -15,6 +18,8 @@ router = APIRouter()
 async def stream_run_events(
     websocket: WebSocket,
     run_id: str,
+    token: str | None = Query(default=None),
+    uow: UnitOfWork = Depends(get_uow),
 ):
     """
     Stream live events for a specific run via WebSocket.
@@ -51,6 +56,19 @@ async def stream_run_events(
             "schema_version": 1
         }
     """
+    # Authenticate before accepting the WebSocket. Browsers cannot set
+    # Authorization headers on a WS upgrade, so we accept the JWT via a
+    # query parameter. Reject (close before accept) if missing/invalid so
+    # an unauthenticated client never sees a single event.
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    try:
+        AuthService(uow).user_from_token(token)
+    except AuthError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
 
     # Subscribe to event bus for this run
@@ -85,6 +103,7 @@ async def stream_run_events(
                     "planner_mode": event.planner_mode,
                     "severity": event.severity,
                     "actor": event.actor,
+                    "actor_user_id": event.actor_user_id,
                     "summary": event.summary,
                     "payload": event.payload,
                     "tags": event.tags,

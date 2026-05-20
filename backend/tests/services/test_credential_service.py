@@ -9,6 +9,7 @@ from saz.db.models import Credential
 from saz.db.unit_of_work import UnitOfWork
 from saz.services.credential_service import CredentialService
 from saz.settings import settings
+from tests.conftest import TEST_USER_ID
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +29,7 @@ def test_round_trip_returns_original_data(db_engine):
                 credential_type="api_token",
                 data={"token": "ghp_super_secret_123"},
                 description="GitHub PAT",
+                created_by_user_id=TEST_USER_ID,
             )
 
     with Session(db_engine) as session:
@@ -49,6 +51,7 @@ def test_data_is_encrypted_at_rest(db_engine):
                 name="leak_test",
                 credential_type="api_token",
                 data={"token": "PLAINTEXT_SHOULD_NOT_APPEAR"},
+                created_by_user_id=TEST_USER_ID,
             )
 
     with Session(db_engine) as session:
@@ -71,6 +74,7 @@ def test_update_preserves_type_and_changes_data(db_engine):
                 name="rotate_me",
                 credential_type="ssh_key",
                 data={"private_key": "v1"},
+                created_by_user_id=TEST_USER_ID,
             )
 
     with Session(db_engine) as session:
@@ -96,7 +100,12 @@ def test_list_returns_metadata_only(db_engine):
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             svc = CredentialService(uow)
-            svc.create(name="meta_only", credential_type="api_token", data={"token": "SHHH"})
+            svc.create(
+                name="meta_only",
+                credential_type="api_token",
+                data={"token": "SHHH"},
+                created_by_user_id=TEST_USER_ID,
+            )
 
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
@@ -112,7 +121,10 @@ def test_delete_returns_true_when_present_false_when_absent(db_engine):
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             CredentialService(uow).create(
-                name="delete_me", credential_type="api_token", data={"x": 1}
+                name="delete_me",
+                credential_type="api_token",
+                data={"x": 1},
+                created_by_user_id=TEST_USER_ID,
             )
 
     with Session(db_engine) as session:

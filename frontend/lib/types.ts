@@ -476,3 +476,34 @@ export interface AIOpReference {
   default_output_schema: Record<string, any>;
   extras: Record<string, any>;
 }
+
+// --- Auth ---
+
+export interface LoginRequest {
+  identifier: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  username: string;
+  email: string;
+  password: string;
+  display_name?: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  username: string;
+  email: string;
+  display_name?: string | null;
+  is_active: boolean;
+  created_at: string;
+  last_login_at?: string | null;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  user: CurrentUser;
+}

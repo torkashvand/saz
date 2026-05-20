@@ -3,7 +3,7 @@
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
@@ -12,20 +12,34 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from saz.agents import LLMPort, LLMResponse
-
-# Set test DATABASE_URL before importing saz modules (will be updated per test)
+# Set environment variables BEFORE importing any saz module so the settings
+# singleton picks them up on first instantiation.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 # Disable the SuspensionSweeper background thread for tests — each test gets
 # its own temp-file SQLite engine, so a process-wide sweeper running against
 # a stale DATABASE_URL would error on "no such table: runs". Tests that need
 # the sweeper drive it synchronously via SuspensionSweeper(engine=...).sweep_once().
 os.environ["SUSPENSION_SWEEP_ENABLED"] = "False"
+# Auth tests need a JWT secret. Set it before importing saz modules so the
+# settings singleton picks it up.
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-do-not-use-in-prod")
 
+from saz.agents import LLMPort, LLMResponse
 from saz.api import app
+from saz.api.dependencies import get_current_user
 from saz.db.dependencies import get_uow
-from saz.db.models import Base
+from saz.db.models import Base, User
 from saz.db.unit_of_work import UnitOfWork
+from saz.security import hash_password
+
+# Fixed test-user id used everywhere a test inserts a Flow/Run/Credential
+# directly. The `users` row is seeded into every fresh test database by the
+# ``db_engine`` fixture so all FKs resolve without each test having to
+# coordinate with the auth fixtures.
+TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
+TEST_USER_USERNAME = "testuser"
+TEST_USER_EMAIL = "testuser@example.com"
+TEST_USER_PASSWORD = "test-password-123"
 
 
 @pytest.fixture(scope="function")
@@ -41,6 +55,30 @@ def db_engine():
         database_url = f"sqlite:///{db_path}"
         engine = create_engine(database_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(bind=engine)
+
+        # Seed the canonical test user so that direct ORM inserts of Flow,
+        # Run, and Credential rows in legacy tests resolve their NOT NULL
+        # ``created_by_user_id`` FK without each test having to manage the
+        # auth fixture chain.
+        seed_session = sessionmaker(bind=engine)()
+        try:
+            now = datetime.now(UTC)
+            seed_session.add(
+                User(
+                    id=TEST_USER_ID,
+                    username=TEST_USER_USERNAME,
+                    email=TEST_USER_EMAIL,
+                    display_name="Test User",
+                    password_hash=hash_password(TEST_USER_PASSWORD),
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            seed_session.commit()
+        finally:
+            seed_session.close()
+
         yield engine
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
@@ -96,13 +134,84 @@ def sync_executor(db_engine):
 
 
 @pytest.fixture(scope="function")
-def app_client(db_engine, sync_executor):
-    """Create FastAPI test client with UnitOfWork override."""
-    # Create a session factory bound to the test engine
+def test_user_token(db_engine) -> str:
+    """Mint a real JWT for the seeded test user.
+
+    Use this in tests that exercise endpoints (like the WebSocket stream)
+    that decode the token directly rather than going through the FastAPI
+    ``get_current_user`` dependency override.
+    """
+    from saz.security import create_access_token
+
+    token, _ = create_access_token(user_id=TEST_USER_ID, username=TEST_USER_USERNAME)
+    return token
+
+
+@pytest.fixture(scope="function")
+def test_user(db_engine) -> User:
+    """Return the seeded test user (created by ``db_engine``).
+
+    Re-reads the row from a fresh session so callers get an ORM instance
+    that's safe to use without binding lifetime concerns.
+    """
+    session = sessionmaker(bind=db_engine)()
+    try:
+        user = session.get(User, TEST_USER_ID)
+        assert user is not None, "db_engine fixture failed to seed test user"
+        session.expunge(user)
+        return user
+    finally:
+        session.close()
+
+
+@pytest.fixture(scope="function")
+def app_client(db_engine, sync_executor, test_user):
+    """FastAPI test client that auto-authenticates as ``test_user``.
+
+    Existing tests treat the API as if no auth exists; rather than rewriting
+    every test to log in, we override ``get_current_user`` to return the
+    seeded user. Tests that specifically want to exercise the auth gate use
+    ``unauthenticated_app_client`` instead.
+    """
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
 
     def override_get_uow():
-        # Create a NEW session for each request (like production)
+        session = TestingSessionLocal()
+        try:
+            with UnitOfWork(session) as uow:
+                yield uow
+        finally:
+            session.close()
+
+    def override_current_user() -> User:
+        # Re-read the user from the test engine on each request so the
+        # ORM-attached row belongs to a live session and SQLAlchemy will
+        # not complain about a detached instance.
+        session = TestingSessionLocal()
+        try:
+            user = session.get(User, test_user.id)
+            assert user is not None
+            session.expunge(user)
+            return user
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_uow] = override_get_uow
+    app.dependency_overrides[get_current_user] = override_current_user
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def unauthenticated_app_client(db_engine, sync_executor):
+    """Test client with no current-user override — every protected endpoint
+    will return 401. Use for negative tests that verify the auth gate."""
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+
+    def override_get_uow():
         session = TestingSessionLocal()
         try:
             with UnitOfWork(session) as uow:
@@ -112,7 +221,6 @@ def app_client(db_engine, sync_executor):
 
     app.dependency_overrides[get_uow] = override_get_uow
 
-    # Use TestClient with raise_server_exceptions to catch executor errors
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 

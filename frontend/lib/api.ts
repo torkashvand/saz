@@ -39,9 +39,14 @@ import type {
   RunGraphResponse,
   // Auth
   LoginRequest,
-  RegisterRequest,
+  ChangePasswordRequest,
   TokenResponse,
   CurrentUser,
+  // Admin
+  AdminUser,
+  AdminUserListResponse,
+  AdminCreateUserRequest,
+  AdminUpdateUserRequest,
   // Legacy
   FlowGraphResponse,
 } from './types';
@@ -153,20 +158,57 @@ export const api = {
     }),
 
   /**
-   * Create a new user account. Open while user registration is enabled on
-   * the backend (ALLOW_USER_REGISTRATION); will 403 otherwise.
-   */
-  register: (data: RegisterRequest) =>
-    fetchApi<TokenResponse>('/api/v1/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  /**
    * Return the currently-authenticated user. Used to bootstrap the
    * session on page reload.
    */
   getCurrentUser: () => fetchApi<CurrentUser>('/api/v1/auth/me'),
+
+  /**
+   * Self-service password change. Required after an admin reset (the
+   * backend gates all operational endpoints until the user picks a new
+   * password).
+   */
+  changePassword: (data: ChangePasswordRequest) =>
+    fetchApi<CurrentUser>('/api/v1/auth/change_password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // ========== Admin: User management (admin-only) ==========
+
+  listUsers: () => fetchApi<AdminUserListResponse>('/api/v1/admin/users'),
+
+  getUser: (id: string) => fetchApi<AdminUser>(`/api/v1/admin/users/${id}`),
+
+  createUser: (data: AdminCreateUserRequest) =>
+    fetchApi<AdminUser>('/api/v1/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateUser: (id: string, data: AdminUpdateUserRequest) =>
+    fetchApi<AdminUser>(`/api/v1/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  setUserActive: (id: string, isActive: boolean) =>
+    fetchApi<AdminUser>(`/api/v1/admin/users/${id}/set_active`, {
+      method: 'POST',
+      body: JSON.stringify({ is_active: isActive }),
+    }),
+
+  setUserAdmin: (id: string, isAdmin: boolean) =>
+    fetchApi<AdminUser>(`/api/v1/admin/users/${id}/set_admin`, {
+      method: 'POST',
+      body: JSON.stringify({ is_admin: isAdmin }),
+    }),
+
+  resetUserPassword: (id: string, temporaryPassword: string) =>
+    fetchApi<AdminUser>(`/api/v1/admin/users/${id}/reset_password`, {
+      method: 'POST',
+      body: JSON.stringify({ temporary_password: temporaryPassword }),
+    }),
 
   // ========== Flow Endpoints ==========
 

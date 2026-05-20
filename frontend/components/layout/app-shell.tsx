@@ -5,24 +5,41 @@ import { NavHeader } from './nav-header';
 import { ProtectedRoute } from './protected-route';
 
 const PUBLIC_PATHS = ['/login'];
+// Authenticated-but-no-app-access — reachable while must_change_password
+// is still true, so the gated user can complete the change.
+const FORCED_CHANGE_OK_PATHS = ['/change-password'];
+const ADMIN_PATH_PREFIX = '/admin';
 
 /**
  * Top-level chrome + auth gate.
  *
- * Every page except those in PUBLIC_PATHS gets wrapped in ProtectedRoute,
- * which pushes unauthenticated visitors to /login. The login page itself
- * is rendered raw so users can sign in without an infinite redirect loop.
+ * - PUBLIC_PATHS: rendered raw (no auth check).
+ * - /change-password: wrapped in ProtectedRoute but the route guard
+ *   knows to allow users with must_change_password through.
+ * - /admin/*: wrapped with requireAdmin=true so non-admins are bounced.
+ * - Everything else: standard authenticated + password-set gate.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isPublic = PUBLIC_PATHS.includes(pathname || '');
+  const pathname = usePathname() || '';
+  const isPublic = PUBLIC_PATHS.includes(pathname);
+  const requireAdmin = pathname.startsWith(ADMIN_PATH_PREFIX);
+
+  let content: React.ReactNode = children;
+  if (!isPublic) {
+    content = <ProtectedRoute requireAdmin={requireAdmin}>{children}</ProtectedRoute>;
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
       <NavHeader />
-      <main className="flex-1">
-        {isPublic ? children : <ProtectedRoute>{children}</ProtectedRoute>}
-      </main>
+      <main className="flex-1">{content}</main>
     </div>
   );
 }
+
+// Exported for tests if anyone needs to mirror the policy list.
+export const _appShellInternals = {
+  PUBLIC_PATHS,
+  FORCED_CHANGE_OK_PATHS,
+  ADMIN_PATH_PREFIX,
+};

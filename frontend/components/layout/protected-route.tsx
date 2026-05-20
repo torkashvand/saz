@@ -13,25 +13,56 @@ import { useAuth } from '@/lib/auth';
  *    already-authenticated user).
  *  - If unauthenticated, push to /login?next=<current path> so the user
  *    lands back on the same page after signing in.
- *  - The /login page itself opts out by not being wrapped.
+ *  - If authenticated but ``must_change_password`` is set, push to
+ *    /change-password. The backend ALSO blocks operational endpoints in
+ *    this state — the redirect is UX, not the security boundary.
+ *  - The /login and /change-password pages opt out by not being wrapped.
  */
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+export function ProtectedRoute({
+  children,
+  requireAdmin = false,
+}: {
+  children: React.ReactNode;
+  requireAdmin?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isAdmin, mustChangePassword } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated && pathname !== '/login') {
       const next = encodeURIComponent(pathname || '/');
       router.replace(`/login?next=${next}`);
+      return;
     }
-  }, [isAuthenticated, isLoading, pathname, router]);
+    if (
+      isAuthenticated &&
+      mustChangePassword &&
+      pathname !== '/change-password' &&
+      pathname !== '/login'
+    ) {
+      router.replace('/change-password');
+      return;
+    }
+    if (requireAdmin && isAuthenticated && !isAdmin) {
+      // Non-admins land on / rather than a 403 page; the nav doesn't
+      // show admin links to them anyway, so this is the polite fallback
+      // if someone deep-links into the admin area.
+      router.replace('/');
+    }
+  }, [isAuthenticated, isLoading, isAdmin, mustChangePassword, pathname, router, requireAdmin]);
 
   if (isLoading) {
     return null;
   }
   if (!isAuthenticated) {
+    return null;
+  }
+  if (mustChangePassword && pathname !== '/change-password') {
+    return null;
+  }
+  if (requireAdmin && !isAdmin) {
     return null;
   }
   return <>{children}</>;

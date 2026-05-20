@@ -62,14 +62,6 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
     """Access-token lifetime in minutes. Refresh tokens and revocation are
     out of scope — when this expires the user must log in again."""
-    ALLOW_USER_REGISTRATION: bool = True
-    """Whether POST /api/v1/auth/register is open to anonymous callers.
-
-    Until RBAC and invitation flows land, this is the only programmatic way
-    to create a user; the CLI bootstrap script (saz.scripts.create_user) is
-    the recommended path for production. Set to False once those mechanisms
-    exist to prevent anonymous account creation.
-    """
 
 
 settings = Settings()

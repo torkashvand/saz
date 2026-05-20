@@ -167,7 +167,6 @@ Backend env vars (see `backend/.env.example`):
 | `JWT_SECRET_KEY`                               | (empty)                       | HMAC secret used to sign access tokens. **Required** — login fails closed when empty.                          |
 | `JWT_ALGORITHM`                                | `HS256`                       | JWT signing algorithm.                                                                                        |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`              | `720`                         | Access-token lifetime in minutes. No refresh tokens — users log in again after expiry.                        |
-| `ALLOW_USER_REGISTRATION`                      | `true`                        | If `false`, `POST /api/v1/auth/register` returns 403. Disable in production once you have an alternative onboarding path. |
 
 LiteLLM picks up provider credentials from the standard environment variables
 (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). Without a configured provider, any
@@ -182,13 +181,67 @@ Frontend env vars (see `frontend/.env.example`):
 
 `.env` and `.env*.local` are gitignored; commit `.env.example` only.
 
-## Authentication
+## Authentication and user management
 
-Saz uses username/password login with JWT-based bearer tokens.
+Saz uses username/password login with JWT-based bearer tokens. User
+creation and password recovery are intentionally admin-driven: there is
+**no public registration** and **no public forgot-password flow**.
 
-- Users authenticate against `POST /api/v1/auth/login` with either their
-  username or email and receive a JWT access token. All other protected
-  endpoints expect that token in `Authorization: Bearer <token>`.
+**Account model**
+
+- Every account has two binary capability flags: `is_active` (can the
+  user log in) and `is_admin` (can the user reach the admin user-
+  management API/UI). There are no roles, no permission matrices, no
+  teams, and no tenants.
+- A `must_change_password` flag is flipped whenever an admin resets a
+  user's password. While set, the backend blocks every operational
+  endpoint for that user with HTTP 403 + `X-Password-Change-Required:
+  true`; only `/auth/me` and `/auth/change_password` remain reachable.
+  The frontend reads the flag and redirects the user to the
+  change-password screen.
+
+**Endpoints**
+
+- `POST /api/v1/auth/login` — username-or-email + password → JWT.
+- `GET  /api/v1/auth/me` — current user (allowed even while
+  `must_change_password=true`).
+- `POST /api/v1/auth/change_password` — self-service. Requires the
+  current password so a stolen token alone cannot rotate it.
+- `GET /POST /PATCH /api/v1/admin/users[/{id}/…]` — admin-only user
+  management. Includes `set_active`, `set_admin`, and `reset_password`.
+
+**Password recovery is admin-driven**
+
+If a user forgets their password, an admin resets it from the admin
+panel (or via `POST /api/v1/admin/users/{id}/reset_password`). The
+admin hands the temporary password to the user out-of-band. The
+backend marks the user as `must_change_password`; on next login the
+user is forced to choose a new password before they can use Saz.
+
+There is **no** "Forgot password?" link, no email reset, and no reset
+token. The only paths to a working account are: ask an admin, or be
+the admin (and the first admin is created via the CLI below).
+
+**Other product non-goals (intentional):** no RBAC, no roles, no
+permissions, no teams, no organizations, no tenants, no SSO/OIDC, no
+OAuth, no invitation workflow, no billing, no enterprise IdP
+integration. Do not market this as enterprise-identity-ready.
+
+**Bootstrap the first admin (CLI)**
+
+```bash
+uv run python -m saz.scripts.create_user \
+    --username alice --email alice@example.com
+# password prompted interactively; defaults to creating an admin
+```
+
+After this admin exists, every subsequent user is created from the
+**Admin → Users** screen (or `POST /api/v1/admin/users`). The CLI also
+supports `--no-admin` and `--password` if you need it for scripted
+deployments — but most operators should not use those.
+
+**Operational notes**
+
 - Passwords are stored as bcrypt hashes (cost 12). Plaintext passwords
   are never logged or returned by any endpoint.
 - Token lifetime defaults to 12 hours. There are no refresh tokens or
@@ -200,41 +253,20 @@ Saz uses username/password login with JWT-based bearer tokens.
   intentionally remains public. It authenticates the caller via the
   unguessable callback id embedded in the URL, which is what external
   systems use to resume a suspended run. Treat that id as a credential.
-
-**Bootstrap a user:**
-
-```bash
-# Recommended for production deployments
-uv run python -m saz.scripts.create_user \
-    --username alice --email alice@example.com
-```
-
-**Or hit the open registration endpoint** while `ALLOW_USER_REGISTRATION`
-is `true`:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
-    -H 'content-type: application/json' \
-    -d '{"username": "alice", "email": "alice@example.com", "password": "..."}'
-```
-
-Set `ALLOW_USER_REGISTRATION=false` in production once you have an
-alternative onboarding path.
-
-**What this is not:** there is no RBAC, no roles, no permissions, no
-teams, no organizations, no tenants, no SSO/OIDC, no OAuth, no password
-reset, no invitation flow, and no admin dashboard. Every authenticated
-user currently has the same level of access. Do not market this as
-enterprise-identity-ready.
+- Admin user-management events (create/disable/reset/etc.) are emitted
+  through structured logs (search for `audit=admin`). They never
+  include plaintext passwords, password hashes, or JWTs.
 
 ## Status
 
 Public prototype. Practical limitations to be aware of:
 
-- Username/password authentication with JWT is available, but RBAC,
-  multi-tenancy, SSO/OIDC, password reset, and invitation flows are not.
-  All authenticated users currently have the same access level — the
-  system knows *who* is calling, not *what* they are allowed to do.
+- Username/password authentication with JWT is available; admins
+  create and manage users from an Admin panel and can reset another
+  user's password (forcing the recipient to change it on next login).
+  RBAC, multi-tenancy, SSO/OIDC, public registration, and
+  forgot-password flows are intentionally not supported. All non-admin
+  authenticated users currently have the same application-level access.
 - CORS is hard-coded to `http://localhost:3000`.
 - Background scheduler and suspension sweeper run in-process; there is no
   separate worker pool.

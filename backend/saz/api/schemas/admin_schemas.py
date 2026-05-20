@@ -1,0 +1,73 @@
+"""Pydantic schemas for admin user-management endpoints.
+
+These are admin-only — they intentionally include ``is_admin`` and
+``must_change_password`` so the admin UI can render the right state.
+Password hashes are never exposed.
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class AdminUserResponse(BaseModel):
+    """Admin view of a user. Never includes password_hash."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    username: str
+    email: str
+    display_name: str | None = None
+    is_active: bool
+    is_admin: bool
+    must_change_password: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AdminUserListResponse(BaseModel):
+    items: list[AdminUserResponse]
+    total: int
+
+
+class AdminCreateUserRequest(BaseModel):
+    """Payload for POST /api/v1/admin/users."""
+
+    username: str = Field(..., min_length=3, max_length=64)
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8, max_length=72)
+    display_name: str | None = Field(default=None, max_length=255)
+    is_admin: bool = False
+    is_active: bool = True
+    # Default True so admin-minted accounts force the recipient to pick a
+    # password the admin doesn't know after first login. Admin can override
+    # if creating themselves a service-style account.
+    must_change_password: bool = True
+
+
+class AdminUpdateUserRequest(BaseModel):
+    """Payload for PATCH /api/v1/admin/users/{id}.
+
+    Only mutable profile fields. ``is_active`` / ``is_admin`` /
+    password rotation each have their own dedicated endpoint so the
+    audit trail is unambiguous.
+    """
+
+    email: str | None = Field(default=None, max_length=255)
+    display_name: str | None = Field(default=None, max_length=255)
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Payload for POST /api/v1/admin/users/{id}/reset_password."""
+
+    temporary_password: str = Field(..., min_length=8, max_length=72)
+
+
+class AdminSetActiveRequest(BaseModel):
+    is_active: bool
+
+
+class AdminSetAdminRequest(BaseModel):
+    is_admin: bool

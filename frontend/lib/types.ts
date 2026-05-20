@@ -484,11 +484,9 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface RegisterRequest {
-  username: string;
-  email: string;
-  password: string;
-  display_name?: string;
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
 }
 
 export interface CurrentUser {
@@ -497,6 +495,8 @@ export interface CurrentUser {
   email: string;
   display_name?: string | null;
   is_active: boolean;
+  is_admin: boolean;
+  must_change_password: boolean;
   created_at: string;
   last_login_at?: string | null;
 }
@@ -506,4 +506,39 @@ export interface TokenResponse {
   token_type: string;
   expires_at: string;
   user: CurrentUser;
+}
+
+// --- Admin user management ---
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  email: string;
+  display_name?: string | null;
+  is_active: boolean;
+  is_admin: boolean;
+  must_change_password: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+}
+
+export interface AdminUserListResponse {
+  items: AdminUser[];
+  total: number;
+}
+
+export interface AdminCreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  display_name?: string;
+  is_admin?: boolean;
+  is_active?: boolean;
+  must_change_password?: boolean;
+}
+
+export interface AdminUpdateUserRequest {
+  email?: string;
+  display_name?: string;
 }

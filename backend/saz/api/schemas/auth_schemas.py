@@ -1,17 +1,13 @@
-"""Pydantic schemas for authentication endpoints."""
+"""Pydantic schemas for authentication endpoints.
+
+Note: there is intentionally no ``RegisterRequest`` schema. Users are
+created exclusively by admins (CLI for the first admin, then via the
+admin user-management API).
+"""
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class RegisterRequest(BaseModel):
-    """Payload for POST /api/v1/auth/register."""
-
-    username: str = Field(..., min_length=3, max_length=64)
-    email: str = Field(..., min_length=3, max_length=255)
-    password: str = Field(..., min_length=8, max_length=72)
-    display_name: str | None = Field(default=None, max_length=255)
 
 
 class LoginRequest(BaseModel):
@@ -26,8 +22,21 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=72)
 
 
+class ChangePasswordRequest(BaseModel):
+    """Payload for POST /api/v1/auth/change_password.
+
+    ``current_password`` is required even when the user is in the
+    ``must_change_password`` state — a stolen token alone must not be
+    enough to rotate the password. After an admin reset the "current"
+    password is the temporary value the admin handed the user.
+    """
+
+    current_password: str = Field(..., min_length=1, max_length=72)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+
 class TokenResponse(BaseModel):
-    """Response shape for both /login and /register (returning a fresh token)."""
+    """Response shape for /login (returning a fresh token + user info)."""
 
     access_token: str
     token_type: str = "bearer"
@@ -45,6 +54,8 @@ class CurrentUserResponse(BaseModel):
     email: str
     display_name: str | None = None
     is_active: bool
+    is_admin: bool
+    must_change_password: bool
     created_at: datetime
     last_login_at: datetime | None = None
 

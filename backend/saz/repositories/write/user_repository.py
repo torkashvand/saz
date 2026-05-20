@@ -28,6 +28,8 @@ class UserRepository(BaseRepository[User]):
         password_hash: str,
         display_name: str | None = None,
         is_active: bool = True,
+        is_admin: bool = False,
+        must_change_password: bool = False,
     ) -> User:
         """Insert a new user. Caller is responsible for hashing the password."""
         now = datetime.now(UTC)
@@ -38,6 +40,8 @@ class UserRepository(BaseRepository[User]):
             display_name=display_name,
             password_hash=password_hash,
             is_active=is_active,
+            is_admin=is_admin,
+            must_change_password=must_change_password,
             created_at=now,
             updated_at=now,
         )
@@ -68,3 +72,25 @@ class UserRepository(BaseRepository[User]):
         if user:
             user.is_active = is_active
         return user
+
+    def list_all(self, limit: int = 200, offset: int = 0) -> tuple[list[User], int]:
+        """Return users ordered by creation time, plus the total count.
+
+        Used by the admin panel — keep it simple, no filtering yet.
+        """
+        from sqlalchemy import func
+
+        total = self.session.scalar(select(func.count()).select_from(User)) or 0
+        stmt = select(User).order_by(User.created_at.asc()).limit(limit).offset(offset)
+        return list(self.session.scalars(stmt).all()), int(total)
+
+    def count_active_admins(self) -> int:
+        """Used to refuse the last-admin disable/demote."""
+        from sqlalchemy import func
+
+        stmt = (
+            select(func.count())
+            .select_from(User)
+            .where(User.is_admin.is_(True), User.is_active.is_(True))
+        )
+        return int(self.session.scalar(stmt) or 0)

@@ -26,9 +26,16 @@ class Base(DeclarativeBase):
 class User(Base):
     """User aggregate - a person who can authenticate to Saz.
 
-    Identity-only: this model knows *who* a user is, not what they're
-    *allowed* to do. RBAC and multi-tenancy are intentionally out of scope —
-    all authenticated users currently have the same access level.
+    Two binary capability flags only — no roles, no permissions, no tenants:
+
+    * ``is_active`` — can the user log in (gate at authentication).
+    * ``is_admin``  — can the user reach the admin user-management surface.
+
+    ``must_change_password`` is set when an admin resets another user's
+    password and cleared the next time that user successfully changes
+    their own. The backend uses this flag to block all operational
+    endpoints for the affected user until they have picked a new
+    password — frontend redirection alone is not enough.
     """
 
     __tablename__ = "users"
@@ -39,6 +46,8 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -51,7 +60,15 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:
-        return f"<User {self.username}>"
+        flags = []
+        if self.is_admin:
+            flags.append("admin")
+        if not self.is_active:
+            flags.append("disabled")
+        if self.must_change_password:
+            flags.append("pw_change_required")
+        suffix = f" [{','.join(flags)}]" if flags else ""
+        return f"<User {self.username}{suffix}>"
 
 
 class Flow(Base):

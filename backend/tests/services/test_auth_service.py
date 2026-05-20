@@ -16,10 +16,10 @@ def _service(db_engine):
     return uow, session, AuthService(uow)
 
 
-def test_register_user_persists_hashed_password(db_engine):
+def test_create_user_persists_hashed_password(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice",
             email="alice@example.com",
             password="strong-password-1",
@@ -36,42 +36,40 @@ def test_register_user_persists_hashed_password(db_engine):
         session.close()
 
 
-def test_register_user_rejects_duplicate_username(db_engine):
+def test_create_user_rejects_duplicate_username(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        auth.register_user(username="alice", email="a@example.com", password="strong-password-1")
+        auth.create_user(username="alice", email="a@example.com", password="strong-password-1")
         with pytest.raises(ConflictError):
-            auth.register_user(
-                username="alice", email="b@example.com", password="strong-password-2"
-            )
+            auth.create_user(username="alice", email="b@example.com", password="strong-password-2")
     finally:
         session.close()
 
 
-def test_register_user_rejects_duplicate_email(db_engine):
+def test_create_user_rejects_duplicate_email(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        auth.register_user(username="alice", email="a@example.com", password="strong-password-1")
+        auth.create_user(username="alice", email="a@example.com", password="strong-password-1")
         with pytest.raises(ConflictError):
-            auth.register_user(username="bob", email="a@example.com", password="strong-password-2")
+            auth.create_user(username="bob", email="a@example.com", password="strong-password-2")
     finally:
         session.close()
 
 
-def test_register_user_rejects_short_password(db_engine):
+def test_create_user_rejects_short_password(db_engine):
     uow, session, auth = _service(db_engine)
     try:
         with pytest.raises(ValidationError):
-            auth.register_user(username="alice", email="a@example.com", password="short")
+            auth.create_user(username="alice", email="a@example.com", password="short")
     finally:
         session.close()
 
 
-def test_register_user_rejects_bad_email(db_engine):
+def test_create_user_rejects_bad_email(db_engine):
     uow, session, auth = _service(db_engine)
     try:
         with pytest.raises(ValidationError):
-            auth.register_user(username="alice", email="not-an-email", password="strong-password-1")
+            auth.create_user(username="alice", email="not-an-email", password="strong-password-1")
     finally:
         session.close()
 
@@ -79,9 +77,7 @@ def test_register_user_rejects_bad_email(db_engine):
 def test_authenticate_accepts_username_or_email(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        auth.register_user(
-            username="alice", email="alice@example.com", password="strong-password-1"
-        )
+        auth.create_user(username="alice", email="alice@example.com", password="strong-password-1")
         # by username
         u1 = auth.authenticate("alice", "strong-password-1")
         assert u1.username == "alice"
@@ -95,9 +91,7 @@ def test_authenticate_accepts_username_or_email(db_engine):
 def test_authenticate_rejects_wrong_password(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        auth.register_user(
-            username="alice", email="alice@example.com", password="strong-password-1"
-        )
+        auth.create_user(username="alice", email="alice@example.com", password="strong-password-1")
         with pytest.raises(AuthError):
             auth.authenticate("alice", "wrong-password")
     finally:
@@ -116,7 +110,7 @@ def test_authenticate_rejects_unknown_user(db_engine):
 def test_authenticate_rejects_disabled_user(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
         assert uow.users is not None
@@ -133,7 +127,7 @@ def test_authenticate_rejects_disabled_user(db_engine):
 def test_authenticate_records_last_login(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
         assert user.last_login_at is None
@@ -150,7 +144,7 @@ def test_authenticate_records_last_login(db_engine):
 def test_user_from_token_returns_active_user(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
         token, _ = auth.issue_access_token(user)
@@ -163,7 +157,7 @@ def test_user_from_token_returns_active_user(db_engine):
 def test_user_from_token_rejects_disabled_user(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
         token, _ = auth.issue_access_token(user)
@@ -181,7 +175,7 @@ def test_user_from_token_rejects_disabled_user(db_engine):
 def test_user_from_token_rejects_deleted_user(db_engine):
     uow, session, auth = _service(db_engine)
     try:
-        user = auth.register_user(
+        user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
         token, _ = auth.issue_access_token(user)

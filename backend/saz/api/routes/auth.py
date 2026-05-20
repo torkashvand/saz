@@ -1,18 +1,27 @@
-"""Authentication endpoints: register, login, current user."""
+"""Authentication endpoints: login, current user, change password.
+
+There is intentionally **no** public registration endpoint and **no**
+forgot-password / public reset endpoint. Users are created exclusively
+by an admin (via the saz.scripts.create_user CLI for the first admin, or
+via the /api/v1/admin/users API thereafter). If a user forgets their
+password, an admin resets it from the admin panel; that reset flips
+``must_change_password`` so the user must pick a new password on next
+login.
+"""
 
 import logging
 
 from fastapi import APIRouter, HTTPException, status
 
-from saz.api.dependencies import AuthServiceDep, CurrentUserDep
+from saz.api.dependencies import AuthenticatedUserDep, AuthServiceDep
 from saz.api.schemas.auth_schemas import (
+    ChangePasswordRequest,
     CurrentUserResponse,
     LoginRequest,
-    RegisterRequest,
     TokenResponse,
 )
+from saz.audit.admin_audit import admin_audit
 from saz.services.auth_service import AuthError
-from saz.settings import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -22,36 +31,14 @@ def _user_response(user) -> CurrentUserResponse:  # type: ignore[no-untyped-def]
     return CurrentUserResponse.model_validate(user)
 
 
-@router.post("/register", response_model=TokenResponse)
-async def register(req: RegisterRequest, auth: AuthServiceDep) -> TokenResponse:
-    """Create a new user account and return a fresh access token.
-
-    This endpoint is open while RBAC and invitation flows are out of scope.
-    Set ALLOW_USER_REGISTRATION=false to disable it once a richer admin
-    surface exists.
-    """
-    if not settings.ALLOW_USER_REGISTRATION:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="user registration is disabled on this deployment",
-        )
-    user = auth.register_user(
-        username=req.username,
-        email=req.email,
-        password=req.password,
-        display_name=req.display_name,
-    )
-    token, expires_at = auth.issue_access_token(user)
-    return TokenResponse(
-        access_token=token,
-        expires_at=expires_at,
-        user=_user_response(user),
-    )
-
-
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, auth: AuthServiceDep) -> TokenResponse:
-    """Exchange a username-or-email + password for a JWT access token."""
+    """Exchange a username-or-email + password for a JWT access token.
+
+    The token is minted regardless of ``must_change_password``; the
+    backend gates operational endpoints separately. The frontend reads
+    that flag from the returned user object and redirects accordingly.
+    """
     try:
         user = auth.authenticate(req.identifier, req.password)
     except AuthError as exc:
@@ -74,6 +61,51 @@ async def login(req: LoginRequest, auth: AuthServiceDep) -> TokenResponse:
 
 
 @router.get("/me", response_model=CurrentUserResponse)
-async def me(user: CurrentUserDep) -> CurrentUserResponse:
-    """Return the currently-authenticated user."""
+async def me(user: AuthenticatedUserDep) -> CurrentUserResponse:
+    """Return the currently-authenticated user.
+
+    Uses ``AuthenticatedUserDep`` rather than ``CurrentUserDep`` so users
+    with ``must_change_password=True`` can still resolve their session
+    (they need to know who they are to render the change-password page).
+    """
     return _user_response(user)
+
+
+@router.post("/change_password", response_model=CurrentUserResponse)
+async def change_password(
+    req: ChangePasswordRequest,
+    user: AuthenticatedUserDep,
+    auth: AuthServiceDep,
+) -> CurrentUserResponse:
+    """Authenticated user changes their own password.
+
+    Requires the current password (so a stolen token alone cannot
+    silently rotate the password). On success, clears
+    ``must_change_password`` so the user can resume normal use of Saz.
+    Emits an audit event attributed to the user.
+    """
+    try:
+        was_forced = user.must_change_password
+        updated = auth.change_password(
+            user_id=user.id,
+            current_password=req.current_password,
+            new_password=req.new_password,
+        )
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    auth.uow.commit()
+    # Audit lives in structured logs (the DB events table is run-scoped).
+    # Never include the passwords themselves.
+    admin_audit(
+        "user.password_changed",
+        actor_user_id=updated.id,
+        actor_username=updated.username,
+        target_user_id=updated.id,
+        target_username=updated.username,
+        changes={"after_admin_reset": was_forced},
+    )
+    return _user_response(updated)

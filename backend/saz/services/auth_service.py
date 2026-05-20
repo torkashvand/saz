@@ -1,4 +1,9 @@
-"""Authentication service - register, login, resolve users from tokens."""
+"""Authentication service - create users, login, resolve users from tokens,
+change passwords.
+
+This is identity-only. Authorization decisions (is_admin / is_active /
+must_change_password gating) live in the FastAPI dependency layer.
+"""
 
 import re
 from datetime import datetime
@@ -17,7 +22,7 @@ from saz.security import (
 
 
 class AuthError(Exception):
-    """Generic authentication failure surfaced to the caller as HTTP 401."""
+    """Generic authentication failure surfaced to the caller as HTTP 401/400."""
 
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
@@ -28,15 +33,14 @@ _MIN_PASSWORD_LENGTH = 8
 class AuthService:
     """Identity service: who is this user, can they log in.
 
-    Does not decide *what* they can do — authorization lives elsewhere when
-    it lands. The only product-level rule enforced here is "disabled users
-    cannot authenticate," which is an identity concern, not a permission.
+    Does not decide *what* they can do beyond the binary admin flag —
+    authorization beyond that lives in the FastAPI dependency layer.
     """
 
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
 
-    # --- Registration ---
+    # --- Validation helpers ---
 
     @staticmethod
     def _validate_username(username: str) -> str:
@@ -59,14 +63,22 @@ class AuthService:
         if len(password) < _MIN_PASSWORD_LENGTH:
             raise ValidationError(f"password must be at least {_MIN_PASSWORD_LENGTH} characters")
 
-    def register_user(
+    # --- User creation ---
+
+    def create_user(
         self,
         username: str,
         email: str,
         password: str,
         display_name: str | None = None,
+        is_admin: bool = False,
+        is_active: bool = True,
+        must_change_password: bool = False,
     ) -> User:
-        """Create a new user account."""
+        """Create a new user account. Used by the CLI bootstrap and by the
+        admin user-management API. There is no public-facing wrapper —
+        callers must be either the CLI (running locally with DB access)
+        or an authenticated admin."""
         assert self.uow.users is not None
         username = self._validate_username(username)
         email = self._validate_email(email)
@@ -82,6 +94,9 @@ class AuthService:
             email=email,
             password_hash=hash_password(password),
             display_name=display_name.strip() if display_name else None,
+            is_active=is_active,
+            is_admin=is_admin,
+            must_change_password=must_change_password,
         )
         self.uow.commit()
         return user
@@ -129,7 +144,10 @@ class AuthService:
 
         Raises ``AuthError`` on expired/malformed tokens or if the
         referenced user has been deleted or disabled — never returns a
-        stale identity.
+        stale identity. Note: this *does not* check
+        ``must_change_password`` — that gate lives in the FastAPI
+        dependency layer so /auth/me and /auth/change_password remain
+        reachable for users in the forced-change state.
         """
         assert self.uow.users is not None
         try:
@@ -148,4 +166,39 @@ class AuthService:
             raise AuthError("user no longer exists")
         if not user.is_active:
             raise AuthError("account is disabled")
+        return user
+
+    # --- Password change (self-service) ---
+
+    def change_password(
+        self,
+        user_id: str,
+        current_password: str,
+        new_password: str,
+    ) -> User:
+        """Authenticated user changes their own password.
+
+        Requires the current password so a stolen token alone cannot
+        rotate the password. Clears ``must_change_password`` on success.
+        Does not commit — the route layer is responsible for committing
+        so audit events flush in the same transaction.
+        """
+        assert self.uow.users is not None
+        user = self.uow.users.get(user_id)
+        if user is None:
+            raise AuthError("user no longer exists")
+        if not user.is_active:
+            raise AuthError("account is disabled")
+
+        if not verify_password(current_password, user.password_hash):
+            raise AuthError("current password is incorrect")
+
+        self._validate_password(new_password)
+        if verify_password(new_password, user.password_hash):
+            # Reject reusing the same password — prevents the trivial
+            # "change to the same value" workaround for an admin reset.
+            raise AuthError("new password must differ from the current one")
+
+        user.password_hash = hash_password(new_password)
+        user.must_change_password = False
         return user

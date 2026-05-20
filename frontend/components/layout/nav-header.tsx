@@ -9,13 +9,16 @@ import { useAuth } from '@/lib/auth';
 export function NavHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout } = useAuth();
 
   const links = [
     { href: '/', label: 'Home' },
     { href: '/flows', label: 'Flows' },
     { href: '/runs', label: 'Runs' },
     { href: '/credentials', label: 'Credentials' },
+    // Admin link is appended only for admins. The backend is the
+    // source of truth — hiding the link is UX, not a security boundary.
+    ...(isAdmin ? [{ href: '/admin/users', label: 'Admin' }] : []),
   ];
 
   function handleLogout() {
@@ -23,9 +26,11 @@ export function NavHeader() {
     router.replace('/login');
   }
 
-  // The nav is reused on the login page itself; hide the navigation links
-  // there since they all 401 without a session and just confuse users.
-  const showLinks = pathname !== '/login';
+  // The nav is reused on the login page (where every link 401s) and on
+  // /change-password (where the user is gated until they finish the
+  // password change). Hide the links in both places to avoid confusing
+  // dead-ends.
+  const showLinks = pathname !== '/login' && pathname !== '/change-password';
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-50">

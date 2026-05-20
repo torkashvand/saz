@@ -53,7 +53,7 @@ def _make_critique(verdict, reasoning="ok", confidence=0.9):
     )
 
 
-def _setup_flow_and_run(session, flow_id, run_id, steps_def, status="pending"):
+def _setup_flow_and_run(session, flow_id, run_id, steps_def, status="queued"):
     flow = Flow(
         created_by_user_id=TEST_USER_ID,
         id=flow_id,
@@ -340,7 +340,7 @@ def test_resume_after_approval_continues_from_correct_step(db_engine):
             created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
-            status="pending",  # Will be set to running by executor
+            status="queued",  # Will be set to running by executor
             planner_mode="deterministic",
             payload={"text": "hello"},
         )
@@ -466,7 +466,7 @@ def test_resume_after_webhook_continues_from_correct_step(db_engine):
             created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
-            status="pending",
+            status="queued",
             planner_mode="deterministic",
             payload={"text": "hello"},
         )

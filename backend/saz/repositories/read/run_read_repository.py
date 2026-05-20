@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from saz.db.models import Run
+from saz.domain.literals import RunStatus, StepStatus
 from saz.repositories.read.dtos import RunDetailDTO, RunListItemDTO, StepSummaryDTO
 
 
@@ -49,7 +50,7 @@ class RunReadRepository:
             RunListItemDTO(
                 id=run.id,
                 flow_id=run.flow_id,
-                status=run.status,
+                status=RunStatus(run.status),
                 created_at=run.created_at,
                 completed_at=run.completed_at,
                 cost_cents=run.cost_cents,
@@ -79,7 +80,7 @@ class RunReadRepository:
                 number=step.number,
                 name=step.name,
                 attempt=step.attempt,
-                status=step.status,
+                status=StepStatus(step.status),
                 start_ts=step.start_ts,
                 end_ts=step.end_ts,
                 duration_ms=step.duration_ms,
@@ -100,7 +101,7 @@ class RunReadRepository:
             id=run.id,
             flow_id=run.flow_id,
             flow_name=run.flow.name,
-            status=run.status,
+            status=RunStatus(run.status),
             payload=run.payload,
             error=run.error,
             cost_cents=run.cost_cents,

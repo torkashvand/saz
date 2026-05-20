@@ -3,8 +3,10 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
+
+from saz.domain.literals import Actor, PlannerMode, Severity
 
 
 def now_utc():
@@ -100,9 +102,9 @@ class Event:
     correlation_id: str | None = None  # For tracing causal chains
 
     # Metadata
-    planner_mode: Literal["deterministic", "agentic"] = "deterministic"
-    severity: Literal["info", "warn", "error"] = "info"
-    actor: Literal["system", "user", "llm"] = "system"
+    planner_mode: PlannerMode = PlannerMode.DETERMINISTIC
+    severity: Severity = Severity.INFO
+    actor: Actor = Actor.SYSTEM
     # Set only when actor == "user". NULL for system/LLM events by design.
     actor_user_id: str | None = None
 
@@ -155,9 +157,9 @@ class Event:
             run_id=data.get("run_id", ""),
             step_id=data.get("step_id"),
             correlation_id=data.get("correlation_id"),
-            planner_mode=data.get("planner_mode", "deterministic"),
-            severity=data.get("severity", "info"),
-            actor=data.get("actor", "system"),
+            planner_mode=PlannerMode(data.get("planner_mode", "deterministic")),
+            severity=Severity(data.get("severity", "info")),
+            actor=Actor(data.get("actor", "system")),
             actor_user_id=data.get("actor_user_id"),
             summary=data.get("summary", ""),
             payload=data.get("payload", {}),

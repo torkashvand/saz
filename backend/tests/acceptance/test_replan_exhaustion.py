@@ -104,7 +104,7 @@ def test_replan_exhaustion_blocks_execution_and_fails_run(one_step_flow_low_repl
     with Session(db_engine) as session:
         run = session.get(Run, run_id)
         assert run is not None
-        assert run.status in ("failed", "error"), (
+        assert run.status == "failed", (
             f"run must end in a terminal failure state after replan "
             f"exhaustion; got {run.status!r}"
         )

@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+
+ToolExecutionStatus = Literal["success", "error"]
+CritiqueVerdict = Literal["PASS", "FAIL", "ESCALATE", "REPLAN"]
 
 
 @dataclass
@@ -122,7 +125,7 @@ class ToolEndEvent:
     step_id: str
     tool: str
     duration_ms: float
-    status: str  # "success" | "error"
+    status: ToolExecutionStatus
     error_type: str | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now())
 
@@ -172,7 +175,7 @@ class CritiqueEvent:
 
     run_id: str
     step_id: str
-    verdict: str  # "PASS" | "FAIL" | "ESCALATE" | "REPLAN"
+    verdict: CritiqueVerdict
     confidence: float
     issues: list[str]  # Sanitized issue descriptions
     summary: str  # Safe summary

@@ -716,72 +716,7 @@ def test_double_retry_increments_attempt_numbers(db_engine):
 
 
 # ---------------------------------------------------------------------------
-# 8. Retry accepts "error" status (not just "failed")
-# ---------------------------------------------------------------------------
-
-
-def test_retry_accepts_error_status(db_engine):
-    """Retry should work on runs with status 'error', not just 'failed'."""
-    flow_id = "flow-retry-error"
-    run_id = "run-retry-error"
-
-    TestSession = sessionmaker(bind=db_engine)
-    session = TestSession()
-    try:
-        flow = Flow(
-            created_by_user_id=TEST_USER_ID,
-            id=flow_id,
-            name="test-retry-error",
-            definition={
-                "workflow": {
-                    "planner_mode": "deterministic",
-                    "steps": STEPS_DEF,
-                },
-                "policies": {"budget_usd": 1.0},
-            },
-        )
-        run = Run(
-            created_by_user_id=TEST_USER_ID,
-            id=run_id,
-            flow_id=flow_id,
-            status="error",
-            planner_mode="deterministic",
-            payload={"text": "hello"},
-            error={"message": "fatal error", "type": "SystemError"},
-        )
-        step = Step(
-            run_id=run_id,
-            number=0,
-            name="extract",
-            step_type="ai.extract",
-            status="failed",
-            attempt=1,
-            error={"message": "extract failed"},
-        )
-        session.add_all([flow, run, step])
-        session.commit()
-    finally:
-        session.close()
-
-    session2 = TestSession()
-    try:
-        with UnitOfWork(session2) as uow:
-            service = RunService(uow)
-            service.retry(run_id)
-
-        session3 = TestSession()
-        try:
-            run = session3.query(Run).filter_by(id=run_id).one()
-            assert run.status == "queued"
-            assert run.error is None
-        finally:
-            session3.close()
-    finally:
-        session2.close()
-
-
-# ---------------------------------------------------------------------------
-# 9. Error summary uses latest attempt after retry, not stale historical one
+# 8. Error summary uses latest attempt after retry, not stale historical one
 # ---------------------------------------------------------------------------
 
 
@@ -1063,7 +998,7 @@ def test_cross_step_templating_resolves_through_executor(db_engine):
             created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
-            status="pending",
+            status="queued",
             planner_mode="deterministic",
             payload={},
         )
@@ -1192,7 +1127,7 @@ def test_policy_violation_marks_step_failed_so_retry_can_find_it(db_engine):
             created_by_user_id=TEST_USER_ID,
             id=run_id,
             flow_id=flow_id,
-            status="pending",
+            status="queued",
             planner_mode="deterministic",
             payload={},
         )

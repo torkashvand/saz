@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Run
+from saz.domain.literals import RunStatus
 from saz.repositories.base import BaseRepository
 
 
@@ -34,7 +35,7 @@ class RunRepository(BaseRepository[Run]):
         run = Run(
             id=str(uuid4()),
             flow_id=flow_id,
-            status="queued",
+            status=RunStatus.QUEUED,
             planner_mode=planner_mode,
             payload=payload,
             cost_cents=0,
@@ -48,7 +49,7 @@ class RunRepository(BaseRepository[Run]):
         actual execution time rather than queue + suspension wait."""
         run = self.get(run_id)
         if run:
-            run.status = "running"
+            run.status = RunStatus.RUNNING
             if run.started_at is None:
                 run.started_at = datetime.now(UTC)
         return run
@@ -80,7 +81,7 @@ class RunRepository(BaseRepository[Run]):
         """
         run = self.get(run_id)
         if run:
-            run.status = "completed"
+            run.status = RunStatus.COMPLETED
             run.completed_at = datetime.now(UTC)
             self._set_duration_ms(run)
         return run
@@ -89,7 +90,7 @@ class RunRepository(BaseRepository[Run]):
         """Mark run as failed with error."""
         run = self.get(run_id)
         if run:
-            run.status = "failed"
+            run.status = RunStatus.FAILED
             run.error = error
             run.completed_at = datetime.now(UTC)
             self._set_duration_ms(run)
@@ -99,7 +100,7 @@ class RunRepository(BaseRepository[Run]):
         """Mark run as suspended."""
         run = self.get(run_id)
         if run:
-            run.status = "suspended"
+            run.status = RunStatus.SUSPENDED
             if error:
                 run.error = error
         return run
@@ -166,7 +167,7 @@ class RunRepository(BaseRepository[Run]):
         now_iso = now.astimezone(UTC).isoformat()
         stmt = (
             select(Run)
-            .where(Run.status == "suspended")
+            .where(Run.status == RunStatus.SUSPENDED)
             .where(Run.error.isnot(None))
             .where(Run.error["timeout_at"].as_string().isnot(None))
             .where(Run.error["timeout_at"].as_string() <= now_iso)

@@ -1,8 +1,11 @@
 """Pydantic schemas for webhook-related endpoints."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+WebhookCallbackAction = Literal["approve", "reject"]
+WebhookCallbackStatus = Literal["resumed", "rejected", "already_processed"]
 
 
 class WebhookEventPayload(BaseModel):
@@ -17,7 +20,7 @@ class WebhookEventPayload(BaseModel):
 class WebhookResponse(BaseModel):
     """Response after receiving webhook."""
 
-    status: str = "received"
+    status: Literal["received"] = "received"
     message: str
     affected_runs: int = 0
 
@@ -39,7 +42,7 @@ class ResumeRunResponse(BaseModel):
 class WebhookCallbackRequest(BaseModel):
     """Inbound webhook callback payload for resuming suspended runs."""
 
-    action: str = "approve"  # approve | reject
+    action: WebhookCallbackAction = "approve"
     data: dict[str, Any] | None = None
     reason: str | None = None
 
@@ -47,6 +50,6 @@ class WebhookCallbackRequest(BaseModel):
 class WebhookCallbackResponse(BaseModel):
     """Response after processing a webhook callback."""
 
-    status: str  # resumed | rejected | error
+    status: WebhookCallbackStatus
     run_id: str
     message: str

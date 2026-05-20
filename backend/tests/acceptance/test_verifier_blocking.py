@@ -121,7 +121,7 @@ def test_verifier_fail_blocks_tool_execution(one_step_flow, db_engine):
     with Session(db_engine) as session:
         run = session.get(Run, run_id)
         assert run is not None
-        assert run.status in ("failed", "error"), (
+        assert run.status == "failed", (
             f"run must end in a terminal failure state when the verifier "
             f"rejects the only step; got {run.status!r}"
         )

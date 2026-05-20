@@ -68,7 +68,7 @@ def _setup_flow_and_run(session, flow_id, run_id, planner_mode="agentic"):
         created_by_user_id=TEST_USER_ID,
         id=run_id,
         flow_id=flow_id,
-        status="pending",
+        status="queued",
         planner_mode=planner_mode,
         payload={"text": "hello"},
     )

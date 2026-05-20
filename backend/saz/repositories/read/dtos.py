@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from saz.domain.literals import RunStatus, StepStatus
+
 
 @dataclass
 class FlowListItemDTO:
@@ -34,7 +36,7 @@ class RunListItemDTO:
 
     id: str
     flow_id: str
-    status: str
+    status: RunStatus
     created_at: datetime
     completed_at: datetime | None
     cost_cents: int
@@ -49,7 +51,7 @@ class StepSummaryDTO:
     number: int
     name: str
     attempt: int
-    status: str
+    status: StepStatus
     start_ts: datetime | None
     end_ts: datetime | None
     duration_ms: int | None
@@ -73,7 +75,7 @@ class RunDetailDTO:
     id: str
     flow_id: str
     flow_name: str
-    status: str
+    status: RunStatus
     payload: dict
     error: dict | None
     cost_cents: int

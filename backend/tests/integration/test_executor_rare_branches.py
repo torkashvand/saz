@@ -128,7 +128,7 @@ def test_execute_run_fails_run_when_flow_relationship_broken(db_engine) -> None:
         # cascade is deferred. Either is acceptable — the contract is that
         # the run never lingers in queued/running.
         if reloaded is not None:
-            assert reloaded.status in {"failed", "error"}
+            assert reloaded.status == "failed"
 
 
 # --------------------------- empty workflow ---------------------------

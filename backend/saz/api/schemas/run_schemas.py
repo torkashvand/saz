@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from saz.domain.literals import PlannerMode, RunStatus, StepStatus
+
 
 class CreateRunRequest(BaseModel):
     """Request to create a new run."""
@@ -18,7 +20,7 @@ class CreateRunResponse(BaseModel):
 
     id: str
     flow_id: str
-    status: str
+    status: RunStatus
 
 
 class RunListItem(BaseModel):
@@ -29,7 +31,7 @@ class RunListItem(BaseModel):
     id: str
     flow_id: str
     flow_name: str
-    status: str
+    status: RunStatus
     created_at: datetime
     completed_at: datetime | None = None
     total_cost_usd: float
@@ -54,7 +56,7 @@ class RunSummary(BaseModel):
     id: str
     flow_id: str
     flow_name: str
-    status: str
+    status: RunStatus
     created_at: datetime
     completed_at: datetime | None = None
     total_cost_usd: float
@@ -71,7 +73,7 @@ class StepSummary(BaseModel):
     name: str
     attempt: int = 1
     step_type: str
-    status: str
+    status: StepStatus
     start_ts: datetime | None = None  # ISO string in response
     end_ts: datetime | None = None  # ISO string in response
     duration_ms: int | None = None
@@ -94,7 +96,7 @@ class RunDetail(BaseModel):
     id: str
     flow_id: str
     flow_name: str
-    status: str
+    status: RunStatus
     created_at: datetime
     completed_at: datetime | None = None
     total_cost_usd: float
@@ -158,8 +160,8 @@ class RunDetailResponse(BaseModel):
     id: str
     flow_id: str
     flow_name: str
-    status: str
-    planner_mode: str
+    status: RunStatus
+    planner_mode: PlannerMode
     payload: dict[str, Any]
     error: dict[str, Any] | None = None
     created_at: datetime
@@ -186,7 +188,7 @@ class RunStepsResponse(BaseModel):
     """Response containing run steps."""
 
     run_id: str
-    status: str
+    status: RunStatus
     steps: list[StepSummary]
 
 
@@ -216,7 +218,7 @@ class RetryRunResponse(BaseModel):
     """Response after retrying a run (same-run semantics)."""
 
     run_id: str
-    status: str
+    status: RunStatus
 
 
 class ComplianceReport(BaseModel):
@@ -224,7 +226,7 @@ class ComplianceReport(BaseModel):
 
     run_id: str
     flow_id: str
-    status: str
+    status: RunStatus
     total_tokens: int
     total_cost_usd: float
     duration_ms: int | None = None

@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from saz.db.models import Step
+from saz.domain.literals import StepStatus
 from saz.repositories.base import BaseRepository
 
 
@@ -22,7 +23,7 @@ class StepRepository(BaseRepository[Step]):
         number: int,
         name: str,
         step_type: str,
-        status: str = "queued",
+        status: StepStatus | str = StepStatus.QUEUED,
         attempt: int = 1,
     ) -> Step:
         """Append new step to run."""
@@ -32,7 +33,7 @@ class StepRepository(BaseRepository[Step]):
             number=number,
             name=name,
             step_type=step_type,
-            status=status,
+            status=StepStatus(status),
             attempt=attempt,
             retry_count=0,
         )
@@ -42,7 +43,7 @@ class StepRepository(BaseRepository[Step]):
         """Mark step as running."""
         step = self.get(step_id)
         if step:
-            step.status = "running"
+            step.status = StepStatus.RUNNING
             step.start_ts = datetime.now(UTC)
         return step
 
@@ -65,7 +66,7 @@ class StepRepository(BaseRepository[Step]):
         """Mark step as completed."""
         step = self.get(step_id)
         if step:
-            step.status = "completed"
+            step.status = StepStatus.COMPLETED
             step.end_ts = datetime.now(UTC)
             self._set_step_duration(step)
         return step
@@ -74,7 +75,7 @@ class StepRepository(BaseRepository[Step]):
         """Mark step as failed with error."""
         step = self.get(step_id)
         if step:
-            step.status = "failed"
+            step.status = StepStatus.FAILED
             step.error = error
             step.end_ts = datetime.now(UTC)
             self._set_step_duration(step)
@@ -84,7 +85,7 @@ class StepRepository(BaseRepository[Step]):
         """Mark step as suspended."""
         step = self.get(step_id)
         if step:
-            step.status = "suspended"
+            step.status = StepStatus.SUSPENDED
         return step
 
     def increment_retry(self, step_id: str) -> Step | None:

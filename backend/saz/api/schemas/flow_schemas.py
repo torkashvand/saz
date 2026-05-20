@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from saz.domain.literals import PlannerMode
+
 
 class RegisterFlowRequest(BaseModel):
     """Request to register a new flow from YAML."""
@@ -64,7 +66,7 @@ class FlowDetail(BaseModel):
     description: str | None = None
     definition: dict[str, Any]
     original_yaml: str | None = None
-    planner_mode: str
+    planner_mode: PlannerMode
     policies: WorkflowPolicies
     step_count: int
     created_at: datetime

@@ -30,6 +30,7 @@ from saz.api.schemas.run_schemas import (
 from saz.audit.event_emitter import EventEmitter
 from saz.domain.error_enrichment import ErrorEnrichmentService
 from saz.domain.event_schema import EventType
+from saz.domain.literals import PlannerMode, RunStatus, StepStatus
 from saz.engine.scheduler import get_scheduler
 from saz.settings import settings
 
@@ -118,7 +119,7 @@ async def list_runs(
                 id=r.id,
                 flow_id=r.flow_id,
                 flow_name=r.flow.name if r.flow else "Unknown",
-                status=r.status,
+                status=RunStatus(r.status),
                 created_at=r.created_at,
                 completed_at=r.completed_at,
                 total_cost_usd=r.total_cost_usd or 0.0,
@@ -170,7 +171,7 @@ async def create_run(
     return CreateRunResponse(
         id=run.id,
         flow_id=run.flow_id,
-        status=run.status,
+        status=RunStatus(run.status),
     )
 
 
@@ -191,7 +192,7 @@ async def get_run_summary(
         id=run.id,
         flow_id=run.flow_id,
         flow_name=run.flow.name if run.flow else "Unknown",
-        status=run.status,
+        status=RunStatus(run.status),
         created_at=run.created_at,
         completed_at=run.completed_at,
         total_cost_usd=run.total_cost_usd or 0.0,
@@ -285,7 +286,7 @@ async def get_run_detail(
 
     # Build error summary if run failed
     error_summary_obj = None
-    if run.status in ("failed", "error"):
+    if run.status == RunStatus.FAILED:
         # After retry a run may have multiple failed step attempts.
         # We must use the latest attempt per step name so the error summary
         # reflects the most recent failure, not a stale historical one.
@@ -325,7 +326,7 @@ async def get_run_detail(
                 name=s.name,
                 attempt=s.attempt,
                 step_type=s.step_type,
-                status=s.status,
+                status=StepStatus(s.status),
                 start_ts=s.start_ts,
                 end_ts=s.end_ts,
                 duration_ms=s.duration_ms,
@@ -373,8 +374,8 @@ async def get_run_detail(
         id=run.id,
         flow_id=run.flow_id,
         flow_name=run.flow.name,
-        status=run.status,
-        planner_mode=run.planner_mode,
+        status=RunStatus(run.status),
+        planner_mode=PlannerMode(run.planner_mode),
         payload=run.payload or {},
         error=sanitize_error(run.error, include_sensitive),  # Sanitize run-level error
         created_at=run.created_at,
@@ -409,7 +410,7 @@ async def get_run_steps(
 
     return RunStepsResponse(
         run_id=run.id,
-        status=run.status,
+        status=RunStatus(run.status),
         steps=[
             StepSummary(
                 id=s.id,
@@ -417,7 +418,7 @@ async def get_run_steps(
                 name=s.name,
                 attempt=s.attempt,
                 step_type=s.step_type,
-                status=s.status,
+                status=StepStatus(s.status),
                 start_ts=s.start_ts,
                 end_ts=s.end_ts,
                 duration_ms=s.duration_ms,
@@ -500,7 +501,7 @@ async def retry_run_endpoint(
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
 
-    if run.status not in ["failed", "error"]:
+    if run.status != RunStatus.FAILED:
         raise ValueError(f"Run {run_id} cannot be retried (status: {run.status})")
 
     # Pre-buffer the user-attributed event so retry+attribution share one
@@ -535,7 +536,7 @@ async def retry_run_endpoint(
 
     return RetryRunResponse(
         run_id=run.id,
-        status=run.status,
+        status=RunStatus(run.status),
     )
 
 

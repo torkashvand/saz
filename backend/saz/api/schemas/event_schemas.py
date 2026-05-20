@@ -1,9 +1,11 @@
 """Pydantic schemas for event API responses."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from saz.domain.literals import Actor, PlannerMode, RunStatus, Severity
 
 
 class EventResponse(BaseModel):
@@ -20,9 +22,9 @@ class EventResponse(BaseModel):
     step_id: str | None = None
     correlation_id: str | None = None
 
-    planner_mode: Literal["deterministic", "agentic"]
-    severity: Literal["info", "warn", "error"]
-    actor: Literal["system", "user", "llm"]
+    planner_mode: PlannerMode
+    severity: Severity
+    actor: Actor
     actor_user_id: str | None = None
 
     summary: str
@@ -46,8 +48,8 @@ class RunSummaryResponse(BaseModel):
 
     id: str
     flow_id: str
-    status: str
-    planner_mode: str
+    status: RunStatus
+    planner_mode: PlannerMode
 
     created_at: datetime
     completed_at: datetime | None = None

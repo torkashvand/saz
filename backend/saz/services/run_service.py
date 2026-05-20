@@ -1,6 +1,7 @@
 """Run service - business logic for run operations."""
 
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import RunStatus
 from saz.repositories.read.dtos import RunDetailDTO, RunListItemDTO
 
 
@@ -89,7 +90,7 @@ class RunService:
         if not run_detail:
             raise ValueError(f"Run not found: {run_id}")
 
-        if run_detail.status not in ("failed", "error"):
+        if run_detail.status != RunStatus.FAILED:
             raise ValueError(f"Can only retry failed runs, got: {run_detail.status}")
 
         # Find the first failing step (latest attempt)
@@ -102,7 +103,7 @@ class RunService:
         if not run:
             raise ValueError(f"Run not found: {run_id}")
 
-        run.status = "queued"
+        run.status = RunStatus.QUEUED
         run.error = None
         run.completed_at = None
 

@@ -5,6 +5,7 @@ from saz.agents.critic import CriticAgent
 from saz.agents.deterministic_planner import DeterministicPlanner
 from saz.agents.executor import ExecutorAgent
 from saz.agents.planner_protocol import Planner
+from saz.domain.literals import PlannerMode
 from saz.policies.policy_engine import PolicyEngine, create_default_policy_engine
 from saz.tools.registry import ToolRegistry, create_default_registry
 
@@ -79,22 +80,12 @@ def get_agentic_planner() -> AgenticPlanner:
     return _AGENTIC_PLANNER
 
 
-def get_planner(mode: str) -> Planner:
-    """
-    Get appropriate planner based on planning mode.
-
-    Args:
-        mode: "deterministic" or "agentic"
-
-    Returns:
-        Planner instance (DeterministicPlanner or AgenticPlanner)
-    """
-    if mode == "deterministic":
+def get_planner(mode: PlannerMode | str) -> Planner:
+    """Get appropriate planner based on planning mode."""
+    resolved = PlannerMode(mode)
+    if resolved is PlannerMode.DETERMINISTIC:
         return get_step_planner()
-    elif mode == "agentic":
-        return get_agentic_planner()
-    else:
-        raise ValueError(f"Unknown planner mode: {mode}")
+    return get_agentic_planner()
 
 
 def get_executor() -> ExecutorAgent:

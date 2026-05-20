@@ -1,12 +1,13 @@
 """Helper functions for emitting audit events from the engine."""
 
 from datetime import UTC, datetime
-from typing import Any, Literal, cast
+from typing import Any
 
 from saz.audit.event_bus import event_bus
 from saz.audit.sanitizer import AuditSanitizer
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.event_schema import Event, EventType
+from saz.domain.literals import Actor, PlannerMode, Severity
 
 
 class EventEmitter:
@@ -20,7 +21,7 @@ class EventEmitter:
         self,
         uow: UnitOfWork,
         run_id: str,
-        planner_mode: str,
+        planner_mode: PlannerMode | str,
         pii_policy: str = "redact",
         actor_user_id: str | None = None,
     ):
@@ -34,7 +35,7 @@ class EventEmitter:
         """
         self.uow = uow
         self.run_id = run_id
-        self.planner_mode = planner_mode
+        self.planner_mode = PlannerMode(planner_mode)
         self.sanitizer = AuditSanitizer()
         self.pii_policy = pii_policy
         self.actor_user_id = actor_user_id
@@ -46,8 +47,8 @@ class EventEmitter:
         payload: dict[str, Any] | None = None,
         step_id: str | None = None,
         correlation_id: str | None = None,
-        severity: str = "info",
-        actor: str = "system",
+        severity: Severity | str = Severity.INFO,
+        actor: Actor | str = Actor.SYSTEM,
         tags: dict[str, str] | None = None,
         actor_user_id: str | None = None,
     ) -> None:
@@ -69,10 +70,12 @@ class EventEmitter:
         # Sanitize payload
         sanitized_payload = self.sanitizer.redact_payload(payload or {}, self.pii_policy)
 
+        actor_value = Actor(actor)
+
         # Only attribute to a user when the event is actually a user action.
         resolved_user_id = (
             (actor_user_id if actor_user_id is not None else self.actor_user_id)
-            if actor == "user"
+            if actor_value is Actor.USER
             else None
         )
 
@@ -81,9 +84,9 @@ class EventEmitter:
             run_id=self.run_id,
             step_id=step_id,
             correlation_id=correlation_id,
-            planner_mode=cast(Literal["deterministic", "agentic"], self.planner_mode),
-            severity=cast(Literal["info", "warn", "error"], severity),
-            actor=cast(Literal["system", "user", "llm"], actor),
+            planner_mode=self.planner_mode,
+            severity=Severity(severity),
+            actor=actor_value,
             actor_user_id=resolved_user_id,
             summary=summary,
             payload=sanitized_payload,

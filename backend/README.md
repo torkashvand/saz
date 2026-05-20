@@ -103,7 +103,7 @@ uv run alembic revision --autogenerate -m "describe change"
 ## Run the API
 
 ```bash
-uv run uvicorn saz.api:app --reload --port 8000
+uv run uvicorn saz.api.app:app --reload --port 8000
 ```
 
 - Interactive docs: <http://localhost:8000/api/v1/docs>

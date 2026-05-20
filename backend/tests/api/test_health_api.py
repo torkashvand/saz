@@ -10,7 +10,7 @@ status code to gate deployments. The endpoint must:
 
 from sqlalchemy.exc import OperationalError
 
-from saz.api import app
+from saz.api.app import app
 from saz.db.dependencies import get_uow
 
 

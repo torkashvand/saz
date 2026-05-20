@@ -13,7 +13,7 @@ cd backend
 uv sync
 cp .env.example .env
 uv run alembic upgrade head
-uv run uvicorn saz.api:app --reload --port 8000
+uv run uvicorn saz.api.app:app --reload --port 8000
 
 # Frontend (separate terminal)
 cd frontend

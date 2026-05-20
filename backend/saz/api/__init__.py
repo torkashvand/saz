@@ -28,6 +28,18 @@ from saz.settings import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup/shutdown lifecycle management."""
+    # Fail loud on boot if the JWT secret is missing. Without it, every
+    # login 500s — and because exception responses can lose CORS headers,
+    # the browser surfaces it as a misleading "Connection issue" instead
+    # of a server error. Crashing here puts the real cause in operator
+    # logs the first time uvicorn comes up.
+    if not settings.JWT_SECRET_KEY:
+        raise RuntimeError(
+            "JWT_SECRET_KEY is not configured. Generate one with "
+            "`openssl rand -hex 32` and add it to backend/.env before "
+            "starting the server."
+        )
+
     database_url = settings.DATABASE_URL
 
     # Initialize global singletons (planner, critic, policy engine, etc.)
@@ -78,10 +90,14 @@ def create_app() -> FastAPI:
     app.add_exception_handler(ValueError, value_error_handler)
     app.add_exception_handler(Exception, generic_error_handler)
 
-    # Configure CORS
+    # Configure CORS. The allow-list lives on settings so the middleware
+    # and the exception-handler responses (which CORSMiddleware does not
+    # always decorate) share one source of truth — otherwise a 500 ships
+    # without Access-Control-Allow-Origin and the browser surfaces it as a
+    # network failure.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -109,7 +125,3 @@ def create_app() -> FastAPI:
     app.include_router(stream_router)
 
     return app
-
-
-# Create application instance
-app = create_app()

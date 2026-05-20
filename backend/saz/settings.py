@@ -1,7 +1,9 @@
 import logging
 from pathlib import Path
+from typing import Annotated
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,31 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
     """Access-token lifetime in minutes. Refresh tokens and revocation are
     out of scope — when this expires the user must log in again."""
+
+    # --- CORS ---
+    # ``NoDecode`` keeps pydantic-settings from JSON-parsing the env value,
+    # so the validator below sees the raw ``"a,b,c"`` string and can split
+    # on commas without first tripping a JSONDecodeError.
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    """Browser origins permitted to call the API.
+    ``ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com``.
+    """
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def _parse_allowed_origins(cls, value: object) -> object:
+        """Accept ``a,b,c`` in env vars in addition to a real list.
+
+        Pydantic-settings would otherwise demand JSON (``["a","b"]``),
+        which is awkward to type into ``.env``. A literal list passed
+        in code (the default, or by tests) flows through unchanged.
+        """
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
 
 settings = Settings()

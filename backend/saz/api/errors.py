@@ -6,6 +6,29 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from saz.settings import settings
+
+
+def _cors_headers(request: Request) -> dict[str, str]:
+    """Echo the request Origin back as CORS headers when it's allow-listed.
+
+    FastAPI's CORSMiddleware applies to normal responses but not always to
+    responses produced by ``add_exception_handler`` — those can ship without
+    ``Access-Control-Allow-Origin``, which the browser then surfaces as a
+    network failure. Setting the headers here makes error responses
+    indistinguishable to the browser from successful ones.
+
+    The allow-list lives on ``settings.ALLOWED_ORIGINS`` so the CORS
+    middleware and these handlers cannot drift.
+    """
+    origin = request.headers.get("origin")
+    if origin and origin in settings.ALLOWED_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
 
 class ErrorDetail(BaseModel):
     """Detailed error information."""
@@ -65,7 +88,11 @@ async def service_error_handler(request: Request, exc: Exception) -> JSONRespons
     # Include 'detail' for FastAPI compatibility
     response_data = envelope.model_dump()
     response_data["detail"] = exc.message
-    return JSONResponse(status_code=exc.status_code, content=response_data)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response_data,
+        headers=_cors_headers(request),
+    )
 
 
 async def value_error_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -74,7 +101,11 @@ async def value_error_handler(request: Request, exc: Exception) -> JSONResponse:
     envelope = ErrorEnvelope(
         error="validation_error", message=str(exc), timestamp=datetime.now(UTC).isoformat()
     )
-    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=envelope.model_dump())
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content=envelope.model_dump(),
+        headers=_cors_headers(request),
+    )
 
 
 async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -85,5 +116,7 @@ async def generic_error_handler(request: Request, exc: Exception) -> JSONRespons
         timestamp=datetime.now(UTC).isoformat(),
     )
     return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=envelope.model_dump()
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=envelope.model_dump(),
+        headers=_cors_headers(request),
     )

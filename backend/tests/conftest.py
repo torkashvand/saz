@@ -25,7 +25,7 @@ os.environ["SUSPENSION_SWEEP_ENABLED"] = "False"
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-do-not-use-in-prod")
 
 from saz.agents import LLMPort, LLMResponse
-from saz.api import app
+from saz.api.app import app
 from saz.api.dependencies import get_current_user
 from saz.db.dependencies import get_uow
 from saz.db.models import Base, User

@@ -78,7 +78,7 @@ cp .env.example .env                     # set DATABASE_URL, JWT_SECRET_KEY, ...
 uv run alembic upgrade head              # apply migrations
 uv run python -m saz.scripts.create_user \
     --username alice --email alice@example.com   # create the first user
-uv run uvicorn saz.api:app --reload --port 8000
+uv run uvicorn saz.api.app:app --reload --port 8000
 ```
 
 `JWT_SECRET_KEY` is required — leave it blank and login fails closed.

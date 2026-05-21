@@ -78,43 +78,6 @@ describe('draftToDsl — form fields', () => {
   });
 });
 
-describe('draftToDsl — triggers', () => {
-  it('emits webhook.signature_header when set', () => {
-    const dsl = draftToDsl(
-      baseDraft({
-        triggers: {
-          manual: false,
-          webhook: {
-            enabled: true,
-            path: '/hook',
-            event: 'evt',
-            signature_header: 'X-Signature',
-          },
-        },
-      }),
-    );
-    expect((dsl.triggers as any).webhook).toEqual({
-      path: '/hook',
-      event: 'evt',
-      signature_header: 'X-Signature',
-    });
-  });
-
-  it('drops disabled webhook/schedule blocks', () => {
-    const dsl = draftToDsl(
-      baseDraft({
-        triggers: {
-          manual: true,
-          webhook: { enabled: false, path: '/x' },
-          schedule: { enabled: false, cron: '* * * * *' },
-        },
-      }),
-    );
-    expect((dsl.triggers as any).webhook).toBeUndefined();
-    expect((dsl.triggers as any).schedule).toBeUndefined();
-  });
-});
-
 describe('draftToDsl — policies', () => {
   it('emits the full policies tree', () => {
     const dsl = draftToDsl(

@@ -1,8 +1,8 @@
 meta:
   id: support_ticket_webhook
   title: "Support Ticket Auto-Response"
-  description: "Webhook-triggered support ticket processing with sentiment analysis and auto-response generation"
-  tags: ["support", "webhook", "customer-service", "recommended"]
+  description: "Support ticket processing with sentiment analysis and auto-response generation"
+  tags: ["support", "customer-service", "recommended"]
   complexity: "medium"
   recommended: true
 
@@ -28,11 +28,6 @@ form:
       type: string
       required: false
       description: External ticket ID
-
-triggers:
-  manual: false
-  webhook:
-    path: "/support/ticket"
 
 workflow:
   planner_mode: deterministic

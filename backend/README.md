@@ -38,7 +38,7 @@ Run execution
 | `saz.compiler.dsl`                                                 | YAML → strict workflow model. Enforces `schema_version: 1` and validates steps/forms/policies.                                                               |
 | `saz.compiler.template_validator`                                  | Validates bundled example templates at startup.                                                                                                              |
 | `saz.engine.executor`                                              | Run/step state machine; deterministic and agentic execution paths.                                                                                           |
-| `saz.engine.scheduler`                                             | APScheduler singleton for cron/scheduled triggers.                                                                                                           |
+| `saz.engine.scheduler`                                             | ThreadPoolExecutor-backed singleton that schedules queued runs for in-process execution.                                                                     |
 | `saz.engine.suspension_sweeper`                                    | Background thread that fails suspended runs past their deadline.                                                                                             |
 | `saz.engine.expressions` / `saz.engine.templating`                 | Step-input expression evaluation and templating.                                                                                                             |
 | `saz.agents.deterministic_planner`                                 | 1:1 mapping from `workflow.steps` to execution plan.                                                                                                         |
@@ -55,7 +55,6 @@ Run execution
 | `saz.services.flow_service` / `run_service` / `credential_service` | Business logic between routes and repositories.                                                                                                              |
 | `saz.db.models`                                                    | SQLAlchemy models (flows, runs, steps, events, credentials, …).                                                                                              |
 | `saz.db.unit_of_work`                                              | Transactional unit-of-work wrapper.                                                                                                                          |
-| `saz.triggers.scheduler`                                           | Registers schedule/webhook triggers into APScheduler.                                                                                                        |
 
 ### Database
 

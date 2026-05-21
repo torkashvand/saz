@@ -4,7 +4,6 @@ import type {
   FlowFormField,
   FlowPolicies,
   FlowTelemetry,
-  FlowTriggers,
   WorkflowStepDraft,
 } from './types';
 
@@ -30,9 +29,6 @@ export function draftToDsl(draft: FlowDraft): Record<string, unknown> {
   if (draft.credentials && draft.credentials.uses.length > 0) {
     dsl.credentials = { uses: [...draft.credentials.uses] };
   }
-
-  const triggers = serializeTriggers(draft.triggers);
-  if (triggers) dsl.triggers = triggers;
 
   const policies = serializePolicies(draft.policies);
   if (policies) dsl.policies = policies;
@@ -76,32 +72,6 @@ function serializeFormField(field: FlowFormField): Record<string, unknown> {
   if (field.minimum !== undefined) out.minimum = field.minimum;
   if (field.maximum !== undefined) out.maximum = field.maximum;
   return out;
-}
-
-function serializeTriggers(triggers: FlowTriggers | undefined): Record<string, unknown> | null {
-  if (!triggers) return null;
-  const out: Record<string, unknown> = {};
-  let touched = false;
-  if (triggers.manual !== undefined) {
-    out.manual = triggers.manual;
-    touched = true;
-  }
-  if (triggers.webhook?.enabled) {
-    const w: Record<string, unknown> = {};
-    if (triggers.webhook.event) w.event = triggers.webhook.event;
-    if (triggers.webhook.path) w.path = triggers.webhook.path;
-    if (triggers.webhook.signature_header) w.signature_header = triggers.webhook.signature_header;
-    out.webhook = w;
-    touched = true;
-  }
-  if (triggers.schedule?.enabled) {
-    const s: Record<string, unknown> = {};
-    if (triggers.schedule.cron) s.cron = triggers.schedule.cron;
-    if (triggers.schedule.timezone) s.timezone = triggers.schedule.timezone;
-    out.schedule = s;
-    touched = true;
-  }
-  return touched ? out : null;
 }
 
 function serializePolicies(policies: FlowPolicies | undefined): Record<string, unknown> | null {

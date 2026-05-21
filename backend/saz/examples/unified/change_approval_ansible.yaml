@@ -62,9 +62,6 @@ form:
       format: email
       description: Email of the requester (audit trail)
 
-triggers:
-  manual: true
-
 workflow:
   planner_mode: deterministic
   steps:

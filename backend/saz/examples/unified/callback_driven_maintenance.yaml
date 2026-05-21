@@ -53,9 +53,6 @@ form:
       required: false
       description: System expected to send the completion callback (e.g. "deploy-bot", "operator")
 
-triggers:
-  manual: true
-
 workflow:
   planner_mode: deterministic
   steps:

@@ -24,7 +24,7 @@ checks, audit events, human approvals, and webhook callbacks.
 
 | Concept                   | Meaning                                                                                                                                              |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Workflow**              | A YAML document describing form inputs, policies, triggers, and a sequence of steps.                                                                 |
+| **Workflow**              | A YAML document describing form inputs, policies, and a sequence of steps.                                                                           |
 | **YAML DSL**              | The strict workflow schema (`schema_version: 1`). Compiled by `saz.compiler.dsl`.                                                                    |
 | **Run**                   | A single execution of a workflow against a specific payload. Lifecycle: `queued → running → suspended? → completed` (or `failed`).                   |
 | **Step**                  | A single unit inside a run. Carries `status`, `attempt`, `output`, and `error`.                                                                      |
@@ -53,8 +53,7 @@ saz/
 │   │   ├── policies/         # Budget, PII, rate limit
 │   │   ├── repositories/     # Read/write repository layer
 │   │   ├── services/         # Flow, run, credential services
-│   │   ├── tools/            # HTTP, webhook, artifact, Ansible
-│   │   └── triggers/         # APScheduler trigger registry
+│   │   └── tools/            # HTTP, webhook, artifact, Ansible
 │   ├── alembic/              # Migrations
 │   ├── tests/                # Pytest suite (unit/services/integration/api/...)
 │   └── pyproject.toml

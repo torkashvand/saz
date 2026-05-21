@@ -156,7 +156,6 @@ async def create_run(
         "type": "user",
         "user_id": user.id,
         "user_name": user.display_name or user.username,
-        "trigger_source": "manual",
     }
     service.uow.commit()
 

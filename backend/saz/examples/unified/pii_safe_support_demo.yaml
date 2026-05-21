@@ -30,11 +30,6 @@ form:
       required: false
       description: Optional external ticket/reference ID
 
-triggers:
-  manual: true
-  webhook:
-    path: "/support/pii-safe"
-
 workflow:
   planner_mode: deterministic
   steps:

@@ -547,43 +547,6 @@ def test_dsl_retry_and_backoff_validation():
 
 
 # ---------------------------------------------------------------------------
-# triggers normalization
-# ---------------------------------------------------------------------------
-
-
-def test_triggers_defaults_and_overrides():
-    doc = """
-schema_version: 1
-flow: { name: FlowX, description: "Test workflow" }
-triggers:
-  manual: false
-  webhook: { event: "issue.opened", path: "/hook", signature_header: "X-Sig" }
-  schedule: { cron: "0 * * * *", timezone: "Europe/Amsterdam" }
-workflow:
-  planner_mode: deterministic
-  steps: [ { id: s1, type: human.approval, description: "Filler" } ]
-"""
-    compiled = compile_dsl(doc)
-    t = compiled.triggers
-    assert t["manual"] is False
-    assert t["webhook"]["event"] == "issue.opened"
-    assert t["schedule"]["cron"] == "0 * * * *"
-
-
-def test_triggers_default_manual_true_when_absent():
-    compiled = compile_dsl(
-        """
-schema_version: 1
-flow: { name: FlowX, description: "Test workflow" }
-workflow:
-  planner_mode: deterministic
-  steps: [ { id: s1, type: human.approval, description: "Filler" } ]
-"""
-    )
-    assert compiled.triggers["manual"] is True
-
-
-# ---------------------------------------------------------------------------
 # Full integration happy-path
 # ---------------------------------------------------------------------------
 

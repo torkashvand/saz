@@ -95,7 +95,6 @@ export interface DslMetadata {
     formats: string[];
     aliases: Record<string, string[]>;
   };
-  triggers: Record<string, unknown>;
   policies: Record<string, unknown>;
   telemetry: Record<string, unknown>;
   expression_helpers: Array<{
@@ -194,7 +193,6 @@ export interface RunDetailResponse {
     type: string;
     user_id?: string;
     user_name?: string;
-    trigger_source?: string;
   };
   planned_steps: PlannedStep[];
 }

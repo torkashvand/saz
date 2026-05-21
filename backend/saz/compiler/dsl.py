@@ -18,7 +18,6 @@ Saz supports two planning modes:
 Top-level sections:
 - flow: { name (req), description (req), version?, labels?, owners? }
 - credentials: { uses: [ "credA", "credB" ] }
-- triggers?: { manual?, webhook{event?,path?,signature_header?}?, schedule{cron?,timezone?}? }
 - policies?: {
     budget_usd?,
     pii?{ allow?, tokenize_model_inputs?, exceptions?{ tools?{ <tool>: [path, ...] } } },
@@ -61,7 +60,7 @@ Template syntax:
 IMPORTANT: Do NOT use {{ $step('id').output.field }} - the .output is automatic!
 
 Output:
-- DSLCompiled with form_model, form_schema, workflow_spec, triggers, policies, credentials, warnings
+- DSLCompiled with form_model, form_schema, workflow_spec, policies, credentials, warnings
 """
 
 from __future__ import annotations
@@ -108,30 +107,6 @@ _DSL_SCHEMA: dict[str, Any] | None = {
             "additionalProperties": False,
             "required": ["uses"],
             "properties": {"uses": {"type": "array", "items": {"type": "string"}}},
-        },
-        "triggers": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "manual": {"type": "boolean"},
-                "webhook": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "event": {"type": "string"},
-                        "path": {"type": "string"},
-                        "signature_header": {"type": "string"},
-                    },
-                },
-                "schedule": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "cron": {"type": "string"},
-                        "timezone": {"type": "string"},
-                    },
-                },
-            },
         },
         "policies": {
             "type": "object",
@@ -389,7 +364,6 @@ class DSLCompiled:
     form_model: type[BaseModel]
     form_schema: dict[str, Any]
     workflow_spec: dict[str, Any]
-    triggers: dict[str, Any]
     policies: dict[str, Any]
     credentials: list[str]
     raw_dsl: dict[str, Any]
@@ -765,25 +739,8 @@ def compile_workflow_spec(workflow_def: dict[str, Any], flow_name: str) -> dict[
 
 
 # -------------------------------------------------------------------------------------- #
-# Triggers / Policies / Credentials                                                      #
+# Policies / Credentials                                                                  #
 # -------------------------------------------------------------------------------------- #
-
-
-def _compile_triggers(triggers: dict[str, Any] | None) -> dict[str, Any]:
-    if not triggers:
-        return {"manual": True}
-    out: dict[str, Any] = {"manual": bool(triggers.get("manual", True))}
-    if "webhook" in triggers:
-        wh = triggers["webhook"] or {}
-        out["webhook"] = {
-            "event": wh.get("event"),
-            "path": wh.get("path"),
-            "signature_header": wh.get("signature_header"),
-        }
-    if "schedule" in triggers:
-        sch = triggers["schedule"] or {}
-        out["schedule"] = {"cron": sch.get("cron"), "timezone": sch.get("timezone")}
-    return out
 
 
 def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
@@ -854,7 +811,6 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     flow = cast(dict[str, Any], dsl["flow"])
     form = cast(dict[str, Any], dsl.get("form", {"fields": []}))
     workflow = cast(dict[str, Any], dsl["workflow"])
-    triggers_in = cast(dict[str, Any] | None, dsl.get("triggers"))
     policies_in = cast(dict[str, Any] | None, dsl.get("policies"))
     creds_in = dsl.get("credentials")
 
@@ -872,8 +828,7 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     )
     workflow_spec["steps"] = normalized_steps
 
-    # Triggers + Policies
-    triggers = _compile_triggers(triggers_in)
+    # Policies
     policies = _compile_policies(policies_in)
 
     # Validate template expressions
@@ -904,7 +859,6 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
         form_model=form_model,
         form_schema=form_schema,
         workflow_spec=workflow_spec,
-        triggers=triggers,
         policies=policies,
         credentials=cred_names,
         raw_dsl=dsl | {"credentials_normalized": cred_objects},

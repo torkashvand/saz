@@ -20,9 +20,6 @@ form:
       required: true
       description: Text to analyze
 
-triggers:
-  manual: true
-
 workflow:
   planner_mode: deterministic
   steps:

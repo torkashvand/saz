@@ -25,12 +25,6 @@ form:
       description: Email address to send report
       format: email
 
-triggers:
-  manual: true
-  schedule:
-    cron: "0 9 * * 1"
-    timezone: "America/New_York"
-
 workflow:
   planner_mode: deterministic
   steps:

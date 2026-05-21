@@ -45,11 +45,6 @@ form:
       required: true
       description: "Cost centre / project code."
 
-triggers:
-  manual: true
-  webhook:
-    path: "/procurement/rfp-intake"
-
 workflow:
   planner_mode: deterministic
 

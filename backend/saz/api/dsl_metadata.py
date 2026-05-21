@@ -134,30 +134,6 @@ def _form_field_metadata() -> dict[str, Any]:
     }
 
 
-def _trigger_metadata() -> dict[str, Any]:
-    return {
-        "manual": {"type": "boolean"},
-        "webhook": {
-            "fields": {
-                "event": {"type": "string"},
-                "path": {"type": "string"},
-                "signature_header": {
-                    "type": "string",
-                    "description": (
-                        "Incoming HTTP header that carries the signature for verification."
-                    ),
-                },
-            },
-        },
-        "schedule": {
-            "fields": {
-                "cron": {"type": "string"},
-                "timezone": {"type": "string"},
-            },
-        },
-    }
-
-
 def _policy_metadata() -> dict[str, Any]:
     return {
         "budget_usd": {"type": "number", "minimum": 0},
@@ -281,7 +257,6 @@ def build_dsl_metadata() -> dict[str, Any]:
         "planner_modes": ["deterministic", "agentic"],
         "step_types": [_build_step_type(t) for t in user_facing_step_types],
         "form_fields": _form_field_metadata(),
-        "triggers": _trigger_metadata(),
         "policies": _policy_metadata(),
         "telemetry": _telemetry_metadata(),
         "expression_helpers": _expression_helpers(),

@@ -37,21 +37,6 @@ export interface FormSection {
   fields: FlowFormField[];
 }
 
-export interface FlowTriggers {
-  manual?: boolean;
-  webhook?: {
-    enabled: boolean;
-    event?: string;
-    path?: string;
-    signature_header?: string;
-  };
-  schedule?: {
-    enabled: boolean;
-    cron?: string;
-    timezone?: string;
-  };
-}
-
 export type RetryBackoffMode = 'constant' | 'linear' | 'exponential';
 
 export interface RetryBackoff {
@@ -154,7 +139,6 @@ export interface FlowDraft {
   schema_version: 1;
   flow: FlowSection;
   form?: FormSection;
-  triggers?: FlowTriggers;
   policies?: FlowPolicies;
   telemetry?: FlowTelemetry;
   credentials?: FlowCredentials;
@@ -276,7 +260,6 @@ export function emptyDraft(overrides?: Partial<FlowDraft>): FlowDraft {
   return {
     schema_version: 1,
     flow: { name: 'new_flow', version: '1.0', description: '' },
-    triggers: { manual: true },
     policies: {
       budget_usd: 1.0,
       pii: { allow: false, tokenize_model_inputs: false },

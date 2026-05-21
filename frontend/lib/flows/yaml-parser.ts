@@ -5,7 +5,6 @@ import type {
   FlowPolicies,
   FlowSection,
   FlowTelemetry,
-  FlowTriggers,
   FormFieldType,
   PiiToolException,
   PlannerMode,
@@ -134,7 +133,6 @@ function mapToDraft(raw: unknown, compileResponse: CompileFlowResponse): FlowDra
   const obj = isObject(raw) ? raw : {};
   const flowSrc = isObject(obj.flow) ? obj.flow : {};
   const formSrc = isObject(obj.form) ? obj.form : {};
-  const triggersSrc = isObject(obj.triggers) ? obj.triggers : {};
   const policiesSrc = isObject(obj.policies) ? obj.policies : {};
   const telemetrySrc = isObject(obj.telemetry) ? obj.telemetry : {};
   const credsSrc = isObject(obj.credentials) ? obj.credentials : {};
@@ -164,7 +162,6 @@ function mapToDraft(raw: unknown, compileResponse: CompileFlowResponse): FlowDra
       planner_mode: parsePlannerMode(workflowSrc.planner_mode),
       steps: parseSteps(workflowSrc.steps),
     },
-    triggers: parseTriggers(triggersSrc),
   };
 
   if (formFields) draft.form = { fields: formFields };
@@ -239,28 +236,6 @@ function parseFormFieldType(value: unknown): FormFieldType {
     return value;
   }
   return 'string';
-}
-
-function parseTriggers(value: Record<string, unknown>): FlowTriggers {
-  const out: FlowTriggers = {
-    manual: value.manual === undefined ? true : value.manual === true,
-  };
-  if (isObject(value.webhook)) {
-    out.webhook = {
-      enabled: true,
-      event: asString(value.webhook.event),
-      path: asString(value.webhook.path),
-      signature_header: asString(value.webhook.signature_header),
-    };
-  }
-  if (isObject(value.schedule)) {
-    out.schedule = {
-      enabled: true,
-      cron: asString(value.schedule.cron),
-      timezone: asString(value.schedule.timezone),
-    };
-  }
-  return out;
 }
 
 function parsePolicies(value: Record<string, unknown>): FlowPolicies | undefined {

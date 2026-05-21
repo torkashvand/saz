@@ -34,15 +34,6 @@ BUILDER_GENERATED_YAML = textwrap.dedent(
     credentials:
       uses:
         - api_token
-    triggers:
-      manual: true
-      webhook:
-        event: support.ticket.created
-        path: /hooks/support
-        signature_header: X-Signature
-      schedule:
-        cron: "0 9 * * 1"
-        timezone: America/New_York
     policies:
       budget_usd: 0.5
       concurrency:

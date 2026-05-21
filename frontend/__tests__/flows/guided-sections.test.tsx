@@ -3,7 +3,6 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 afterEach(() => cleanup());
 import { BasicsSection } from '@/components/flows/register/guided/basics-section';
-import { TriggersSection } from '@/components/flows/register/guided/triggers-section';
 import { PoliciesSection } from '@/components/flows/register/guided/policies-section';
 import { TelemetrySection } from '@/components/flows/register/guided/telemetry-section';
 import { FormSection } from '@/components/flows/register/guided/form-section';
@@ -30,23 +29,6 @@ describe('BasicsSection', () => {
     expect(onChange).toHaveBeenCalledWith({
       workflow: expect.objectContaining({ planner_mode: 'agentic' }),
     });
-  });
-});
-
-describe('TriggersSection', () => {
-  it('writes webhook.enabled into nested triggers on toggle', () => {
-    const draft = emptyDraft();
-    const onChange = vi.fn();
-    render(<TriggersSection draft={draft} onChange={onChange} />);
-    const webhookToggle = screen.getByLabelText(/Webhook Trigger/);
-    fireEvent.click(webhookToggle);
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        triggers: expect.objectContaining({
-          webhook: expect.objectContaining({ enabled: true }),
-        }),
-      }),
-    );
   });
 });
 

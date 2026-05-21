@@ -13,7 +13,6 @@ REQUIRED_TOP_KEYS = {
     "planner_modes",
     "step_types",
     "form_fields",
-    "triggers",
     "policies",
     "telemetry",
     "expression_helpers",

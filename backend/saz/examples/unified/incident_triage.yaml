@@ -57,9 +57,6 @@ form:
       required: false
       description: Team currently on-call (used for the proposed routing)
 
-triggers:
-  manual: true
-
 workflow:
   planner_mode: deterministic
   steps:

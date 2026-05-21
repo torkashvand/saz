@@ -339,7 +339,6 @@ describe('round-trip — YAML → draft → YAML → draft', () => {
       schema_version: 1,
       flow: { name: 'demo', version: '1.0', description: 'd', labels: { team: 'ops' } },
       credentials: { uses: ['t'] },
-      triggers: { manual: true, webhook: { path: '/x', signature_header: 'X-Sig' } },
       policies: {
         budget_usd: 0.2,
         defaults: { timeout_ms: 1000, retry: { attempts: 1, backoff: { mode: 'constant' } } },

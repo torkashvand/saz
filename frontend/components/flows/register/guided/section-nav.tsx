@@ -1,6 +1,6 @@
 'use client';
 
-import { Info, FileText, Zap, Shield, GitBranch, Activity } from 'lucide-react';
+import { Info, FileText, Shield, GitBranch, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ValidationError } from '@/lib/flows/types';
 
@@ -13,7 +13,6 @@ interface Section {
 const SECTIONS: Section[] = [
   { id: 'basics', label: 'Basics', icon: Info },
   { id: 'form', label: 'Form', icon: FileText },
-  { id: 'triggers', label: 'Triggers', icon: Zap },
   { id: 'policies', label: 'Policies & Credentials', icon: Shield },
   { id: 'telemetry', label: 'Telemetry', icon: Activity },
   { id: 'steps', label: 'Workflow Steps', icon: GitBranch },
@@ -22,7 +21,6 @@ const SECTIONS: Section[] = [
 const SECTION_FOR_ERROR: Record<string, string> = {
   flow: 'basics',
   form: 'form',
-  triggers: 'triggers',
   policies: 'policies',
   telemetry: 'telemetry',
   workflow: 'steps',

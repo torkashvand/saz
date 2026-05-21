@@ -135,14 +135,11 @@ class RunMetadataSchema(BaseModel):
 
 
 class TriggeredBySchema(BaseModel):
-    """Information about who/what triggered the run."""
+    """Run attribution: who or what initiated the run."""
 
-    type: str = Field(..., description="Trigger type: user, system, schedule, webhook")
+    type: str = Field(..., description="Originator: 'user' or 'system'.")
     user_id: str | None = None
     user_name: str | None = None
-    trigger_source: str | None = Field(
-        None, description="Source: manual, cron, github_webhook, etc."
-    )
 
 
 class PlannedStepSchema(BaseModel):

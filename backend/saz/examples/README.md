@@ -45,7 +45,7 @@ inspect in the UI, and the known limitations.
 ## Loading a demo into a flow
 
 Templates are read-only. To run a demo you register it as a flow and then
-submit form data to trigger a run.
+submit form data to start a run.
 
 **From the UI (recommended):**
 1. Open `http://localhost:3000/flows/new`.

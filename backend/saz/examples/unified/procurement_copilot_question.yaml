@@ -19,11 +19,6 @@ form:
       required: false
       description: "Optional: spend category (e.g. SaaS, network, consulting)."
 
-triggers:
-  manual: true
-  webhook:
-    path: "/procurement/copilot"
-
 workflow:
   planner_mode: agentic
 

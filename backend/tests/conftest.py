@@ -90,7 +90,17 @@ def db_engine():
 
 @pytest.fixture(scope="function")
 def sync_executor(db_engine):
-    """Override scheduler to use synchronous execution for tests."""
+    """Override scheduler to use synchronous execution for tests.
+
+    ``RunScheduler`` is a classic singleton (``__new__`` caches
+    ``_instance``), so naively constructing ``SyncScheduler(...)`` here
+    returns the same object as any previous test's scheduler, including
+    the disposed db_engine. Each test gets its own temp-file SQLite
+    engine — so we must clear the class-level singleton state before
+    instantiating, otherwise the second test in a worker calls
+    ``scheduler.schedule()`` against the first test's already-dropped
+    tables and the resume endpoint returns 500.
+    """
     from saz.engine.scheduler import RunScheduler, _scheduler_lock
 
     # Get the database URL from the engine
@@ -120,6 +130,13 @@ def sync_executor(db_engine):
         import saz.engine.scheduler as sched_module
 
         original_scheduler = sched_module._scheduler
+
+        # Reset the class-level singleton so the new SyncScheduler is a
+        # genuinely fresh instance bound to this test's db_engine.
+        # Without this, RunScheduler.__new__ returns the previous test's
+        # scheduler (with its disposed engine), and resume/schedule calls
+        # blow up with "no such table: runs".
+        RunScheduler._instance = None
         sched_module._scheduler = SyncScheduler(database_url)
 
         yield sched_module._scheduler
@@ -131,6 +148,9 @@ def sync_executor(db_engine):
             except Exception:
                 pass
         sched_module._scheduler = original_scheduler
+        # Leave the singleton cleared so the next test's fixture also
+        # gets a fresh instance.
+        RunScheduler._instance = None
 
 
 @pytest.fixture(scope="function")

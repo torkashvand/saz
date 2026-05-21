@@ -81,15 +81,23 @@ def test_register_accepts_valid_flow(app_client):
 
 
 def test_compile_endpoint_rejects_ai_step_without_expect(app_client):
-    """Baseline: /compile catches the bug, so /register should too."""
+    """Baseline: /compile catches the bug, so /register should too.
+
+    /compile is a validator endpoint — it returns 200 with valid=false +
+    structured errors on bad DSL rather than raising 400. Register still
+    rejects with 400 because saving bad DSL would be destructive.
+    """
     response = app_client.post(
         "/api/v1/flows/compile",
         json={"yaml": AI_FLOW_MISSING_EXPECT},
     )
-    assert response.status_code >= 400, (
-        "Compile must reject ai.extract without expect — if this asserts, the bug "
-        "moved and the rest of this file no longer pins what it claims to."
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["valid"] is False, (
+        "Compile must reject ai.extract without expect — if this asserts, the "
+        "bug moved and the rest of this file no longer pins what it claims to."
     )
+    assert body["errors"], "expected structured errors on rejection"
 
 
 @pytest.mark.parametrize(
@@ -111,9 +119,11 @@ def test_register_rejects_what_compile_rejects(app_client, yaml_doc, label):
         "/api/v1/flows/compile",
         json={"yaml": yaml_doc},
     )
-    assert compile_resp.status_code >= 400, (
-        f"Compile must reject {label} for this test to be meaningful; "
-        f"got {compile_resp.status_code}"
+    assert compile_resp.status_code == 200, (
+        f"Compile must return 200 with valid=false for {label}; " f"got {compile_resp.status_code}"
+    )
+    assert compile_resp.json()["valid"] is False, (
+        f"Compile must reject {label} for this test to be meaningful; " f"got valid=true"
     )
 
     register_resp = app_client.post(

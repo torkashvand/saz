@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldAlert, ShieldCheck, KeyRound, UserPlus } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ShieldAlert, ShieldCheck, KeyRound, Pencil, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,20 +23,9 @@ export default function AdminUsersPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
+  const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-
-  const setActiveMut = useMutation({
-    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
-      api.setUserActive(id, is_active),
-    onSuccess: invalidate,
-  });
-
-  const setAdminMut = useMutation({
-    mutationFn: ({ id, is_admin }: { id: string; is_admin: boolean }) =>
-      api.setUserAdmin(id, is_admin),
-    onSuccess: invalidate,
-  });
 
   const users = data?.items ?? [];
 
@@ -74,102 +63,70 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
-                  const isSelf = currentUser?.id === u.id;
-                  return (
-                    <tr
-                      key={u.id}
-                      className={`border-b border-slate-100 ${u.is_active ? '' : 'bg-slate-50/60 text-slate-500'}`}
-                      data-testid={`admin-user-row-${u.username}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{u.username}</span>
-                          {u.is_admin && (
-                            <span
-                              className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full"
-                              title="Admin"
-                            >
-                              <ShieldCheck className="w-3 h-3" /> admin
-                            </span>
-                          )}
-                          {u.must_change_password && (
-                            <span
-                              className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full"
-                              title="Must change password on next login"
-                            >
-                              <ShieldAlert className="w-3 h-3" /> pw change required
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">{u.email}</td>
-                      <td className="px-4 py-3 text-slate-600">{u.display_name || '—'}</td>
-                      <td className="px-4 py-3">
-                        {u.is_active ? (
-                          <span className="text-green-700">Active</span>
-                        ) : (
-                          <span className="text-slate-500">Disabled</span>
+                {users.map((u) => (
+                  <tr
+                    key={u.id}
+                    className={`border-b border-slate-100 ${u.is_active ? '' : 'bg-slate-50/60 text-slate-500'}`}
+                    data-testid={`admin-user-row-${u.username}`}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{u.username}</span>
+                        {u.is_admin && (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full"
+                            title="Admin"
+                          >
+                            <ShieldCheck className="w-3 h-3" /> admin
+                          </span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setResetTarget(u)}
-                            disabled={!u.is_active}
-                            title="Reset password"
-                            data-testid={`admin-reset-${u.username}`}
+                        {u.must_change_password && (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full"
+                            title="Must change password on next login"
                           >
-                            <KeyRound className="w-3 h-3 mr-1" /> Reset
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={isSelf || setAdminMut.isPending}
-                            onClick={() => {
-                              if (!isSelf) {
-                                setAdminMut.mutate({ id: u.id, is_admin: !u.is_admin });
-                              }
-                            }}
-                            title={
-                              isSelf
-                                ? 'Cannot change your own admin capability'
-                                : u.is_admin
-                                  ? 'Revoke admin'
-                                  : 'Grant admin'
-                            }
-                          >
-                            {u.is_admin ? 'Demote' : 'Promote'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={u.is_active ? 'outline' : 'default'}
-                            disabled={isSelf || setActiveMut.isPending}
-                            onClick={() => {
-                              if (
-                                isSelf ||
-                                (!u.is_active && !confirm(`Reactivate ${u.username}?`)) ||
-                                (u.is_active && !confirm(`Disable ${u.username}?`))
-                              ) {
-                                return;
-                              }
-                              setActiveMut.mutate({ id: u.id, is_active: !u.is_active });
-                            }}
-                            title={isSelf ? 'Cannot disable your own account' : undefined}
-                            data-testid={`admin-toggle-active-${u.username}`}
-                          >
-                            {u.is_active ? 'Disable' : 'Activate'}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            <ShieldAlert className="w-3 h-3" /> pw change required
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">{u.email}</td>
+                    <td className="px-4 py-3 text-slate-600">{u.display_name || '—'}</td>
+                    <td className="px-4 py-3">
+                      {u.is_active ? (
+                        <span className="text-green-700">Active</span>
+                      ) : (
+                        <span className="text-slate-500">Disabled</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditTarget(u)}
+                          title="Edit profile, admin role, and status"
+                          data-testid={`admin-edit-${u.username}`}
+                        >
+                          <Pencil className="w-3 h-3 mr-1" /> Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setResetTarget(u)}
+                          disabled={!u.is_active}
+                          title="Reset password"
+                          data-testid={`admin-reset-${u.username}`}
+                        >
+                          <KeyRound className="w-3 h-3 mr-1" /> Reset
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
@@ -191,6 +148,17 @@ export default function AdminUsersPage() {
           onClose={() => setResetTarget(null)}
           onReset={() => {
             setResetTarget(null);
+            invalidate();
+          }}
+        />
+      )}
+      {editTarget && (
+        <EditUserModal
+          target={editTarget}
+          isSelf={currentUser?.id === editTarget.id}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null);
             invalidate();
           }}
         />
@@ -352,6 +320,161 @@ function ResetPasswordModal({
         </Button>
         <Button onClick={submit} disabled={submitting}>
           {submitting ? 'Resetting…' : 'Reset password'}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function EditUserModal({
+  target,
+  isSelf,
+  onClose,
+  onSaved,
+}: {
+  target: AdminUser;
+  isSelf: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Pre-fill from the current row so the admin sees the value they're
+  // editing rather than a blank field.
+  const [username, setUsername] = useState(target.username);
+  const [email, setEmail] = useState(target.email);
+  const [displayName, setDisplayName] = useState(target.display_name ?? '');
+  const [isAdmin, setIsAdmin] = useState(target.is_admin);
+  const [isActive, setIsActive] = useState(target.is_active);
+  const [error, setError] = useState<AppError | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const trimmedUsername = username.trim();
+  const trimmedEmail = email.trim();
+  const trimmedDisplay = displayName.trim();
+  // Only send fields that actually changed so an admin who only wants to
+  // tweak the display name doesn't accidentally re-submit a stale email.
+  const usernameChanged = trimmedUsername !== target.username;
+  const emailChanged = trimmedEmail !== target.email;
+  const displayChanged = trimmedDisplay !== (target.display_name ?? '');
+  const adminChanged = isAdmin !== target.is_admin;
+  const activeChanged = isActive !== target.is_active;
+  const profileDirty = usernameChanged || emailChanged || displayChanged;
+  const dirty = profileDirty || adminChanged || activeChanged;
+
+  async function submit() {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      // PATCH profile fields first so that on rename + role-toggle, the
+      // role-change audit event already references the new username.
+      // Sending display_name as "" clears it on the backend (Optional[str]
+      // column) — that's the desired behavior for an admin who explicitly
+      // empties the field.
+      if (profileDirty) {
+        await api.updateUser(target.id, {
+          ...(usernameChanged ? { username: trimmedUsername } : {}),
+          ...(emailChanged ? { email: trimmedEmail } : {}),
+          ...(displayChanged ? { display_name: trimmedDisplay } : {}),
+        });
+      }
+      // Each toggle hits its own dedicated endpoint so the audit trail
+      // records "admin granted" / "deactivated" as distinct events rather
+      // than burying them inside a single "user.updated" blob.
+      if (adminChanged) {
+        await api.setUserAdmin(target.id, isAdmin);
+      }
+      if (activeChanged) {
+        await api.setUserActive(target.id, isActive);
+      }
+      onSaved();
+    } catch (err) {
+      if (err && typeof err === 'object' && 'kind' in err) {
+        setError(err as AppError);
+      } else {
+        setError({ kind: 'unknown', message: 'Failed to update user.' });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell title={`Edit ${target.username}`} onClose={onClose}>
+      {error && <ErrorBanner error={error} />}
+      <p className="text-sm text-slate-600 mb-3">
+        Password is managed separately — use <strong>Reset</strong> on the row to issue a temporary
+        password.
+      </p>
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="eu-username">Username</Label>
+          <Input
+            id="eu-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            data-testid="admin-edit-username"
+            minLength={3}
+            maxLength={64}
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="eu-email">Email</Label>
+          <Input
+            id="eu-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            data-testid="admin-edit-email"
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="eu-display">Display name</Label>
+          <Input
+            id="eu-display"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            data-testid="admin-edit-display-name"
+            placeholder="Leave blank to clear"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={isAdmin}
+            disabled={isSelf}
+            onChange={(e) => setIsAdmin(e.target.checked)}
+            data-testid="admin-edit-is-admin"
+          />
+          Admin
+          {isSelf && (
+            <span className="text-xs text-slate-500">(cannot change your own admin role)</span>
+          )}
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={isActive}
+            disabled={isSelf}
+            onChange={(e) => setIsActive(e.target.checked)}
+            data-testid="admin-edit-is-active"
+          />
+          Active
+          {isSelf && (
+            <span className="text-xs text-slate-500">(cannot disable your own account)</span>
+          )}
+        </label>
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="ghost" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button onClick={submit} disabled={submitting || !dirty} data-testid="admin-edit-save">
+          {submitting ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
     </ModalShell>

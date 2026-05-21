@@ -34,6 +34,9 @@ secrets/*.yaml
 docker-data/
 *.local.yml
 
+# ---- Local browser-test screenshots ----
+.browser-evidence/
+
 # ---- Keep these tracked (don’t ignore) ----
 !**/package-lock.json
 !**/yarn.lock

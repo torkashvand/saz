@@ -90,6 +90,7 @@ async def update_user(
         user = svc.update_profile(
             actor=admin,
             user_id=user_id,
+            username=req.username,
             email=req.email,
             display_name=req.display_name,
         )

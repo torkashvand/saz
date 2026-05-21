@@ -86,11 +86,17 @@ class AdminService:
         actor: User,
         user_id: str,
         *,
+        username: str | None = None,
         email: str | None = None,
         display_name: str | None = None,
     ) -> User:
-        """Update mutable profile fields. ``username`` is immutable —
-        changing it would break audit attribution and external references.
+        """Update mutable profile fields.
+
+        Username changes are audited but otherwise treated like any other
+        field — the previous "immutable" rule was lifted at the admin's
+        request. The audit event still records the old username on
+        ``changes["username"]["from"]`` so attribution remains traceable
+        for events emitted before the rename.
         """
         assert self.uow.users is not None
         user = self.uow.users.get(user_id)
@@ -98,6 +104,14 @@ class AdminService:
             raise AdminError(f"user not found: {user_id}")
 
         changes: dict[str, object] = {}
+        if username is not None:
+            new_username = AuthService._validate_username(username)
+            if new_username != user.username:
+                existing = self.uow.users.get_by_username(new_username)
+                if existing is not None and existing.id != user.id:
+                    raise ConflictError(f"username already taken: {new_username}")
+                changes["username"] = {"from": user.username, "to": new_username}
+                user.username = new_username
         if email is not None:
             new_email = AuthService._validate_email(email)
             if new_email != user.email:

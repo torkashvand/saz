@@ -50,11 +50,12 @@ class AdminCreateUserRequest(BaseModel):
 class AdminUpdateUserRequest(BaseModel):
     """Payload for PATCH /api/v1/admin/users/{id}.
 
-    Only mutable profile fields. ``is_active`` / ``is_admin`` /
-    password rotation each have their own dedicated endpoint so the
-    audit trail is unambiguous.
+    Profile fields (username, email, display name). ``is_active`` /
+    ``is_admin`` / password rotation each have their own dedicated
+    endpoint so the audit trail is unambiguous per operation.
     """
 
+    username: str | None = Field(default=None, min_length=3, max_length=64)
     email: str | None = Field(default=None, max_length=255)
     display_name: str | None = Field(default=None, max_length=255)
 

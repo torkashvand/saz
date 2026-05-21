@@ -144,6 +144,43 @@ def test_admin_can_update_user_profile(app_client, admin_user, db_engine):
     assert body["email"] == "new@example.com"
 
 
+def test_admin_can_update_username(app_client, admin_user, db_engine):
+    """Username is editable through the PATCH endpoint; the response
+    reflects the new value so the frontend can refresh the row directly."""
+    target_id = _seed_normal_user(db_engine, username="old_name")
+    resp = app_client.patch(
+        f"/api/v1/admin/users/{target_id}",
+        json={"username": "new_name"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["username"] == "new_name"
+
+
+def test_admin_update_rejects_duplicate_username(app_client, admin_user, db_engine):
+    """Renaming onto another user's handle returns 409 (ConflictError →
+    service handler) — never 500, never silent overwrite."""
+    _seed_normal_user(db_engine, username="taken_handle")
+    target_id = _seed_normal_user(db_engine, username="will_collide")
+    resp = app_client.patch(
+        f"/api/v1/admin/users/{target_id}",
+        json={"username": "taken_handle"},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "taken_handle" in resp.text
+
+
+def test_non_admin_user_cannot_update_other_user(app_client, db_engine):
+    """The PATCH endpoint is admin-only; the AdminUserDep gate must turn
+    away a logged-in non-admin with 403 (not 401, not 200). Mirrors the
+    existing list/create/reset gate tests."""
+    target_id = _seed_normal_user(db_engine, username="victim")
+    resp = app_client.patch(
+        f"/api/v1/admin/users/{target_id}",
+        json={"username": "hijacked"},
+    )
+    assert resp.status_code == 403, resp.text
+
+
 def test_admin_can_disable_and_reactivate_user(
     app_client, admin_user, db_engine, unauthenticated_app_client
 ):

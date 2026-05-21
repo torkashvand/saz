@@ -167,3 +167,79 @@ def test_update_profile_rejects_duplicate_email(db_engine):
             svc.update_profile(actor=actor, user_id=u2.id, email="one@example.com")
     finally:
         session.close()
+
+
+def test_update_profile_changes_username(db_engine):
+    """Admin can rename a user; the new username sticks and lookups by
+    the new value succeed (proves the row was actually updated, not just
+    the in-memory object)."""
+    actor = _admin_actor(db_engine, username="rename_admin")
+    uow, session, svc = _service(db_engine)
+    try:
+        u = svc.create_user(
+            actor=actor,
+            username="old_handle",
+            email="rename@example.com",
+            password="pw-strong-1",
+        )
+        updated = svc.update_profile(actor=actor, user_id=u.id, username="new_handle")
+        assert updated.username == "new_handle"
+
+        # Reload from a fresh session to confirm the change persisted.
+        with Session(db_engine) as fresh:
+            reloaded = fresh.get(User, u.id)
+            assert reloaded is not None
+            assert reloaded.username == "new_handle"
+    finally:
+        session.close()
+
+
+def test_update_profile_rejects_duplicate_username(db_engine):
+    """Renaming onto an existing username must raise ConflictError so the
+    unique index never fires at the DB level and the audit event never
+    records a phantom rename."""
+    actor = _admin_actor(db_engine, username="dup_admin")
+    uow, session, svc = _service(db_engine)
+    try:
+        svc.create_user(
+            actor=actor,
+            username="taken_handle",
+            email="taken@example.com",
+            password="pw-strong-1",
+        )
+        u2 = svc.create_user(
+            actor=actor,
+            username="will_collide",
+            email="collide@example.com",
+            password="pw-strong-2",
+        )
+        with pytest.raises(ConflictError):
+            svc.update_profile(actor=actor, user_id=u2.id, username="taken_handle")
+
+        # The failed rename must not have mutated the target row.
+        with Session(db_engine) as fresh:
+            reloaded = fresh.get(User, u2.id)
+            assert reloaded is not None
+            assert reloaded.username == "will_collide"
+    finally:
+        session.close()
+
+
+def test_update_profile_username_unchanged_is_noop(db_engine):
+    """Submitting the same username is silently a no-op (no ConflictError
+    against the user's own row, no audit event)."""
+    actor = _admin_actor(db_engine, username="noop_admin")
+    uow, session, svc = _service(db_engine)
+    try:
+        u = svc.create_user(
+            actor=actor,
+            username="stable_handle",
+            email="stable@example.com",
+            password="pw-strong-1",
+        )
+        # Should not raise — the uniqueness check correctly ignores
+        # ``existing.id == user.id``.
+        updated = svc.update_profile(actor=actor, user_id=u.id, username="stable_handle")
+        assert updated.username == "stable_handle"
+    finally:
+        session.close()

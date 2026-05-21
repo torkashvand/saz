@@ -1,8 +1,12 @@
 """Flow management endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 
+from saz.api.compile_errors import safe_compile_response
 from saz.api.dependencies import CurrentUserDep, FlowServiceDep
+from saz.api.dsl_metadata import build_dsl_metadata
 from saz.api.errors import NotFoundError
 from saz.api.schemas.flow_schemas import (
     CompileFlowRequest,
@@ -13,10 +17,10 @@ from saz.api.schemas.flow_schemas import (
     FlowListResponse,
     RegisterFlowRequest,
     RegisterFlowResponse,
+    UpdateFlowRequest,
     WorkflowPolicies,
     WorkflowSummary,
 )
-from saz.compiler import compile_dsl
 
 router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
 
@@ -72,27 +76,79 @@ async def compile_flow(
     service: FlowServiceDep,
     _user: CurrentUserDep,
 ) -> CompileFlowResponse:
-    """Compile and validate a flow YAML without persisting."""
-    compiled = compile_dsl(req.yaml)
+    """Compile and validate a flow YAML without persisting.
 
-    # Extract workflow info
+    On success: returns the normalized DSL plus a structured summary.
+    On failure: returns valid=False with structured errors carrying section
+    + step_id + JSON pointer so the Guided Builder can map them to the
+    right card. We do not raise — the frontend renders errors inline.
+    """
+
+    compiled, errors = safe_compile_response(req.yaml)
+
+    if errors or compiled is None:
+        return CompileFlowResponse(
+            valid=False,
+            flow_name="",
+            form_schema={},
+            workflow_summary=WorkflowSummary(steps_count=0, ai_steps=0, credentials=[]),
+            errors=errors,
+        )
+
     workflow_steps = compiled.workflow_spec.get("steps", [])
     ai_steps_count = sum(1 for step in workflow_steps if step.get("type", "").startswith("ai."))
-
     workflow_summary = WorkflowSummary(
         steps_count=len(workflow_steps),
         ai_steps=ai_steps_count,
         credentials=compiled.credentials,
     )
 
+    normalized = _build_normalized_dsl(compiled)
+
     return CompileFlowResponse(
+        valid=True,
         flow_name=compiled.flow_name,
         flow_version=compiled.flow_version,
         flow_description=compiled.flow_description,
         form_schema=compiled.form_schema,
         workflow_summary=workflow_summary,
         warnings=compiled.warnings,
+        normalized_dsl=normalized,
     )
+
+
+@router.get("/dsl-metadata")
+async def dsl_metadata(_user: CurrentUserDep) -> dict[str, Any]:
+    """Return the centralized DSL metadata payload.
+
+    Used by the Guided Builder to render the right editors for each step
+    type, populate the expression picker, and discover registered tools
+    without hard-coding the DSL shape on the frontend.
+    """
+
+    return build_dsl_metadata()
+
+
+def _build_normalized_dsl(compiled: Any) -> dict[str, Any]:
+    """Project the compiler result into a canonical DSL document.
+
+    The compiler keeps the canonical shape internally; we just surface it
+    in one place so the frontend can build the draft from authoritative
+    data instead of having to re-derive it from the raw YAML.
+    """
+
+    return {
+        "schema_version": 1,
+        "flow": {
+            "name": compiled.flow_name,
+            "version": compiled.flow_version,
+            "description": compiled.flow_description,
+        },
+        "form_schema": compiled.form_schema,
+        "workflow": compiled.workflow_spec,
+        "credentials": {"uses": compiled.credentials},
+        "warnings": compiled.warnings,
+    }
 
 
 @router.get("/ai-ops")
@@ -118,6 +174,31 @@ async def list_ai_ops(_user: CurrentUserDep) -> list[dict]:
             }
         )
     return ops
+
+
+@router.put("/{flow_id}", response_model=RegisterFlowResponse)
+async def update_flow(
+    flow_id: str,
+    req: UpdateFlowRequest,
+    service: FlowServiceDep,
+    _user: CurrentUserDep,
+) -> RegisterFlowResponse:
+    """Update an existing flow by its ID.
+
+    Differs from POST /flows in that this identifies the row by `flow_id`,
+    not by the flow name in the YAML. That lets users safely rename a flow
+    without creating a separate row.
+    """
+
+    try:
+        updated_id = service.update_by_id(flow_id, req.yaml)
+    except LookupError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    flow = service.get(updated_id)
+    if not flow:
+        raise NotFoundError(f"Flow not found after update: {flow_id}")
+    return RegisterFlowResponse(id=flow.id, name=flow.name, version=flow.version)
 
 
 @router.get("/{flow_id}", response_model=FlowDetail)

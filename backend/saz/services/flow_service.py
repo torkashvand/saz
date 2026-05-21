@@ -64,6 +64,42 @@ class FlowService:
             self.uow.commit()
             return flow.id
 
+    def update_by_id(self, flow_id: str, yaml_content: str) -> str:
+        """Update an existing flow by its ID.
+
+        Identified by row id (not by flow name) so renaming a flow does not
+        create a new row. Validates the YAML through the compiler first so a
+        bad payload cannot wipe a working flow.
+        """
+
+        try:
+            dsl = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML: {e}") from None
+
+        compile_dsl(yaml_content)
+
+        flow_meta = dsl.get("flow", {})
+        name = flow_meta.get("name")
+        if not name:
+            raise ValueError("Flow name is required")
+        version = flow_meta.get("version")
+        description = flow_meta.get("description")
+
+        assert self.uow.flows is not None
+        flow = self.uow.flows.update_by_id(
+            flow_id=flow_id,
+            new_name=name,
+            definition=dsl,
+            version=version,
+            description=description,
+            source_yaml=yaml_content,
+        )
+        if flow is None:
+            raise LookupError(f"Flow not found: {flow_id}")
+        self.uow.commit()
+        return flow.id
+
     def get(self, flow_id: str) -> FlowDetailDTO | None:
         """Get flow detail."""
         assert self.uow.flow_reads is not None

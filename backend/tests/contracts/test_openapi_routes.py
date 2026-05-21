@@ -19,6 +19,8 @@ EXPECTED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/api/v1/flows"),
     ("POST", "/api/v1/flows/compile"),
     ("GET", "/api/v1/flows/ai-ops"),
+    ("GET", "/api/v1/flows/dsl-metadata"),
+    ("PUT", "/api/v1/flows/{flow_id}"),
     ("GET", "/api/v1/flows/{flow_id}"),
     ("GET", "/api/v1/flows/{flow_id}/graph"),
     ("GET", "/api/v1/runs"),

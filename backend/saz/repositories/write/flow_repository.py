@@ -62,3 +62,30 @@ class FlowRepository(BaseRepository[Flow]):
             if source_yaml is not None:
                 flow.source_yaml = source_yaml
         return flow
+
+    def get_by_id(self, flow_id: str) -> Flow | None:
+        """Get flow by ID."""
+        stmt = select(Flow).where(Flow.id == flow_id)
+        return self.session.scalar(stmt)
+
+    def update_by_id(
+        self,
+        flow_id: str,
+        new_name: str,
+        definition: dict,
+        version: str | None = None,
+        description: str | None = None,
+        source_yaml: str | None = None,
+    ) -> Flow | None:
+        """Update existing flow row by ID. Lets a flow be renamed safely."""
+        flow = self.get_by_id(flow_id)
+        if flow:
+            flow.name = new_name
+            flow.definition = definition
+            if version is not None:
+                flow.version = version
+            if description is not None:
+                flow.description = description
+            if source_yaml is not None:
+                flow.source_yaml = source_yaml
+        return flow

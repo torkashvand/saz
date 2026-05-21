@@ -10,6 +10,22 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+class LLMTransportError(RuntimeError):
+    """The LLM call could not be completed for infrastructure reasons.
+
+    Raised when the underlying provider is unreachable, rejected the request
+    at the transport layer (rate limit, auth, quota, timeout, connection
+    failure), or returned a non-domain error. Callers should treat this as a
+    *failed run*, not as a model verdict — there is no critique here, the
+    model never got a chance to weigh in.
+
+    Domain errors (the model returned content but we couldn't parse it, the
+    response failed schema validation, etc.) are *not* LLMTransportError —
+    those are still subject to the verifier's normal safety-by-default
+    behavior.
+    """
+
+
 @dataclass
 class LLMResponse:
     """Standardized LLM response."""
@@ -54,6 +70,33 @@ class LLMPort(ABC):
 class LiteLLMPort(LLMPort):
     """Default implementation using litellm library."""
 
+    # LiteLLM exceptions that mean "we never got a usable response" — quota,
+    # auth, network, or provider-side outages. None of these represent a
+    # model verdict, so callers should treat them as run failures, not as
+    # ESCALATE-to-human.
+    _TRANSPORT_EXCEPTIONS: tuple[type[BaseException], ...] = ()
+
+    @classmethod
+    def _transport_exceptions(cls) -> tuple[type[BaseException], ...]:
+        # Lazy-imported so importing this module doesn't pull litellm into
+        # processes that don't need it (notably tests).
+        if not cls._TRANSPORT_EXCEPTIONS:
+            import litellm.exceptions as lle
+
+            cls._TRANSPORT_EXCEPTIONS = (
+                lle.RateLimitError,
+                lle.AuthenticationError,
+                lle.APIConnectionError,
+                lle.APIError,
+                lle.ServiceUnavailableError,
+                lle.InternalServerError,
+                lle.BudgetExceededError,
+                lle.PermissionDeniedError,
+                lle.NotFoundError,
+                TimeoutError,
+            )
+        return cls._TRANSPORT_EXCEPTIONS
+
     async def complete(
         self,
         model: str,
@@ -82,7 +125,10 @@ class LiteLLMPort(LLMPort):
 
         # Run sync litellm in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: completion(**kwargs))
+        try:
+            response = await loop.run_in_executor(None, lambda: completion(**kwargs))
+        except self._transport_exceptions() as exc:
+            raise LLMTransportError(f"{type(exc).__name__}: {exc}") from exc
 
         return LLMResponse(
             content=response.choices[0].message.content,

@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from .llm_port import LLMPort, get_llm_port
+from .llm_port import LLMPort, LLMTransportError, get_llm_port
 from .schemas import Critique, PlanStep, Verdict
 
 logger = structlog.get_logger(__name__)
@@ -281,6 +281,18 @@ class CriticAgent:
 
             return critique
 
+        except LLMTransportError:
+            # The model never produced a verdict — provider was unreachable
+            # (rate-limited, auth failure, network issue). Don't bucket this
+            # into the human-approval queue: it's a run failure, not a
+            # decision. Let the executor surface it as a structured run
+            # error so retry/backoff and operator visibility work normally.
+            self.logger.error(
+                "verifier_transport_failure",
+                step_id=step.step_id,
+                phase="pre_execution",
+            )
+            raise
         except Exception as e:
             self.logger.error("verification_failed", error=str(e), step_id=step.step_id)
             return Critique(
@@ -374,6 +386,14 @@ class CriticAgent:
 
             return critique
 
+        except LLMTransportError:
+            # Provider unreachable — see verify_pre_execution for rationale.
+            self.logger.error(
+                "verifier_transport_failure",
+                step_id=step.step_id,
+                phase="post_execution",
+            )
+            raise
         except Exception as e:
             self.logger.error("critique_failed", error=str(e), step_id=step.step_id)
             # Return defensive critique on error

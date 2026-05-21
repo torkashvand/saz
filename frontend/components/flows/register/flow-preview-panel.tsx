@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ValidationResult, FlowDraft } from '@/lib/flows/types';
+import { piiPolicyFromBackend } from '@/lib/flows/types';
 import { CheckCircle2, XCircle, Zap } from 'lucide-react';
 import { AIOpsReferencePanel } from './ai-ops-reference';
 
@@ -11,10 +12,6 @@ interface FlowPreviewPanelProps {
   draft: FlowDraft;
 }
 
-/**
- * Extract AI op type from a validation error about missing `expect`.
- * Returns the ai.* type if found, or null.
- */
 function extractAIOpFromError(message: string): string | null {
   const match = message.match(/\(type:\s*(ai\.\w+)\)/);
   return match ? match[1] : null;
@@ -28,6 +25,10 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
     setFocusOp(opName);
     setActiveTab('ai-ops');
   }, []);
+
+  const credentials = draft.credentials?.uses ?? [];
+  const formFields = draft.form?.fields ?? [];
+  const steps = draft.workflow.steps;
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
@@ -47,7 +48,6 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
           </div>
         ) : (
           <>
-            {/* Validation Status Card */}
             <div className="border border-slate-200 rounded-lg p-4 bg-white">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Validation Status</h3>
               <div className="flex items-start gap-3">
@@ -67,11 +67,19 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
                         {validationResult.errors.length} errors
                       </div>
                       <div className="mt-2 space-y-1.5">
-                        {validationResult.errors.slice(0, 3).map((err, idx) => {
+                        {validationResult.errors.slice(0, 5).map((err, idx) => {
                           const aiOp = extractAIOpFromError(err.message);
                           return (
                             <div key={idx}>
-                              <div className="text-xs text-red-600">• {err.message}</div>
+                              <div className="text-xs text-red-600">
+                                {err.section ? (
+                                  <span className="font-mono mr-1">[{err.section}]</span>
+                                ) : null}
+                                {err.step_id ? (
+                                  <span className="font-mono mr-1">{err.step_id}:</span>
+                                ) : null}
+                                {err.message}
+                              </div>
                               {aiOp && err.message.includes('expect') && (
                                 <button
                                   onClick={() => handleOpenOpReference(aiOp)}
@@ -91,41 +99,39 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
               </div>
             </div>
 
-            {/* Flow Overview */}
             <div className="border border-slate-200 rounded-lg p-4 bg-white">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Flow Overview</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-600">Name:</span>
-                  <span className="font-mono text-slate-900">{draft.name || '—'}</span>
+                  <span className="font-mono text-slate-900">{draft.flow.name || '—'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-600">Version:</span>
-                  <span className="font-mono text-slate-900">{draft.version || '—'}</span>
+                  <span className="font-mono text-slate-900">{draft.flow.version || '—'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-600">Mode:</span>
-                  <span className="font-mono text-slate-900">
-                    {draft.planner_mode || 'deterministic'}
-                  </span>
+                  <span className="font-mono text-slate-900">{draft.workflow.planner_mode}</span>
                 </div>
               </div>
             </div>
 
-            {/* Workflow Steps Summary */}
             <div className="border border-slate-200 rounded-lg p-4 bg-white">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Workflow Steps</h3>
-              {draft.workflow_steps.length === 0 ? (
+              {steps.length === 0 ? (
                 <p className="text-xs text-slate-500">No steps defined</p>
               ) : (
                 <div className="space-y-2">
-                  {draft.workflow_steps.map((step, idx) => (
+                  {steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-2 text-xs">
                       <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-medium">
                         {idx + 1}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-slate-900 truncate">{step.name}</div>
+                        <div className="font-medium text-slate-900 truncate">
+                          {step.name || step.id}
+                        </div>
                         <div className="text-slate-500">{step.type}</div>
                       </div>
                     </div>
@@ -134,25 +140,26 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
               )}
             </div>
 
-            {/* Policies & Credentials */}
             <div className="border border-slate-200 rounded-lg p-4 bg-white">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Policies & Credentials</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-600">Budget:</span>
                   <span className="font-mono text-slate-900">
-                    ${draft.policies.budget_usd?.toFixed(2) || '0.00'}
+                    ${draft.policies?.budget_usd?.toFixed(2) || '0.00'}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-600">PII Policy:</span>
-                  <span className="text-slate-900">{draft.policies.pii_policy || 'disallow'}</span>
+                  <span className="text-slate-900">
+                    {piiPolicyFromBackend(draft.policies?.pii)}
+                  </span>
                 </div>
-                {draft.credentials.length > 0 && (
+                {credentials.length > 0 && (
                   <div>
                     <div className="text-slate-600 mb-1">Credentials:</div>
                     <div className="flex flex-wrap gap-1">
-                      {draft.credentials.map((cred) => (
+                      {credentials.map((cred) => (
                         <span
                           key={cred}
                           className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded"
@@ -172,7 +179,7 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
       <TabsContent value="form" className="flex-1 overflow-y-auto">
         <div className="border border-slate-200 rounded-lg p-4 bg-white">
           <h3 className="text-sm font-semibold text-slate-900 mb-3">Form Fields</h3>
-          {draft.form_fields.length === 0 ? (
+          {formFields.length === 0 ? (
             <p className="text-xs text-slate-500">No form fields defined</p>
           ) : (
             <div className="overflow-x-auto">
@@ -188,7 +195,7 @@ export function FlowPreviewPanel({ validationResult, draft }: FlowPreviewPanelPr
                   </tr>
                 </thead>
                 <tbody>
-                  {draft.form_fields.map((field, idx) => (
+                  {formFields.map((field, idx) => (
                     <tr key={idx} className="border-b border-slate-100">
                       <td className="py-2 px-2 font-mono text-slate-900">{field.name}</td>
                       <td className="py-2 px-2 text-slate-600">{field.type}</td>

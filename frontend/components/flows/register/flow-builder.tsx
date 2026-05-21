@@ -2,34 +2,23 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import type { FlowDraft, FlowBuilderMode, ValidationResult } from '@/lib/flows/types';
+import type {
+  FlowDraft,
+  FlowBuilderMode,
+  ValidationError,
+  ValidationResult,
+} from '@/lib/flows/types';
+import { emptyDraft } from '@/lib/flows/types';
 import { draftToUnifiedYaml } from '@/lib/flows/yaml-generator';
 import { yamlToDraft } from '@/lib/flows/yaml-parser';
-import { useRegisterFlow } from '@/lib/hooks';
+import { useRegisterFlow, useUpdateFlow } from '@/lib/hooks';
 import { useToast } from '@/components/ui/use-toast';
 import { FlowBuilderHeader } from './flow-builder-header';
 import { FlowBuilderGuided } from './flow-builder-guided';
 import { FlowBuilderYaml } from './flow-builder-yaml';
 import { FlowPreviewPanel } from './flow-preview-panel';
+import { api } from '@/lib/api';
 import { AlertCircle } from 'lucide-react';
-
-const INITIAL_DRAFT: FlowDraft = {
-  name: 'new_flow',
-  version: '1.0',
-  description: '',
-  schema_version: 1,
-  planner_mode: 'deterministic',
-  form_fields: [],
-  triggers: {
-    manual: true,
-  },
-  policies: {
-    budget_usd: 1.0,
-    pii_policy: 'disallow',
-  },
-  credentials: [],
-  workflow_steps: [],
-};
 
 type LastUpdatedBy = 'builder' | 'yaml' | null;
 
@@ -49,9 +38,10 @@ export function FlowBuilder({
   const router = useRouter();
   const { toast } = useToast();
   const registerMutation = useRegisterFlow();
+  const updateMutation = useUpdateFlow(flowId || '');
 
-  const [mode, setMode] = useState<FlowBuilderMode>(initialYaml ? 'yaml' : 'guided');
-  const [draft, setDraft] = useState<FlowDraft>(initialDraft || INITIAL_DRAFT);
+  const [mode, setMode] = useState<FlowBuilderMode>('guided');
+  const [draft, setDraft] = useState<FlowDraft>(initialDraft || emptyDraft());
   const [yaml, setYaml] = useState(initialYaml);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [lastUpdatedBy, setLastUpdatedBy] = useState<LastUpdatedBy>(initialYaml ? 'yaml' : null);
@@ -64,10 +54,37 @@ export function FlowBuilder({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const autoValidateTimer = useRef<NodeJS.Timeout | null>(null);
+  const directCompileTimer = useRef<NodeJS.Timeout | null>(null);
   const isUpdating = useRef(false);
   const initialLoadComplete = useRef(!!initialYaml);
+  const initialParseRan = useRef(false);
 
-  // Track dirty state
+  // Edit mode: parse the initial YAML once into the semantic draft.
+  useEffect(() => {
+    if (!initialYaml || initialParseRan.current) return;
+    // The ref above already guards against double-invocation in React
+    // strict mode dev — adding a cleanup-based cancellation flag races
+    // against it, because the cleanup fires before the async completes
+    // and silently drops the parsed result. We trust the ref and let
+    // the async finish.
+    initialParseRan.current = true;
+    (async () => {
+      const result = await yamlToDraft(initialYaml);
+      if (result.ok) {
+        setDraft(result.draft);
+        setValidationResult(buildValidation(result));
+      } else if (result.advanced) {
+        setMode('yaml');
+        setBuilderDisabled(true);
+        setAdvancedMessage(result.errors[0]?.message || 'Advanced features detected');
+        setValidationResult({ valid: false, errors: result.errors });
+      } else {
+        setMode('yaml');
+        setValidationResult({ valid: false, errors: result.errors });
+      }
+    })();
+  }, [initialYaml]);
+
   useEffect(() => {
     if (initialLoadComplete.current || !isEditMode) {
       const isDirty = yaml !== lastSavedYaml && yaml.trim() !== '';
@@ -75,7 +92,6 @@ export function FlowBuilder({
     }
   }, [yaml, lastSavedYaml, isEditMode]);
 
-  // Beforeunload guard
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (dirty) {
@@ -83,73 +99,100 @@ export function FlowBuilder({
         e.returnValue = '';
       }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [dirty]);
 
-  // Guided Builder → YAML: Generate YAML from draft
+  // Guided edits → regenerate YAML AND run a debounced direct compile so the
+  // user sees validation feedback without flipping to YAML mode.
   useEffect(() => {
     if (lastUpdatedBy === 'builder' || (mode === 'guided' && !yaml.trim())) {
       const generated = draftToUnifiedYaml(draft);
       setYaml(generated);
-    }
-  }, [draft, lastUpdatedBy]);
 
-  // YAML → Guided Builder: Parse YAML and sync to draft (debounced)
+      if (mode === 'guided') {
+        if (directCompileTimer.current) clearTimeout(directCompileTimer.current);
+        directCompileTimer.current = setTimeout(() => {
+          runDirectCompile(generated);
+        }, 500);
+      }
+    }
+    return () => {
+      if (directCompileTimer.current) clearTimeout(directCompileTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, lastUpdatedBy, mode]);
+
+  // YAML edits → debounced parse into draft.
   useEffect(() => {
     if (mode === 'yaml' && lastUpdatedBy === 'yaml') {
-      if (autoValidateTimer.current) {
-        clearTimeout(autoValidateTimer.current);
-      }
-
+      if (autoValidateTimer.current) clearTimeout(autoValidateTimer.current);
       autoValidateTimer.current = setTimeout(() => {
         syncYamlToDraft();
       }, 700);
     }
-
     return () => {
-      if (autoValidateTimer.current) {
-        clearTimeout(autoValidateTimer.current);
-      }
+      if (autoValidateTimer.current) clearTimeout(autoValidateTimer.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yaml, mode, lastUpdatedBy]);
+
+  const runDirectCompile = async (generated: string) => {
+    if (!generated.trim()) return;
+    try {
+      const response = await api.compileFlow({ yaml: generated });
+      if (response.valid) {
+        setValidationResult({
+          valid: true,
+          errors: [],
+          warnings: response.warnings,
+          validated_at: new Date(),
+          flow_name: response.flow_name,
+          workflow_summary: response.workflow_summary,
+          form_schema: response.form_schema,
+          normalized_dsl: response.normalized_dsl ?? undefined,
+        });
+      } else {
+        const errors: ValidationError[] = (response.errors || []).map((e) => ({
+          message: e.message,
+          section: e.section || undefined,
+          step_id: e.step_id || undefined,
+          code: e.code,
+          json_pointer: e.json_pointer || undefined,
+        }));
+        setValidationResult({
+          valid: false,
+          errors,
+          validated_at: new Date(),
+        });
+      }
+    } catch (err: any) {
+      setValidationResult({
+        valid: false,
+        errors: [{ message: err?.message || 'Validation failed' }],
+        validated_at: new Date(),
+      });
+    }
+  };
 
   const syncYamlToDraft = async () => {
     if (isUpdating.current) return;
     if (!yaml.trim()) {
-      setValidationResult({
-        valid: false,
-        errors: [{ message: 'YAML content is required' }],
-      });
+      setValidationResult({ valid: false, errors: [{ message: 'YAML content is required' }] });
       return;
     }
-
     isUpdating.current = true;
-
     try {
       const parseResult = await yamlToDraft(yaml);
-
       if (parseResult.ok) {
         setDraft(parseResult.draft);
         setBuilderDisabled(false);
         setAdvancedMessage(null);
-        setValidationResult({
-          valid: true,
-          errors: [],
-          warnings: parseResult.warnings,
-          validated_at: new Date(),
-          flow_name: parseResult.compileResponse.flow_name,
-          workflow_summary: parseResult.compileResponse.workflow_summary,
-          form_schema: parseResult.compileResponse.form_schema,
-        });
+        setValidationResult(buildValidation(parseResult));
       } else if (parseResult.advanced) {
         setBuilderDisabled(true);
         setAdvancedMessage(parseResult.errors[0]?.message || 'Advanced features detected');
-        setValidationResult({
-          valid: false,
-          errors: parseResult.errors,
-        });
+        setValidationResult({ valid: false, errors: parseResult.errors });
       } else {
         setValidationResult({
           valid: false,
@@ -182,31 +225,28 @@ export function FlowBuilder({
       const confirmed = window.confirm('You have unsaved changes. Load template anyway?');
       if (!confirmed) return;
     }
-
     try {
-      const { api } = await import('@/lib/api');
       const template = await api.getTemplate(templateId);
-
       setYaml(template.yaml);
-      setMode('yaml');
-      setLastUpdatedBy('yaml');
-
       const parseResult = await yamlToDraft(template.yaml);
       if (parseResult.ok) {
         setDraft(parseResult.draft);
         setBuilderDisabled(false);
         setAdvancedMessage(null);
-        setValidationResult({
-          valid: true,
-          errors: [],
-          warnings: parseResult.warnings,
-          validated_at: new Date(),
-          flow_name: parseResult.compileResponse.flow_name,
-          workflow_summary: parseResult.compileResponse.workflow_summary,
-          form_schema: parseResult.compileResponse.form_schema,
-        });
+        setMode('guided');
+        setLastUpdatedBy('builder');
+        setValidationResult(buildValidation(parseResult));
+      } else if (parseResult.advanced) {
+        setMode('yaml');
+        setLastUpdatedBy('yaml');
+        setBuilderDisabled(true);
+        setAdvancedMessage(parseResult.errors[0]?.message || 'Advanced features detected');
+        setValidationResult({ valid: false, errors: parseResult.errors });
+      } else {
+        setMode('yaml');
+        setLastUpdatedBy('yaml');
+        setValidationResult({ valid: false, errors: parseResult.errors });
       }
-
       toast({
         title: 'Template Loaded',
         description: `Loaded template: ${template.metadata.title}`,
@@ -225,8 +265,7 @@ export function FlowBuilder({
       const confirmed = window.confirm('You have unsaved changes. Clear anyway?');
       if (!confirmed) return;
     }
-
-    setDraft(INITIAL_DRAFT);
+    setDraft(emptyDraft());
     setYaml('');
     setValidationResult(null);
     setLastUpdatedBy(null);
@@ -234,25 +273,15 @@ export function FlowBuilder({
     setAdvancedMessage(null);
     setDirty(false);
     setLastSavedYaml('');
-    toast({
-      title: 'Cleared',
-      description: 'Flow builder has been reset',
-    });
+    toast({ title: 'Cleared', description: 'Flow builder has been reset' });
   };
 
   const handleRegister = async () => {
-    // Block save if YAML is empty
     if (!yaml.trim()) {
       setSaveError('Cannot save empty workflow');
-      toast({
-        title: 'Error',
-        description: 'Cannot save empty workflow',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Cannot save empty workflow', variant: 'destructive' });
       return;
     }
-
-    // Block save if validation failed
     if (!validationResult?.valid) {
       setSaveError('Fix validation errors before saving');
       toast({
@@ -262,56 +291,43 @@ export function FlowBuilder({
       });
       return;
     }
-
-    // Clear previous error and start saving
     setSaveError(null);
     setIsSaving(true);
-
     try {
-      const result = await registerMutation.mutateAsync({ yaml });
+      const result =
+        isEditMode && flowId
+          ? await updateMutation.mutateAsync({ yaml })
+          : await registerMutation.mutateAsync({ yaml });
 
-      // Only update success state after mutation succeeds
       setLastSavedYaml(yaml);
       setLastSavedAt(new Date());
       setDirty(false);
       setIsSaving(false);
       setSaveError(null);
-
-      toast({
-        title: 'Success',
-        description: `Workflow "${result.name}" saved successfully`,
-      });
-
+      toast({ title: 'Success', description: `Workflow "${result.name}" saved successfully` });
       if (!isEditMode && !flowId) {
         setTimeout(() => {
           router.push(`/flows/${result.id}/edit`);
         }, 500);
       }
     } catch (error: any) {
-      // On failure: keep dirty state, set error, do NOT update lastSavedAt
       const errorMessage = error.message || 'Save failed – server returned an error';
       setIsSaving(false);
       setSaveError(errorMessage);
-      // dirty state remains true
-
-      toast({
-        title: 'Save Failed',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      toast({ title: 'Save Failed', description: errorMessage, variant: 'destructive' });
     }
   };
 
   const handleDraftChange = (updates: Partial<FlowDraft>) => {
     setDraft((prev) => ({ ...prev, ...updates }));
     setLastUpdatedBy('builder');
-    setSaveError(null); // Clear error when user edits
+    setSaveError(null);
   };
 
   const handleYamlChange = (newYaml: string) => {
     setYaml(newYaml);
     setLastUpdatedBy('yaml');
-    setSaveError(null); // Clear error when user edits
+    setSaveError(null);
   };
 
   return (
@@ -322,9 +338,9 @@ export function FlowBuilder({
         onTemplateSelect={handleTemplateSelect}
         onClear={handleClear}
         onRegister={handleRegister}
-        isRegistering={registerMutation.isPending}
+        isRegistering={registerMutation.isPending || updateMutation.isPending}
         isValid={validationResult?.valid || false}
-        flowName={draft.name}
+        flowName={draft.flow.name}
         isEditMode={isEditMode}
         dirty={dirty}
         lastSavedAt={lastSavedAt}
@@ -364,7 +380,11 @@ export function FlowBuilder({
                   </p>
                 </div>
               ) : (
-                <FlowBuilderGuided draft={draft} onChange={handleDraftChange} />
+                <FlowBuilderGuided
+                  draft={draft}
+                  onChange={handleDraftChange}
+                  errors={validationResult?.errors || []}
+                />
               )
             ) : (
               <FlowBuilderYaml
@@ -390,4 +410,19 @@ export function FlowBuilder({
       </div>
     </div>
   );
+}
+
+function buildValidation(
+  result: Extract<Awaited<ReturnType<typeof yamlToDraft>>, { ok: true }>,
+): ValidationResult {
+  return {
+    valid: true,
+    errors: [],
+    warnings: result.warnings,
+    validated_at: new Date(),
+    flow_name: result.compileResponse.flow_name,
+    workflow_summary: result.compileResponse.workflow_summary,
+    form_schema: result.compileResponse.form_schema,
+    normalized_dsl: result.compileResponse.normalized_dsl ?? undefined,
+  };
 }

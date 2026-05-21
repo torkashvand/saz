@@ -1,6 +1,6 @@
 'use client';
 
-import type { FlowDraft } from '@/lib/flows/types';
+import type { FlowDraft, FlowTriggers } from '@/lib/flows/types';
 
 interface TriggersSectionProps {
   draft: FlowDraft;
@@ -8,6 +8,10 @@ interface TriggersSectionProps {
 }
 
 export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
+  const triggers: FlowTriggers = draft.triggers ?? { manual: true };
+
+  const update = (next: Partial<FlowTriggers>) => onChange({ triggers: { ...triggers, ...next } });
+
   return (
     <div id="triggers" className="bg-white border border-slate-200 rounded-lg p-6">
       <h2 className="text-lg font-semibold text-slate-900 mb-4">Triggers</h2>
@@ -16,10 +20,8 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
-            checked={draft.triggers.manual}
-            onChange={(e) =>
-              onChange({ triggers: { ...draft.triggers, manual: e.target.checked } })
-            }
+            checked={triggers.manual !== false}
+            onChange={(e) => update({ manual: e.target.checked })}
             className="rounded"
           />
           <span className="text-sm font-medium text-slate-700">Manual Trigger</span>
@@ -29,37 +31,67 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
           <label className="flex items-center gap-2 cursor-pointer mb-2">
             <input
               type="checkbox"
-              checked={draft.triggers.webhook?.enabled || false}
+              checked={triggers.webhook?.enabled || false}
               onChange={(e) =>
-                onChange({
-                  triggers: {
-                    ...draft.triggers,
-                    webhook: { ...draft.triggers.webhook, enabled: e.target.checked },
-                  },
+                update({
+                  webhook: { ...triggers.webhook, enabled: e.target.checked },
                 })
               }
               className="rounded"
             />
             <span className="text-sm font-medium text-slate-700">Webhook Trigger</span>
           </label>
-          {draft.triggers.webhook?.enabled && (
+          {triggers.webhook?.enabled && (
             <div className="ml-6 space-y-2">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Path</label>
                 <input
                   type="text"
-                  value={draft.triggers.webhook.path || ''}
+                  value={triggers.webhook.path || ''}
                   onChange={(e) =>
-                    onChange({
-                      triggers: {
-                        ...draft.triggers,
-                        webhook: { ...draft.triggers.webhook!, path: e.target.value },
-                      },
+                    update({
+                      webhook: { ...triggers.webhook!, path: e.target.value || undefined },
                     })
                   }
                   className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="/my-webhook"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Event</label>
+                <input
+                  type="text"
+                  value={triggers.webhook.event || ''}
+                  onChange={(e) =>
+                    update({
+                      webhook: { ...triggers.webhook!, event: e.target.value || undefined },
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., support.ticket.created"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Signature header
+                </label>
+                <input
+                  type="text"
+                  value={triggers.webhook.signature_header || ''}
+                  onChange={(e) =>
+                    update({
+                      webhook: {
+                        ...triggers.webhook!,
+                        signature_header: e.target.value || undefined,
+                      },
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="X-Signature"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Incoming HTTP header that carries the signature for verification.
+                </p>
               </div>
             </div>
           )}
@@ -69,20 +101,17 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
           <label className="flex items-center gap-2 cursor-pointer mb-2">
             <input
               type="checkbox"
-              checked={draft.triggers.schedule?.enabled || false}
+              checked={triggers.schedule?.enabled || false}
               onChange={(e) =>
-                onChange({
-                  triggers: {
-                    ...draft.triggers,
-                    schedule: { ...draft.triggers.schedule, enabled: e.target.checked },
-                  },
+                update({
+                  schedule: { ...triggers.schedule, enabled: e.target.checked },
                 })
               }
               className="rounded"
             />
             <span className="text-sm font-medium text-slate-700">Schedule Trigger</span>
           </label>
-          {draft.triggers.schedule?.enabled && (
+          {triggers.schedule?.enabled && (
             <div className="ml-6 space-y-2">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -90,12 +119,12 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
                 </label>
                 <input
                   type="text"
-                  value={draft.triggers.schedule.cron || ''}
+                  value={triggers.schedule.cron || ''}
                   onChange={(e) =>
-                    onChange({
-                      triggers: {
-                        ...draft.triggers,
-                        schedule: { ...draft.triggers.schedule!, cron: e.target.value },
+                    update({
+                      schedule: {
+                        ...triggers.schedule!,
+                        cron: e.target.value || undefined,
                       },
                     })
                   }
@@ -105,6 +134,23 @@ export function TriggersSection({ draft, onChange }: TriggersSectionProps) {
                 <p className="text-xs text-slate-500 mt-1">
                   E.g., &quot;0 9 * * *&quot; = daily at 9 AM
                 </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Timezone</label>
+                <input
+                  type="text"
+                  value={triggers.schedule.timezone || ''}
+                  onChange={(e) =>
+                    update({
+                      schedule: {
+                        ...triggers.schedule!,
+                        timezone: e.target.value || undefined,
+                      },
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="America/New_York"
+                />
               </div>
             </div>
           )}

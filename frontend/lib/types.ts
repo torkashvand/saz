@@ -36,7 +36,16 @@ export interface CompileFlowRequest {
   yaml: string;
 }
 
+export interface CompileError {
+  code: string;
+  message: string;
+  section?: string | null;
+  step_id?: string | null;
+  json_pointer?: string | null;
+}
+
 export interface CompileFlowResponse {
+  valid: boolean;
   flow_name: string;
   flow_version?: string;
   flow_description?: string;
@@ -46,6 +55,57 @@ export interface CompileFlowResponse {
   };
   workflow_summary: WorkflowSummary;
   warnings: string[];
+  errors?: CompileError[];
+  normalized_dsl?: Record<string, unknown> | null;
+}
+
+export interface UpdateFlowRequest {
+  yaml: string;
+}
+
+export interface DslMetadataStepType {
+  name: string;
+  label: string;
+  category: string;
+  requires_instruction: boolean;
+  requires_expect: boolean;
+  requires_description: boolean;
+  requires_params: boolean;
+  accepts_uses_credentials: boolean;
+  accepts_retry: boolean;
+  requires_if?: boolean;
+  requires_tool?: boolean;
+  ai_op?: {
+    description: string;
+    output_format: 'json' | 'text';
+    default_temperature: number;
+    default_max_tokens: number;
+    default_expect_schema: Record<string, unknown>;
+    input_extras: Record<string, unknown>;
+  };
+}
+
+export interface DslMetadata {
+  schema_version: number;
+  planner_modes: string[];
+  step_types: DslMetadataStepType[];
+  form_fields: {
+    types: string[];
+    constraints: Record<string, string[]>;
+    formats: string[];
+    aliases: Record<string, string[]>;
+  };
+  triggers: Record<string, unknown>;
+  policies: Record<string, unknown>;
+  telemetry: Record<string, unknown>;
+  expression_helpers: Array<{
+    name: string;
+    syntax: string;
+    description: string;
+    needs_argument: boolean;
+    argument_kind: string;
+  }>;
+  tools: Array<{ name: string; description: string }>;
 }
 
 export interface FlowDetailResponse {
@@ -539,6 +599,7 @@ export interface AdminCreateUserRequest {
 }
 
 export interface AdminUpdateUserRequest {
+  username?: string;
   email?: string;
   display_name?: string;
 }

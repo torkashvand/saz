@@ -6,6 +6,8 @@ import type {
   CompileFlowRequest,
   CompileFlowResponse,
   FlowDetailResponse,
+  UpdateFlowRequest,
+  DslMetadata,
   // Runs
   RunListResponse,
   CreateRunRequest,
@@ -241,9 +243,25 @@ export const api = {
     }),
 
   /**
+   * Update an existing flow by ID. Use this in edit mode so renaming a
+   * flow doesn't create a new row.
+   */
+  updateFlow: (id: string, data: UpdateFlowRequest) =>
+    fetchApi<RegisterFlowResponse>(`/api/v1/flows/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  /**
    * Get full flow metadata
    */
   getFlow: (id: string) => fetchApi<FlowDetailResponse>(`/api/v1/flows/${id}`),
+
+  /**
+   * Get the centralized DSL metadata payload (supported step types,
+   * field constraints, expression helpers, registered tools).
+   */
+  getDslMetadata: () => fetchApi<DslMetadata>('/api/v1/flows/dsl-metadata'),
 
   /**
    * Get flow graph visualization

@@ -66,6 +66,26 @@ export function useRegisterFlow() {
   });
 }
 
+export function useUpdateFlow(flowId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: RegisterFlowRequest) => api.updateFlow(flowId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['flows'] });
+      queryClient.invalidateQueries({ queryKey: ['flow-detail', flowId] });
+      queryClient.invalidateQueries({ queryKey: ['flow', flowId] });
+    },
+  });
+}
+
+export function useDslMetadata() {
+  return useQuery({
+    queryKey: ['dsl-metadata'],
+    queryFn: () => api.getDslMetadata(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useFlowDetail(flowId: string | null) {
   return useQuery({
     queryKey: ['flow-detail', flowId],

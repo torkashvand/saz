@@ -66,11 +66,17 @@ local debugging.
 
 ## Out of scope
 
-- Authentication, authorization, and multi-tenant isolation are not
-  implemented. Treat any deployment as single-tenant and trusted-network
-  only.
-- CORS is allow-listed for `http://localhost:3000` by default. Do not
-  expose the API to the public internet without an upstream gateway.
+- Multi-tenant isolation is not implemented. Authentication
+  (username/password + JWT) and an admin role are in place, but
+  authenticated users share a single resource namespace — any logged-in
+  user can see and act on all flows, runs, credentials, and templates.
+  Treat any deployment as single-tenant.
+- JWT refresh and revocation are not implemented. Access tokens are
+  valid until `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` elapses; there is no
+  server-side logout or token blocklist.
+- CORS is allow-listed for `http://localhost:3000` and
+  `http://127.0.0.1:3000` by default. Do not expose the API to the
+  public internet without an upstream gateway.
 - The Ansible tool's allowlist (`SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS`) is
   empty by default, which permits any playbook path. Set this before
   running playbooks you do not fully control.

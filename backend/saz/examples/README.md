@@ -190,8 +190,8 @@ queued → running → completed`.
 **Expected UI lifecycle.**
 
 1. **summarize_change** — AI risk summary visible in step output.
-2. **ansible_check** — `mode: check`, `changed: false` (dry-run never
-   commits). Recap shows ok=1, changed=0.
+2. **ansible_check** — `mode: check`, `changed: true` (dry-run applies
+   nothing but reports what would change). Recap shows ok=3, changed=2.
 3. **store_dryrun_artifact** — audit artifact with the dry-run recap.
 4. **request_approval** — run becomes **suspended**. The
    `HumanApprovalPanel` appears at the top of the run page.

@@ -137,7 +137,9 @@ workflow:
       tool: ansible_run
       description: >-
         Dry-run the bundled demo playbook in --check mode against the
-        operator-specified target hosts. No state is changed on any host.
+        operator-specified target hosts. Check mode applies nothing to any
+        host; Ansible still reports changed=true for tasks that would change
+        state, which is the expected dry-run result.
         Defaults to the bundled safe localhost playbook; override via
         SAZ_DEMO_ANSIBLE_PLAYBOOK / SAZ_DEMO_ANSIBLE_INVENTORY to target
         your own infrastructure.

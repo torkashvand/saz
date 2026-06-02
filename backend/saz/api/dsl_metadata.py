@@ -137,6 +137,10 @@ def _form_field_metadata() -> dict[str, Any]:
 def _policy_metadata() -> dict[str, Any]:
     return {
         "budget_usd": {"type": "number", "minimum": 0},
+        "max_tokens": {"type": "integer", "minimum": 1},
+        "max_steps": {"type": "integer", "minimum": 1},
+        "max_time_seconds": {"type": "integer", "minimum": 1},
+        "max_replan_attempts": {"type": "integer", "minimum": 0},
         "concurrency": {
             "fields": {
                 "per_flow": {"type": "integer", "minimum": 1},

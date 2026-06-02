@@ -114,6 +114,10 @@ _DSL_SCHEMA: dict[str, Any] | None = {
             "additionalProperties": False,
             "properties": {
                 "budget_usd": {"type": "number", "minimum": 0},
+                "max_tokens": {"type": "integer", "minimum": 1},
+                "max_steps": {"type": "integer", "minimum": 1},
+                "max_time_seconds": {"type": "integer", "minimum": 1},
+                "max_replan_attempts": {"type": "integer", "minimum": 0},
                 "concurrency": {
                     "type": "object",
                     "additionalProperties": False,

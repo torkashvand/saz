@@ -398,6 +398,15 @@ class PolicyEngine:
         budget_usd = policies_dict.get("budget_usd")
         if budget_usd:
             self.budget_tracker.max_cost_usd = budget_usd
+        max_tokens = policies_dict.get("max_tokens")
+        if max_tokens:
+            self.budget_tracker.max_tokens = int(max_tokens)
+        max_steps = policies_dict.get("max_steps")
+        if max_steps:
+            self.budget_tracker.max_steps = int(max_steps)
+        max_time_seconds = policies_dict.get("max_time_seconds")
+        if max_time_seconds:
+            self.budget_tracker.max_time_seconds = int(max_time_seconds)
 
         # Extract rate limits.
         # The DSL/compiler shape is {tool_name: {rpm: N}}. We also accept

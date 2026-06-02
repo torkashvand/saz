@@ -64,3 +64,38 @@ def test_max_replan_from_compiled_dsl():
     }
     engine.initialize_from_dsl("run-1", compiled_policies)
     assert engine.max_replan_attempts == 2
+
+
+def test_budget_sub_limits_settable_from_dsl():
+    """max_tokens / max_steps / max_time_seconds are read from policies and
+    applied to the budget tracker (previously hard-coded)."""
+    engine = PolicyEngine()
+    engine.initialize_from_dsl(
+        "run-1",
+        {
+            "budget_usd": 2.0,
+            "max_tokens": 500,
+            "max_steps": 7,
+            "max_time_seconds": 120,
+        },
+    )
+    assert engine.budget_tracker.max_cost_usd == 2.0
+    assert engine.budget_tracker.max_tokens == 500
+    assert engine.budget_tracker.max_steps == 7
+    assert engine.budget_tracker.max_time_seconds == 120
+
+
+def test_budget_sub_limits_default_when_missing():
+    """Defaults are preserved when the DSL omits the limits."""
+    engine = PolicyEngine()
+    defaults = (
+        engine.budget_tracker.max_tokens,
+        engine.budget_tracker.max_steps,
+        engine.budget_tracker.max_time_seconds,
+    )
+    engine.initialize_from_dsl("run-1", {"budget_usd": 1.0})
+    assert (
+        engine.budget_tracker.max_tokens,
+        engine.budget_tracker.max_steps,
+        engine.budget_tracker.max_time_seconds,
+    ) == defaults

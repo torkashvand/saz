@@ -249,6 +249,9 @@ class Event(Base):
     event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Monotonic per-run sequence for deterministic ordering of the event
+    # stream. Nullable for rows written before this column existed.
+    seq: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     # Context (foreign keys for joins)
     run_id: Mapped[str] = mapped_column(

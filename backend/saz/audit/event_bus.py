@@ -1,10 +1,13 @@
 """Central event bus for audit events with pub/sub pattern."""
 
 import asyncio
+import logging
 from asyncio import Queue
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from saz.domain.event_schema import Event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -13,6 +16,9 @@ class Subscription:
 
     run_id: str
     queue: Queue
+    # Set True when an event had to be dropped because the queue was full, so
+    # the stream layer can signal a gap and the client can refetch via REST.
+    dropped: bool = field(default=False)
 
     def __hash__(self) -> int:
         """Make subscription hashable for set operations."""
@@ -71,11 +77,20 @@ class EventBus:
             for sub in list(self._subscriptions):  # Copy to avoid modification during iteration
                 if sub.run_id == event.run_id:
                     try:
-                        # Non-blocking put - if queue is full, skip
+                        # Non-blocking put - if queue is full, mark a gap.
                         sub.queue.put_nowait(event)
                     except asyncio.QueueFull:
-                        # Queue is full - client may be slow, consider disconnecting
-                        pass
+                        # Slow consumer: record the drop so the stream can tell
+                        # the client to refetch canonical state via REST. Never
+                        # silently lose an event without a trace.
+                        sub.dropped = True
+                        logger.warning(
+                            "event_bus_drop run_id=%s event_type=%s seq=%s "
+                            "(slow consumer; client should refetch via REST)",
+                            event.run_id,
+                            getattr(event.event_type, "value", event.event_type),
+                            getattr(event, "seq", None),
+                        )
                     except Exception:
                         # Subscription may be closed, ignore
                         pass

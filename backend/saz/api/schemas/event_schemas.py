@@ -17,6 +17,7 @@ class EventResponse(BaseModel):
     event_type: str
     timestamp: datetime
     schema_version: int
+    seq: int | None = None
 
     run_id: str
     step_id: str | None = None

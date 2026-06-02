@@ -59,8 +59,12 @@ class EventQueries:
             except ValueError:
                 pass  # Invalid cursor, ignore
 
-        # Order by timestamp ascending and apply limit + 1 to check for more
-        query = query.order_by(Event.timestamp.asc()).limit(limit + 1)
+        # Deterministic order: timestamp first (stable across rows written
+        # before seq existed), then the monotonic per-run seq, then id as a
+        # final tie-breaker. limit + 1 checks for a next page.
+        query = query.order_by(Event.timestamp.asc(), Event.seq.asc(), Event.id.asc()).limit(
+            limit + 1
+        )
 
         events = query.all()
 

@@ -53,6 +53,9 @@ class EventType(str, Enum):
     REPLAN_SUCCEEDED = "replan.succeeded"
     REPLAN_EXHAUSTED = "replan.exhausted"
 
+    # Critic (post-execution)
+    CRITIQUE_COMPLETED = "critique.completed"
+
     # Webhook
     WEBHOOK_CALLBACK_RECEIVED = "webhook.callback_received"
 
@@ -95,6 +98,9 @@ class Event:
     event_type: EventType = field(default=EventType.SYSTEM_ERROR)
     timestamp: datetime = field(default_factory=now_utc)
     schema_version: int = 1
+    # Monotonic per-run sequence assigned at persist time. None until persisted;
+    # consumers sort by (timestamp, seq) for a deterministic, gap-aware order.
+    seq: int | None = None
 
     # Context
     run_id: str = ""
@@ -122,6 +128,7 @@ class Event:
             "event_type": self.event_type.value,
             "timestamp": self.timestamp.isoformat(),
             "schema_version": self.schema_version,
+            "seq": self.seq,
             "run_id": self.run_id,
             "step_id": self.step_id,
             "correlation_id": self.correlation_id,
@@ -154,6 +161,7 @@ class Event:
             event_type=event_type,
             timestamp=timestamp or datetime.now(UTC),
             schema_version=data.get("schema_version", 1),
+            seq=data.get("seq"),
             run_id=data.get("run_id", ""),
             step_id=data.get("step_id"),
             correlation_id=data.get("correlation_id"),

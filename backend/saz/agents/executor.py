@@ -1,6 +1,5 @@
 """Executor Agent - Grounds plans into concrete tool calls with variable substitution."""
 
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -88,75 +87,6 @@ class ExecutorAgent:
         )
 
         return tool_call
-
-    def _substitute_variables(
-        self, template: dict[str, Any], data: dict[str, Any]
-    ) -> dict[str, Any]:
-        """
-        Recursively substitute {{variable}} placeholders with actual values.
-
-        Args:
-            template: Input template with {{variable}} placeholders
-            data: Available data for substitution
-
-        Returns:
-            Template with variables substituted
-
-        Raises:
-            ValueError: If referenced variable not found
-        """
-        if isinstance(template, dict):
-            return {key: self._substitute_variables(value, data) for key, value in template.items()}
-        elif isinstance(template, list):
-            return [self._substitute_variables(item, data) for item in template]
-        elif isinstance(template, str):
-            # Match {{variable}} or {{nested.variable}}
-            pattern = r'\{\{([^}]+)\}\}'
-            matches = re.findall(pattern, template)
-
-            if not matches:
-                return template
-
-            # If entire string is a variable, return the value directly (preserving type)
-            if len(matches) == 1 and template == f"{{{{{matches[0]}}}}}":
-                var_path = matches[0].strip()
-                return self._get_nested_value(data, var_path)
-
-            # Otherwise, do string substitution
-            result = template
-            for match in matches:
-                var_path = match.strip()
-                value = self._get_nested_value(data, var_path)
-                result = result.replace(f"{{{{{match}}}}}", str(value))
-
-            return result
-        else:
-            return template
-
-    def _get_nested_value(self, data: dict, path: str) -> Any:
-        """
-        Get value from nested dictionary using dot notation.
-
-        Args:
-            data: Dictionary to query
-            path: Dot-separated path (e.g., "user.email")
-
-        Returns:
-            Value at path
-
-        Raises:
-            ValueError: If path not found
-        """
-        keys = path.split('.')
-        value = data
-
-        for key in keys:
-            if isinstance(value, dict) and key in value:
-                value = value[key]
-            else:
-                raise ValueError(f"Variable path '{path}' not found in data")
-
-        return value
 
     def _validate_arguments(self, arguments: dict[str, Any], tool_spec: dict[str, Any]) -> None:
         """

@@ -15,15 +15,11 @@ class RateLimiter:
     Enforces:
     - Max calls per minute per tool
     - Max calls per hour per workflow
-    - Burst allowances
     """
 
-    def __init__(
-        self, calls_per_minute: int = 10, calls_per_hour: int = 100, burst_allowance: int = 5
-    ):
+    def __init__(self, calls_per_minute: int = 10, calls_per_hour: int = 100):
         self.calls_per_minute = calls_per_minute
         self.calls_per_hour = calls_per_hour
-        self.burst_allowance = burst_allowance
         # Per-tool RPM overrides set by PolicyEngine.initialize_from_dsl from
         # DSL `policies.rate_limits.<tool>.rpm`. Falls back to
         # calls_per_minute when a tool has no override.

@@ -10,6 +10,7 @@ This module provides a thin bootstrap layer that:
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -23,6 +24,8 @@ from saz.engine.scheduler import get_scheduler
 from saz.engine.suspension_sweeper import get_suspension_sweeper
 from saz.globals import initialize_globals
 from saz.settings import settings
+
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -66,13 +69,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         scheduler = get_scheduler()
         scheduler.shutdown(wait=False)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("scheduler_shutdown_failed", error=str(exc))
     if settings.SUSPENSION_SWEEP_ENABLED:
         try:
             get_suspension_sweeper().stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("suspension_sweeper_stop_failed", error=str(exc))
 
 
 def create_app() -> FastAPI:

@@ -193,3 +193,49 @@ def test_ground_passes_when_required_fields_satisfied_by_template_resolution(
         run_id="r1",
     )
     assert call.arguments["url"] == "https://x.test"
+
+
+# ---------------- argument schema validation (enum / unresolved) ----------------
+
+
+def test_ground_rejects_invalid_enum_value(agent: ExecutorAgent) -> None:
+    registry = {
+        "http_request": {
+            "name": "http_request",
+            "input_schema": {
+                "required": ["method", "url"],
+                "properties": {"method": {"enum": ["GET", "POST"]}},
+            },
+        }
+    }
+    step = _step("http_request", {"method": "FETCH", "url": "https://x.test"})
+    with pytest.raises(ValueError, match="not in"):
+        agent.ground(step, registry, current_data={}, run_id="r1")
+
+
+def test_ground_accepts_valid_enum_value(agent: ExecutorAgent) -> None:
+    registry = {
+        "http_request": {
+            "name": "http_request",
+            "input_schema": {
+                "required": ["method", "url"],
+                "properties": {"method": {"enum": ["GET", "POST"]}},
+            },
+        }
+    }
+    step = _step("http_request", {"method": "POST", "url": "https://x.test"})
+    call = agent.ground(step, registry, current_data={}, run_id="r1")
+    assert call.arguments["method"] == "POST"
+
+
+def test_ground_rejects_unresolved_template(agent: ExecutorAgent) -> None:
+    registry = {
+        "http_request": {
+            "name": "http_request",
+            "input_schema": {"required": ["url"]},
+        }
+    }
+    # An unrecognized expression survives grounding as a literal "{{ ... }}".
+    step = _step("http_request", {"url": "{{ coalesce($form.a) }}"})
+    with pytest.raises(ValueError, match="Unresolved template"):
+        agent.ground(step, registry, current_data={}, run_id="r1")

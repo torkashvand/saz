@@ -90,28 +90,43 @@ class ExecutorAgent:
 
     def _validate_arguments(self, arguments: dict[str, Any], tool_spec: dict[str, Any]) -> None:
         """
-        Basic validation that required parameters are present.
+        Validate grounded arguments against the tool's input schema.
 
-        Tool specs in this repo are not consistent about key casing —
-        HttpTool/WebhookTool/ArtifactTool emit ``inputSchema`` (camelCase)
-        while the AI-op spec factory and AnsibleTool emit ``input_schema``
-        (snake_case). Look at both so the required-field check actually
-        fires for every registered tool.
+        Checks required-field presence, enum membership, and unresolved
+        template strings. Tool specs in this repo are not consistent about
+        key casing — HttpTool/WebhookTool/ArtifactTool emit ``inputSchema``
+        (camelCase) while the AI-op spec factory and AnsibleTool emit
+        ``input_schema`` (snake_case). Look at both so validation fires for
+        every registered tool.
 
         Args:
             arguments: Grounded arguments
             tool_spec: Tool specification with inputSchema/input_schema
 
         Raises:
-            ValueError: If required parameters missing
+            ValueError: If required parameters are missing, an enum value is
+                invalid, or a template reference was left unresolved.
         """
-        input_schema = tool_spec.get('input_schema') or tool_spec.get('inputSchema') or {}
-        required_params = input_schema.get('required', [])
+        name = tool_spec["name"]
+        input_schema = tool_spec.get("input_schema") or tool_spec.get("inputSchema") or {}
+        required_params = input_schema.get("required", [])
 
         missing = [p for p in required_params if p not in arguments]
         if missing:
-            raise ValueError(f"Missing required parameters for {tool_spec['name']}: {missing}")
+            raise ValueError(f"Missing required parameters for {name}: {missing}")
 
-        self.logger.debug(
-            "arguments_validated", tool=tool_spec['name'], required_params=required_params
-        )
+        properties = input_schema.get("properties", {})
+        for key, value in arguments.items():
+            # An unresolved template that survived grounding means a bad
+            # $form/$step/$env reference — fail before the tool executes.
+            if isinstance(value, str) and "{{" in value and "}}" in value:
+                raise ValueError(
+                    f"Unresolved template reference in argument '{key}' for {name}: {value!r}"
+                )
+            prop = properties.get(key)
+            if isinstance(prop, dict) and "enum" in prop and value not in prop["enum"]:
+                raise ValueError(
+                    f"Invalid value for '{key}' in {name}: {value!r} not in {prop['enum']}"
+                )
+
+        self.logger.debug("arguments_validated", tool=name, required_params=required_params)

@@ -329,7 +329,9 @@ def create_default_registry(
         allowed_inventories = [bundled_inventory]
 
     http_tool = HttpTool(allowed_domains=allowed_domains)
-    webhook_tool = WebhookTool(callback_base_url=callback_base_url)
+    # webhook_emit is an outbound call and must be fail-closed like http_request:
+    # it shares the same domain allowlist (None => no outbound emits permitted).
+    webhook_tool = WebhookTool(callback_base_url=callback_base_url, allowed_domains=allowed_domains)
     artifact_tool = ArtifactTool(storage_path=artifact_storage_path)
     ansible_tool = AnsibleTool(
         allowed_playbook_roots=allowed_playbook_roots,

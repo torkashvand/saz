@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 import structlog
 
+from saz.security.url_guard import validate_outbound_url
+
 logger = structlog.get_logger(__name__)
 
 
@@ -86,17 +88,10 @@ class HttpTool:
             ValueError: If domain not allowed
             httpx.HTTPError: If request fails
         """
-        # Fail closed: outbound HTTP is denied unless an allowlist is configured.
-        # An explicit "*" entry opts into allow-all (local/dev only).
-        allowed = self.allowed_domains or []
-        if "*" not in allowed:
-            domain = httpx.URL(url).host
-            if domain not in allowed:
-                raise ValueError(
-                    f"HTTP request to '{domain}' blocked: not in allowed_domains "
-                    f"{allowed or '[] (none configured)'}. Configure an allowlist "
-                    f"(or '*' to permit all) to enable outbound calls."
-                )
+        # Fail closed: outbound HTTP is denied unless an allowlist is configured,
+        # and even allow-listed hosts are blocked if they resolve to internal /
+        # reserved addresses (SSRF protection). Raises ValueError on block.
+        validate_outbound_url(url, self.allowed_domains)
 
         # Redact sensitive headers for logging
         safe_headers = self._redact_headers(headers or {})

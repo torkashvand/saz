@@ -7,6 +7,8 @@ from uuid import uuid4
 import httpx
 import structlog
 
+from saz.security.url_guard import validate_outbound_url
+
 logger = structlog.get_logger(__name__)
 
 
@@ -20,9 +22,17 @@ class WebhookTool:
     - Validating webhook signatures (future)
     """
 
-    def __init__(self, callback_base_url: str, timeout: int = 30):
+    def __init__(
+        self,
+        callback_base_url: str,
+        timeout: int = 30,
+        allowed_domains: list[str] | None = None,
+    ):
         self.callback_base_url = callback_base_url
         self.timeout = timeout
+        # Fail-closed outbound allowlist for webhook_emit, mirroring HttpTool.
+        # None/empty => no outbound emits permitted unless "*" is present.
+        self.allowed_domains = allowed_domains
         self.logger = logger.bind(tool="webhook")
 
     @property
@@ -97,6 +107,10 @@ class WebhookTool:
             Dict with status, response, and metadata
         """
         webhook_id = str(uuid4())
+
+        # Fail closed: deny unless the destination is allow-listed, and block
+        # internal/reserved targets even when allow-listed (SSRF protection).
+        validate_outbound_url(url, self.allowed_domains)
 
         # Add callback URL to payload if provided
         if callback_url:

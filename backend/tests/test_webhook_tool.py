@@ -21,7 +21,13 @@ from saz.tools.webhook_tool import WebhookTool
 
 @pytest.fixture
 def tool() -> WebhookTool:
-    return WebhookTool(callback_base_url="https://saz.test", timeout=5)
+    # webhook_emit is fail-closed; allow-list the example destinations these
+    # tests post to (".test" TLD never resolves, so no SSRF IP block applies).
+    return WebhookTool(
+        callback_base_url="https://saz.test",
+        timeout=5,
+        allowed_domains=["example.test", "unreachable.test"],
+    )
 
 
 # --------------------------- wait ---------------------------

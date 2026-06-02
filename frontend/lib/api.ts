@@ -448,6 +448,7 @@ export const api = {
     onEvent: (event: Event) => void,
     onError?: (error: globalThis.Event) => void,
     onClose?: () => void,
+    onGap?: () => void,
   ): WebSocket => {
     // Browsers can't set Authorization headers on a WebSocket upgrade, so
     // the backend accepts the JWT via a query parameter instead.
@@ -468,6 +469,13 @@ export const api = {
           data.type === 'connected' ||
           data.type === 'snapshot_complete'
         ) {
+          return;
+        }
+
+        // The server dropped events for this (slow) consumer; canonical state
+        // must be refetched from REST rather than trusting the live overlay.
+        if (data.type === 'gap') {
+          onGap?.();
           return;
         }
 

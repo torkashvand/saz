@@ -13,12 +13,6 @@ const STATUS_CONFIG = {
     bg: 'bg-green-50',
     label: 'Completed',
   },
-  success: {
-    icon: CheckCircle2,
-    color: 'text-green-600',
-    bg: 'bg-green-50',
-    label: 'Success',
-  },
   failed: {
     icon: XCircle,
     color: 'text-red-600',
@@ -30,12 +24,6 @@ const STATUS_CONFIG = {
     color: 'text-blue-600',
     bg: 'bg-blue-50',
     label: 'Running',
-  },
-  pending: {
-    icon: Clock,
-    color: 'text-slate-400',
-    bg: 'bg-slate-50',
-    label: 'Pending',
   },
   queued: {
     icon: Clock,
@@ -52,7 +40,7 @@ const STATUS_CONFIG = {
 } as const;
 
 export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.queued;
   const Icon = config.icon;
 
   return (
@@ -69,7 +57,7 @@ export function StatusPill({
   status,
   showLabel = false,
 }: StatusBadgeProps & { showLabel?: boolean }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.queued;
   const Icon = config.icon;
 
   return (

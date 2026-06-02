@@ -7,6 +7,29 @@ import { fromNetworkError, type AppError } from './errors';
 import { captureException } from './monitoring';
 import type { Event } from './types';
 
+/**
+ * Deterministic event order: by timestamp, then the monotonic per-run seq as a
+ * tie-breaker (timestamps can collide within a batch), then id. This is what
+ * keeps the live overlay from contradicting canonical DB state.
+ */
+function compareEvents(a: Event, b: Event): number {
+  if (a.timestamp !== b.timestamp) {
+    return a.timestamp < b.timestamp ? -1 : 1;
+  }
+  const sa = a.seq ?? Number.MAX_SAFE_INTEGER;
+  const sb = b.seq ?? Number.MAX_SAFE_INTEGER;
+  if (sa !== sb) return sa - sb;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Merge events by id (dedupe) and return a new array sorted deterministically. */
+function mergeEvents(existing: Event[], incoming: Event[]): Event[] {
+  const byId = new Map<string, Event>();
+  for (const e of existing) byId.set(e.id, e);
+  for (const e of incoming) byId.set(e.id, e);
+  return Array.from(byId.values()).sort(compareEvents);
+}
+
 export function useRunEvents(runId: string) {
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<Event[]>([]);
@@ -31,15 +54,12 @@ export function useRunEvents(runId: string) {
     queryFn: () => api.getRunEvents(runId, { limit: 500 }),
   });
 
-  // Load historical events into state when fetched
+  // Merge historical events into state when fetched. Merge (not replace) so
+  // live events that arrived before the historical fetch resolved are not
+  // dropped; the result is deduped by id and deterministically sorted.
   useEffect(() => {
     if (historicalEventsData?.events) {
-      console.log(
-        '[RunEvents] Loaded',
-        historicalEventsData.events.length,
-        'historical events from DB',
-      );
-      setEvents(historicalEventsData.events);
+      setEvents((prev) => mergeEvents(prev, historicalEventsData.events));
     }
   }, [historicalEventsData]);
 
@@ -47,11 +67,10 @@ export function useRunEvents(runId: string) {
     (event: Event) => {
       if (event.run_id === runId) {
         setEvents((prev) => {
-          const exists = prev.some((e) => e.id === event.id);
-          if (exists) {
+          if (prev.some((e) => e.id === event.id)) {
             return prev;
           }
-          return [...prev, event];
+          return mergeEvents(prev, [event]);
         });
 
         // Invalidate run details cache when run state changes materially.
@@ -109,6 +128,13 @@ export function useRunEvents(runId: string) {
         setIsConnected(false);
         reconnectTimeoutRef.current = setTimeout(connect, 2000);
       },
+      () => {
+        // Server signalled a gap (dropped events for a slow consumer). Treat
+        // REST/DB as canonical and refetch the historical timeline.
+        console.warn('[RunEvents] Event gap signalled; refetching from REST');
+        queryClient.invalidateQueries({ queryKey: ['run-events', runId] });
+        queryClient.invalidateQueries({ queryKey: ['run', runId] });
+      },
     );
 
     wsRef.current = ws;
@@ -118,7 +144,7 @@ export function useRunEvents(runId: string) {
       setIsConnected(true);
       setConnectionError(null); // Clear any previous connection errors
     });
-  }, [runId, handleEvent]);
+  }, [runId, handleEvent, queryClient]);
 
   useEffect(() => {
     connect();

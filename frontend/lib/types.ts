@@ -167,8 +167,6 @@ export interface RunDetailResponse {
   duration_ms?: number;
   total_tokens: number;
   total_cost_usd: number;
-  total_events?: number;
-  error_count?: number;
   policy_violations?: any;
   steps: RunStep[];
   artifacts?: string[];
@@ -350,28 +348,14 @@ export interface FlowGraphResponse {
   edges: GraphEdge[];
 }
 
-export type StepStatus =
-  | 'queued'
-  | 'running'
-  | 'suspended'
-  | 'failed'
-  | 'completed'
-  | 'pending'
-  | 'success';
+// Mirrors backend StepStatus (saz.domain.literals.StepStatus). The backend
+// never emits 'pending' or 'success'; those phantom values were removed.
+export type StepStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
 
 export interface RunGraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
   status_by_step: Record<string, StepStatus>;
-}
-
-// --- WebSocket Events ---
-
-export interface WSEvent {
-  type: 'run.status' | 'step.started' | 'step.finished' | 'ping';
-  run_id: string;
-  timestamp: string;
-  data: Record<string, any>;
 }
 
 // --- Unified Event System ---
@@ -399,6 +383,8 @@ export type EventType =
   | 'plan.generated'
   | 'plan.updated'
   | 'branch.chosen'
+  // Critic (post-execution)
+  | 'critique.completed'
   // Policy & safety
   | 'policy.pii.redacted'
   | 'policy.budget.updated'
@@ -428,6 +414,7 @@ export interface Event {
   event_type: EventType;
   timestamp: string; // ISO 8601
   schema_version: number;
+  seq: number | null; // monotonic per-run sequence for deterministic ordering
 
   run_id: string;
   step_id: string | null;

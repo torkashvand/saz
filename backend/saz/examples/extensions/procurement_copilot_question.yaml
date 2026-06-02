@@ -1,11 +1,35 @@
+# EXTENSION-ONLY EXAMPLE — NOT runnable with the default registry.
+#
+# This flow references custom tools (contracts_search, erp_spend_query,
+# supplier_risk_lookup) that Saz does NOT ship. To run it you must register
+# real implementations via ToolRegistry.register_custom_tool(...).
+#
+# Note: ai.* steps are single-shot completions; they do NOT call tools. Tool
+# use must be expressed as explicit `tool.call` steps (see store_report below).
+# This file is kept as an integration pattern, not a ready-to-run demo, so it
+# lives outside examples/unified/ and is not loaded by the template manager.
+
+meta:
+  id: procurement_copilot_question
+  title: "Procurement Copilot (extension-only)"
+  description: >-
+    Extension pattern showing how a procurement copilot could be wired on top
+    of custom RAG/ERP tools. Requires registering contracts_search,
+    erp_spend_query and supplier_risk_lookup before it can run.
+  tags: ["procurement", "agentic", "extension-only"]
+  complexity: "advanced"
+  recommended: false
+  extension_only: true
+
 schema_version: 1
 
 flow:
   name: procurement_copilot_question
   version: "1.0"
   description: >
-    Agentic procurement copilot. Given a free-text question, the planner can
-    call RAG and ERP tools to answer with evidence and recommendations.
+    Agentic procurement copilot. Given a free-text question, an analysis step
+    classifies the request and an answer step drafts a response. Tool-backed
+    retrieval (contracts/ERP/risk) requires custom tools to be registered.
 
 form:
   fields:
@@ -22,11 +46,7 @@ form:
 workflow:
   planner_mode: agentic
 
-  # In agentic mode, steps are more like "capabilities" the planner can use.
-  # Saz will turn this into a tool-using plan based on the question + policies.
-
   steps:
-    # 1) Understand the question and decide useful tools
     - id: analyze_question
       type: ai.extract
       description: "Classify the question and detect relevant entities."
@@ -58,52 +78,25 @@ workflow:
             type: array
             items: { type: string }
 
-    # 2) Agentic reasoning + tool use
     - id: answer_question
       type: ai.generate
       description: >
-        Agentic step: plan which tools to call (contracts_search, erp_spend_query,
-        supplier_risk_lookup) and synthesise an answer.
+        Draft an answer from the analysis. NOTE: ai.generate does not call
+        tools; to ground answers in contracts/spend/risk data, register custom
+        tools and add explicit tool.call steps before this step, then pass
+        their outputs in via $step(...).
       instruction: |
-        You are a procurement copilot with tool access.
-
-        Goal:
-        - Answer the user's question using *only* internal data via the provided tools.
-        - Prefer citations from contracts and real spend data over guesses.
-        - For any recommendation, explain the reasoning and evidence.
-
-        Tools you can call (through the Saz tool registry):
-
-        - contracts_search(query, vendors, time_horizon)
-          Searches contracts, MSAs, NDAs and returns relevant passages.
-
-        - erp_spend_query(vendors, time_horizon, category_hint)
-          Returns aggregated spend, PO, and invoice history.
-
-        - supplier_risk_lookup(vendors)
-          Returns risk scores, SLA breaches and incidents.
-
-        - artifact_store(name, json_payload)
-          Stores a structured report linked to this run.
-
-        Use multiple tool calls if needed; you may call the same tool more than once
-        with different parameters. Stop when you have enough evidence.
-
-        When the question asks for negotiation support:
-        - Identify 3–5 negotiation levers (e.g. volume, term, SLA penalties).
-        - Tie each lever back to concrete data (spend trend, SLA issues, benchmarks).
-
-        Always include a short "How to double-check this" section at the end.
+        You are a procurement copilot. Using only the provided analysis and any
+        retrieved evidence passed in context, draft a clear answer. For any
+        recommendation, explain the reasoning and evidence. When the question
+        asks for negotiation support, identify 3–5 negotiation levers and tie
+        each to concrete data. Always include a short "How to double-check
+        this" section at the end.
       params:
-        context:
+        data:
           question: "{{ $form.question }}"
           analysis: "{{ $step('analyze_question') }}"
           category_hint: "{{ $form.category_hint }}"
-        tools:
-          - contracts_search
-          - erp_spend_query
-          - supplier_risk_lookup
-          - artifact_store
       expect:
         type: object
         properties:
@@ -111,14 +104,14 @@ workflow:
             type: string
         required: [output]
 
-    # 3) Store a structured report as artifact
     - id: store_report
       type: tool.call
-      tool: artifact_store
+      tool: artifact.store
       description: "Persist a JSON report for later retrieval or audit."
       params:
         name: "procurement_copilot_report"
-        payload:
+        content_type: json
+        content:
           question: "{{ $form.question }}"
           analysis: "{{ $step('analyze_question') }}"
           answer_markdown: "{{ $step('answer_question') }}"
@@ -127,14 +120,8 @@ workflow:
 
 policies:
   budget_usd: 1.50
-  defaults:
-    timeout_ms: 240000
-    continue_on_fail: false
-
   pii:
     allow: false
-    # You could add allow-lists here if, for example, supplier PII is allowed
-    # to flow into specific tools but not into logs.
 
 credentials:
   uses:

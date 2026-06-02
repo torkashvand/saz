@@ -66,10 +66,10 @@ class RunScheduler:
         # Lazy import to avoid circular dependency
         from saz.engine.executor import WorkflowExecutor
         from saz.globals import (
-            get_critic,
-            get_executor,
-            get_planner,
-            get_policy_engine,
+            create_critic_agent,
+            create_executor_agent,
+            create_planner,
+            create_policy_engine,
             get_tool_registry,
         )
 
@@ -94,14 +94,17 @@ class RunScheduler:
                                 "planner_mode", "deterministic"
                             )
 
-                    # Create WorkflowExecutor with appropriate planner
+                    # Build fresh, run-isolated agents. Only the tool registry
+                    # is shared (immutable tool specs); the policy engine,
+                    # executor agent, critic, and planner each hold per-run
+                    # mutable state and must not be shared across concurrent runs.
                     executor = WorkflowExecutor(
                         uow=uow,
                         tool_registry=get_tool_registry(),
-                        planner=get_planner(planner_mode),
-                        executor_agent=get_executor(),
-                        critic=get_critic(),
-                        policy_engine=get_policy_engine(),
+                        planner=create_planner(planner_mode),
+                        executor_agent=create_executor_agent(),
+                        critic=create_critic_agent(),
+                        policy_engine=create_policy_engine(),
                     )
                     loop.run_until_complete(executor.execute_run(run_id))
 

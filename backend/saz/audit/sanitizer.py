@@ -3,36 +3,32 @@
 import re
 from typing import Any
 
+from saz.security.redaction import is_sensitive_key
+
 
 class AuditSanitizer:
     """
     Sanitize events before persistence to remove PII/secrets.
 
     Ensures audit logs are safe to store and query without exposing
-    sensitive personal information or credentials.
+    sensitive personal information or credentials. Key-based redaction uses
+    the shared :func:`saz.security.redaction.is_sensitive_key` matcher
+    (substring/suffix based), so variants like ``auth_token``,
+    ``client_secret``, ``aws_secret_access_key``, ``db_password``, and
+    ``apikey`` are all caught — not just an exact-match allowlist.
     """
 
     # PII patterns (simplified - use comprehensive library in production)
     EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
     IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
     PHONE_PATTERN = re.compile(r"\b(?:\+?1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})\b")
+    # US SSN and credit-card-like number sequences (13-16 digits, optionally
+    # grouped). Conservative — only triggers on clearly card/SSN-shaped runs.
+    SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+    CC_PATTERN = re.compile(r"\b(?:\d[ -]?){13,16}\b")
 
-    # Fields that should never be stored raw
-    SENSITIVE_KEYS: set[str] = {
-        "password",
-        "token",
-        "api_key",
-        "api_token",
-        "secret",
-        "credential",
-        "authorization",
-        "cookie",
-        "session_id",
-        "access_token",
-        "refresh_token",
-        "private_key",
-        "passphrase",
-    }
+    def _is_sensitive(self, key: str) -> bool:
+        return is_sensitive_key(key)
 
     def sanitize_event(
         self, event_data: dict[str, Any], pii_policy: str = "redact"
@@ -71,9 +67,7 @@ class AuditSanitizer:
         """
         if isinstance(obj, dict):
             return {
-                (k if k.lower() not in self.SENSITIVE_KEYS else k): (
-                    "[REDACTED]" if k.lower() in self.SENSITIVE_KEYS else self._redact_secrets(v)
-                )
+                k: ("[REDACTED]" if self._is_sensitive(k) else self._redact_secrets(v))
                 for k, v in obj.items()
             }
         elif isinstance(obj, list):
@@ -96,9 +90,7 @@ class AuditSanitizer:
         """
         if isinstance(obj, dict):
             return {
-                (k if k.lower() not in self.SENSITIVE_KEYS else k): (
-                    "[REDACTED]" if k.lower() in self.SENSITIVE_KEYS else self._redact_all(v)
-                )
+                k: ("[REDACTED]" if self._is_sensitive(k) else self._redact_all(v))
                 for k, v in obj.items()
             }
         elif isinstance(obj, list):
@@ -109,6 +101,12 @@ class AuditSanitizer:
 
             # Email addresses
             text = self.EMAIL_PATTERN.sub("[EMAIL]", text)
+
+            # SSN (before generic digit runs)
+            text = self.SSN_PATTERN.sub("[SSN]", text)
+
+            # Credit-card-like number sequences
+            text = self.CC_PATTERN.sub("[CARD]", text)
 
             # IP addresses
             text = self.IP_PATTERN.sub("[IP]", text)

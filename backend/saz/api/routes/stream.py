@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 
@@ -20,7 +21,7 @@ async def stream_run_events(
     run_id: str,
     token: str | None = Query(default=None),
     uow: UnitOfWork = Depends(get_uow),
-):
+) -> None:
     """
     Stream live events for a specific run via WebSocket.
 
@@ -71,9 +72,33 @@ async def stream_run_events(
 
     await websocket.accept()
 
-    # Subscribe to event bus for this run
+    # Subscribe BEFORE reading the snapshot so no live event emitted during
+    # the snapshot read is lost. The live stream may then re-deliver an event
+    # already in the snapshot; clients dedupe by event id.
     queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=100)
     subscription = event_bus.subscribe(run_id, queue)
+
+    def _serialize(event: Any) -> dict:
+        # Live events (domain Event) carry an EventType enum; snapshot rows
+        # (DB Event) carry a plain string. Normalize to the wire string.
+        event_type = event.event_type
+        event_type_str = event_type.value if hasattr(event_type, "value") else event_type
+        return {
+            "id": event.id,
+            "event_type": event_type_str,
+            "timestamp": event.timestamp.isoformat(),
+            "schema_version": event.schema_version,
+            "run_id": event.run_id,
+            "step_id": event.step_id,
+            "correlation_id": event.correlation_id,
+            "planner_mode": event.planner_mode,
+            "severity": event.severity,
+            "actor": event.actor,
+            "actor_user_id": event.actor_user_id,
+            "summary": event.summary,
+            "payload": event.payload,
+            "tags": event.tags,
+        }
 
     try:
         # Send connection acknowledgment
@@ -85,31 +110,21 @@ async def stream_run_events(
             }
         )
 
-        # Event streaming loop
+        # Replay persisted events so a client connecting mid-run (or after a
+        # sweeper timeout, which is not broadcast live) sees canonical state
+        # instead of only events emitted after connect.
+        assert uow.event_queries is not None
+        snapshot, _ = uow.event_queries.get_by_run(run_id=run_id, limit=500)
+        for past in snapshot:
+            await websocket.send_json({**_serialize(past), "snapshot": True})
+        await websocket.send_json({"type": "snapshot_complete", "run_id": run_id})
+
+        # Live event streaming loop
         while True:
             try:
                 # Wait for event with timeout for keepalive
                 event: Event = await asyncio.wait_for(queue.get(), timeout=30.0)
-
-                # Serialize and send event
-                event_dict = {
-                    "id": event.id,
-                    "event_type": event.event_type.value,
-                    "timestamp": event.timestamp.isoformat(),
-                    "schema_version": event.schema_version,
-                    "run_id": event.run_id,
-                    "step_id": event.step_id,
-                    "correlation_id": event.correlation_id,
-                    "planner_mode": event.planner_mode,
-                    "severity": event.severity,
-                    "actor": event.actor,
-                    "actor_user_id": event.actor_user_id,
-                    "summary": event.summary,
-                    "payload": event.payload,
-                    "tags": event.tags,
-                }
-
-                await websocket.send_json(event_dict)
+                await websocket.send_json(_serialize(event))
 
             except TimeoutError:
                 # Send keepalive ping

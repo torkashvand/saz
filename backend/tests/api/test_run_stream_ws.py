@@ -11,6 +11,18 @@ from saz.domain.event_schema import Event, EventType
 from tests.conftest import TEST_USER_ID
 
 
+def _drain_snapshot(ws) -> list[dict]:
+    """Consume the connect snapshot replay up to the snapshot_complete marker.
+
+    Returns the snapshot events (excluding the marker)."""
+    events: list[dict] = []
+    while True:
+        msg = ws.receive_json()
+        if msg.get("type") == "snapshot_complete":
+            return events
+        events.append(msg)
+
+
 @pytest.fixture
 def run_for_stream(db_engine):
     """Create a run for WebSocket testing."""
@@ -47,6 +59,7 @@ def test_websocket_connect_and_receive(app_client, run_for_stream, test_user_tok
         ack = ws.receive_json()
         assert ack["type"] == "connected"
         assert ack["run_id"] == run_for_stream
+        _drain_snapshot(ws)
 
         # Publish event via event bus
         event = Event(
@@ -86,6 +99,7 @@ def test_websocket_multiple_events(app_client, run_for_stream, test_user_token):
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
+        _drain_snapshot(ws)
 
         # Publish multiple events
         events = [
@@ -137,6 +151,7 @@ def test_websocket_ping_pong(app_client, run_for_stream, test_user_token):
         # Receive connection acknowledgment
         ack = ws.receive_json()
         assert ack["type"] == "connected"
+        _drain_snapshot(ws)
 
         # Send ping
         ws.send_text("ping")
@@ -188,6 +203,7 @@ def test_websocket_only_receives_own_run_events(app_client, db_engine, test_user
         ack = ws.receive_json()
         assert ack["type"] == "connected"
         assert ack["run_id"] == "run_iso_1"
+        _drain_snapshot(ws)
 
         # Publish events for BOTH runs
         event_other = Event(

@@ -459,8 +459,15 @@ export const api = {
       try {
         const data = JSON.parse(message.data);
 
-        // Handle ping/connected messages
-        if (data.type === 'ping' || data.type === 'connected') {
+        // Handle control messages (keepalive, connect ack, snapshot boundary).
+        // Snapshot events themselves carry event_type and flow through as
+        // normal events (with a `snapshot: true` flag) so the run view can
+        // replay prior state on connect.
+        if (
+          data.type === 'ping' ||
+          data.type === 'connected' ||
+          data.type === 'snapshot_complete'
+        ) {
           return;
         }
 

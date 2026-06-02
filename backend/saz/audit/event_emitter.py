@@ -390,7 +390,7 @@ class EventEmitter:
 
     def approval_requested(
         self,
-        step_id: str,
+        step_id: str | None,
         step_name: str,
         reasoning: str,
         callback_id: str | None = None,
@@ -409,7 +409,7 @@ class EventEmitter:
             step_id=step_id,
         )
 
-    def approval_granted(self, step_id: str, step_name: str, **kwargs) -> None:
+    def approval_granted(self, step_id: str | None, step_name: str, **kwargs) -> None:
         """Emit approval.granted event."""
         self.emit(
             EventType.APPROVAL_GRANTED,
@@ -419,7 +419,9 @@ class EventEmitter:
             actor="user",
         )
 
-    def approval_denied(self, step_id: str, step_name: str, reason: str = "", **kwargs) -> None:
+    def approval_denied(
+        self, step_id: str | None, step_name: str, reason: str = "", **kwargs
+    ) -> None:
         """Emit approval.denied event."""
         self.emit(
             EventType.APPROVAL_DENIED,

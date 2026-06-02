@@ -332,8 +332,7 @@ class WorkflowExecutor:
                 # Skip steps already completed (e.g. when resuming after suspension)
                 if plan_step.step_id in context["completed_steps"]:
                     logger.info(
-                        f"Skipping already-completed step {plan_step.step_id} "
-                        f"(resumed execution)"
+                        f"Skipping already-completed step {plan_step.step_id} (resumed execution)"
                     )
                     continue
 
@@ -473,7 +472,7 @@ class WorkflowExecutor:
                     # recorded the suspension in the DB and emitted events.
                     # Stop the executor loop immediately.
                     logger.info(
-                        f"Run {run_id} suspended at step {plan_step.step_id}, " "stopping executor"
+                        f"Run {run_id} suspended at step {plan_step.step_id}, stopping executor"
                     )
                     return
 
@@ -1326,7 +1325,7 @@ class WorkflowExecutor:
 
         # Emit approval requested event
         emitter.approval_requested(
-            step_id=step_db_id or plan_step.step_id,
+            step_id=step_db_id,
             step_name=plan_step.step_id,
             reasoning=plan_step.reasoning,
             callback_id=callback_id,

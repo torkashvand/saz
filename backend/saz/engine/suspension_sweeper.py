@@ -157,6 +157,13 @@ class SuspensionSweeper:
 
     def _fail_one(self, uow: UnitOfWork, run: Any, now: datetime) -> None:
         """Mark a single suspended run as failed with SuspensionTimeout."""
+        # Status precondition: a callback/resume may have advanced this run
+        # out of "suspended" between discovery and now. Never overwrite a
+        # run that is no longer suspended (e.g. just-approved → queued).
+        if run.status != "suspended":
+            logger.info("suspension_sweeper_skip_not_suspended run_id=%s", run.id)
+            return
+
         prior_error: dict[str, Any] = dict(run.error or {})
         step_id = prior_error.get("step_id", "")
         suspension_type = prior_error.get("type", "Suspension")
@@ -192,6 +199,9 @@ class SuspensionSweeper:
         # would AttributeError out of the run-detail API.
         assert uow.steps is not None
         suspended_step = uow.steps.get_first_suspended_for_run(run.id)
+        # events.step_id is an FK to steps.id; use the real row id (or None),
+        # never the YAML step name from the suspension payload.
+        suspended_step_db_id = suspended_step.id if suspended_step is not None else None
         if suspended_step is not None:
             suspended_step.status = "failed"
             suspended_step.error = {
@@ -213,7 +223,7 @@ class SuspensionSweeper:
         )
         if suspension_type == "HumanApprovalRequired":
             emitter.approval_denied(
-                step_id=step_id,
+                step_id=suspended_step_db_id,
                 step_name=step_id,
                 reason="Suspension timed out before approval",
             )

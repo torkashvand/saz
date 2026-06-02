@@ -248,6 +248,41 @@ def test_sweep_emits_approval_denied_for_human_approval_suspensions(db_engine):
         types = [e.event_type for e in events]
         assert "approval.denied" in types
         assert "run.failed" in types
+        # events.step_id is an FK to steps.id — the timeout event must carry
+        # the real step row id, never the YAML step name ("wait_step").
+        denied = next(e for e in events if e.event_type == "approval.denied")
+        assert denied.step_id == "run_approval_timeout_step"
+
+
+def test_fail_one_skips_run_no_longer_suspended(db_engine):
+    """A run that was resumed (no longer suspended) between discovery and
+    _fail_one must not be overwritten to failed."""
+    from saz.db.unit_of_work import UnitOfWork
+
+    with Session(db_engine) as session:
+        flow_id = _make_flow(session, flow_id="flow_race")
+        _make_suspended_run(
+            session,
+            "run_resumed_race",
+            flow_id,
+            timeout_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+
+    sweeper = SuspensionSweeper(database_url=str(db_engine.url), engine=db_engine)
+
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            run = session.get(Run, "run_resumed_race")
+            # Simulate a callback having advanced the run already.
+            run.status = "queued"
+            session.flush()
+            sweeper._fail_one(uow, run, datetime.now(UTC))
+            uow.commit()
+
+    with Session(db_engine) as session:
+        run = session.get(Run, "run_resumed_race")
+        assert run is not None
+        assert run.status == "queued"
 
 
 def test_sweep_respects_batch_limit(db_engine):

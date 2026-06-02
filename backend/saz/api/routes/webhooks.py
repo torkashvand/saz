@@ -189,7 +189,7 @@ async def handle_webhook_callback(
         # without digging through run.error.
         reason = req.reason or "Rejected via webhook callback"
         emitter.approval_denied(
-            step_id=suspended_step_db_id or "",
+            step_id=suspended_step_db_id,
             step_name=suspended_step_name,
             reason=reason,
         )
@@ -241,7 +241,7 @@ async def handle_webhook_callback(
     # Emit approval granted with the DB-level step id (FK-safe) and the
     # human-readable step name for the audit trail.
     emitter.approval_granted(
-        step_id=suspended_step_db_id or "",
+        step_id=suspended_step_db_id,
         step_name=suspended_step_name,
     )
     emitter.run_resumed(resume_source="webhook_callback")

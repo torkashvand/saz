@@ -1,18 +1,11 @@
 """Compiler-allowed step types must match what the executor can actually run.
 
-Two confirmed drift cases:
-  1. The compiler's _ALLOWED_STEP_TYPES includes group.parallel, group.map,
-     and noop, but engine/executor.py:_execute_step_action only knows
-     ai.*/tool.call/artifact.*/condition/human.approval/webhook.wait —
-     anything else raises "Unknown step_type" at runtime. A flow can pass
-     compile-time validation today and crash on first execution.
-  2. ai.plan is exposed by AI_OPS (ai_ops.py:75) and policy MODEL_TOOLS
-     (policy_engine.py:18), but the compiler's _ALLOWED_STEP_TYPES omits
-     it — so the documented/registered AI op can never be declared in a
-     DSL workflow.
-
-This test does not prescribe which side wins (compiler vs runtime). It just
-asserts the two layers agree on what's supported.
+This is a regression guard against compiler/runtime step-type drift: a flow
+that passes compile-time validation must not raise "Unknown step_type" at
+runtime, and every AI op the compiler accepts must be a registered MODEL_TOOL.
+The previously-documented drift (group.parallel/group.map/noop, and ai.plan)
+has been resolved; this test pins the two layers in agreement so it cannot
+silently reappear. It does not prescribe which side wins — only that they match.
 """
 
 from saz.agents.ai_ops import AI_OPS

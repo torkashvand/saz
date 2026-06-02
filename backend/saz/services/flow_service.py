@@ -49,6 +49,15 @@ class FlowService:
         /flows/compile agree on what's valid. Invalid workflows fail at
         register time with a clear error instead of being saved and crashing
         the executor later.
+
+        Execution contract: the compiler is a *validation + normalization gate*.
+        The runtime executes the raw, validated DSL (``flow.definition``), not
+        the compiled artifact — see WorkflowExecutor.execute_run which reads
+        ``definition["workflow"]`` / ``definition["policies"]`` directly, and
+        PolicyEngine.initialize_from_dsl which reads the raw policies. The
+        compiler's normalized policy shape (``compile_policies``) is kept in
+        sync with what the runtime enforces so the two never diverge; a
+        regression test pins this equivalence.
         """
         # Parse YAML for an early friendly error before compile_dsl runs its
         # own parser (compile_dsl also catches yaml errors but the message is

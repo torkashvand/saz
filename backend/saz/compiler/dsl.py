@@ -25,9 +25,10 @@ Top-level sections:
   }
 - telemetry?: { trace_level?: "off"|"meta"|"brief"|"verbose", sample_rate?: 0.0-1.0 }
 - form?: { fields: [ { name, type, required?, enum?, pattern?, min?, max?, description?, ... } ] }
-- workflow: { planner_mode?: "deterministic"|"agentic", steps: [...] }
-  - planner_mode: "deterministic" (default) or "agentic"
+- workflow: { planner_mode: "deterministic"|"agentic", steps: [...], allowed_tools?: [str] }
+  - planner_mode: REQUIRED — "deterministic" or "agentic"
   - steps: REQUIRED array (non-empty for deterministic, can be empty for agentic)
+  - allowed_tools: optional explicit tool allowlist for agentic planning
 
 Allowed step types:
 - tool.call         : { id, type, tool, params, expect? }
@@ -252,6 +253,16 @@ _DSL_SCHEMA: dict[str, Any] | None = {
                     # For agentic mode, steps can be empty (planner generates them)
                     # For deterministic mode, steps must be non-empty (validated separately)
                     "items": {"$ref": "#/$defs/stepBase"},
+                },
+                "allowed_tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional explicit tool allowlist for agentic planning. The "
+                        "agentic planner may only propose tools in this list (union the "
+                        "tools referenced by declared steps). Ignored in deterministic "
+                        "mode, where the declared steps are the allowlist."
+                    ),
                 },
             },
         },
@@ -765,7 +776,17 @@ def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
     if retry:
         _validate_retry(retry)
 
-    return {
+    pii_in = p.get("pii", {}) or {}
+    pii_out: dict[str, Any] = {
+        "allow": bool(pii_in.get("allow", False)),
+        # Mirror what PolicyEngine.initialize_from_dsl actually reads so the
+        # compiled policy is not a lossy subset of the enforced policy.
+        "tokenize_model_inputs": bool(pii_in.get("tokenize_model_inputs", True)),
+    }
+    if "exceptions" in pii_in:
+        pii_out["exceptions"] = pii_in["exceptions"]
+
+    out: dict[str, Any] = {
         "budget_usd": float(p.get("budget_usd", 10.0)),
         "concurrency": p.get("concurrency", {}),
         "defaults": {
@@ -773,10 +794,16 @@ def _compile_policies(p: dict[str, Any] | None) -> dict[str, Any]:
             "timeout_ms": int(defaults.get("timeout_ms", 15_000)),
             "continue_on_fail": bool(defaults.get("continue_on_fail", False)),
         },
-        "pii": {"allow": bool(p.get("pii", {}).get("allow", False))},
+        "pii": pii_out,
         "rate_limits": p.get("rate_limits", {}),
         "max_replan_attempts": int(p.get("max_replan_attempts", 3)),
     }
+    # Optional budget sub-limits — only emitted when declared, matching the
+    # runtime which leaves the BudgetTracker defaults in place otherwise.
+    for key in ("max_tokens", "max_steps", "max_time_seconds"):
+        if key in p and p[key] is not None:
+            out[key] = int(p[key])
+    return out
 
 
 def _compile_credentials(creds: Any) -> tuple[list[str], list[dict[str, Any]]]:

@@ -60,6 +60,56 @@ def test_register_rejects_invalid_dsl(db_engine):
         session.close()
 
 
+BAD_TOOL_YAML = """
+schema_version: 1
+flow:
+  name: svc_bad_tool
+  description: References a tool that is not registered
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: store
+      type: tool.call
+      tool: artifact_store
+      description: wrong name, should be artifact.store
+      params:
+        name: r
+        content_type: json
+        content: {}
+"""
+
+GOOD_TOOL_YAML = BAD_TOOL_YAML.replace("svc_bad_tool", "svc_good_tool").replace(
+    "tool: artifact_store", "tool: artifact.store"
+)
+
+
+class _StubRegistry:
+    def list_tools(self):
+        return ["http_request", "artifact.store", "ansible_run"]
+
+
+def test_register_rejects_unknown_tool_name(db_engine, monkeypatch):
+    monkeypatch.setattr("saz.globals.get_tool_registry", lambda: _StubRegistry())
+    service, session, uow = _service(db_engine)
+    try:
+        with pytest.raises(ValueError, match="Unknown tool"):
+            service.register(BAD_TOOL_YAML, created_by_user_id=TEST_USER_ID)
+    finally:
+        uow.__exit__(None, None, None)
+        session.close()
+
+
+def test_register_accepts_known_tool_name(db_engine, monkeypatch):
+    monkeypatch.setattr("saz.globals.get_tool_registry", lambda: _StubRegistry())
+    service, session, uow = _service(db_engine)
+    try:
+        flow_id = service.register(GOOD_TOOL_YAML, created_by_user_id=TEST_USER_ID)
+        assert flow_id
+    finally:
+        uow.__exit__(None, None, None)
+        session.close()
+
+
 def test_register_persists_valid_flow_and_returns_id(db_engine):
     service, session, uow = _service(db_engine)
     try:

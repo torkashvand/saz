@@ -7,6 +7,35 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
 
 
+def _validate_tool_references(dsl: dict) -> None:
+    """Reject ``tool.call`` steps that name a tool the registry does not know.
+
+    Catches typos (e.g. ``artifact_store`` vs ``artifact.store``) at register
+    time instead of at execute time. Skipped when the global registry is not
+    initialized (e.g. isolated unit tests) — the executor still fails closed
+    on unknown tools at grounding.
+    """
+    try:
+        from saz.globals import get_tool_registry
+
+        known = set(get_tool_registry().list_tools())
+    except RuntimeError:
+        return
+
+    steps = (dsl.get("workflow") or {}).get("steps") or []
+    unknown = sorted(
+        {
+            s["tool"]
+            for s in steps
+            if isinstance(s, dict) and s.get("type") == "tool.call" and s.get("tool") not in known
+        }
+    )
+    if unknown:
+        raise ValueError(
+            f"Unknown tool(s) in tool.call steps: {unknown}. Registered tools: {sorted(known)}."
+        )
+
+
 class FlowService:
     """Service for flow operations."""
 
@@ -32,6 +61,7 @@ class FlowService:
         # Full compile: validates schema, step types, templates, expect
         # schemas, credential refs, etc. Raises ValueError on any failure.
         compile_dsl(yaml_content)
+        _validate_tool_references(dsl)
 
         # Extract metadata
         flow_meta = dsl.get("flow", {})
@@ -78,6 +108,7 @@ class FlowService:
             raise ValueError(f"Invalid YAML: {e}") from None
 
         compile_dsl(yaml_content)
+        _validate_tool_references(dsl)
 
         flow_meta = dsl.get("flow", {})
         name = flow_meta.get("name")

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from saz.db.models import Run
@@ -95,6 +95,40 @@ class RunRepository(BaseRepository[Run]):
             run.completed_at = datetime.now(UTC)
             self._set_duration_ms(run)
         return run
+
+    def mark_failed_if_suspended(self, run_id: str, error: dict) -> bool:
+        """Atomically fail a run only if it is still suspended.
+
+        Used by the SuspensionSweeper to close the timeout-vs-resume race: a
+        concurrent resume/callback in another session may have moved the run to
+        ``queued`` between sweep discovery and now. A plain read-then-write
+        would overwrite that with ``failed`` using stale in-memory status. This
+        issues ``UPDATE ... WHERE id = :id AND status = 'suspended'`` so the
+        guard is evaluated against committed DB state; rowcount tells us whether
+        we won the race.
+
+        Returns:
+            True if this call transitioned the run to failed; False if the run
+            was no longer suspended (resumed/completed/failed elsewhere).
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            update(Run)
+            .where(Run.id == run_id, Run.status == RunStatus.SUSPENDED)
+            .values(status=RunStatus.FAILED, error=error, completed_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        # rowcount lives on CursorResult; access defensively for the type checker.
+        applied = (getattr(result, "rowcount", 0) or 0) > 0
+        if applied:
+            # Refresh the identity-map copy (the core UPDATE bypassed it) so
+            # downstream reads see failed state and duration_ms is populated.
+            run = self.get(run_id)
+            if run is not None:
+                self.session.refresh(run)
+                self._set_duration_ms(run)
+        return applied
 
     def mark_suspended(self, run_id: str, error: dict | None = None) -> Run | None:
         """Mark run as suspended."""

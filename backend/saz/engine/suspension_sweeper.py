@@ -157,13 +157,6 @@ class SuspensionSweeper:
 
     def _fail_one(self, uow: UnitOfWork, run: Any, now: datetime) -> None:
         """Mark a single suspended run as failed with SuspensionTimeout."""
-        # Status precondition: a callback/resume may have advanced this run
-        # out of "suspended" between discovery and now. Never overwrite a
-        # run that is no longer suspended (e.g. just-approved → queued).
-        if run.status != "suspended":
-            logger.info("suspension_sweeper_skip_not_suspended run_id=%s", run.id)
-            return
-
         prior_error: dict[str, Any] = dict(run.error or {})
         step_id = prior_error.get("step_id", "")
         suspension_type = prior_error.get("type", "Suspension")
@@ -190,7 +183,12 @@ class SuspensionSweeper:
             error["callback_id"] = callback_id
 
         assert uow.runs is not None
-        uow.runs.mark_failed(run.id, error)
+        # Atomic guard: only fail if STILL suspended. A concurrent resume that
+        # committed after this run was discovered will have moved it to queued;
+        # in that case rowcount is 0 and we must not touch it or emit events.
+        if not uow.runs.mark_failed_if_suspended(run.id, error):
+            logger.info("suspension_sweeper_skip_not_suspended run_id=%s", run.id)
+            return
 
         # Fail any step that was sitting on the suspension so the UI does
         # not show a "suspended" step under a "failed" run. Step.error must

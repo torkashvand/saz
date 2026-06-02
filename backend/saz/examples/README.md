@@ -152,8 +152,10 @@ against the same playbook with the same inputs. Every step is audited.
 export SAZ_DEMO_ANSIBLE_PLAYBOOK="$(pwd)/backend/saz/examples/ansible/demo_change.yml"
 export SAZ_DEMO_ANSIBLE_INVENTORY="$(pwd)/backend/saz/examples/ansible/demo_inventory.ini"
 
-# Optional: explicitly allowlist the bundled playbook root for the Ansible tool
-# (the tool defaults to "no allowlist = allow all"; only set this in production)
+# The Ansible tool is FAIL-CLOSED by default: create_default_registry only
+# allows the bundled examples/ansible playbook root + demo inventory. To run a
+# playbook elsewhere you must explicitly extend the allowlist (there is no
+# "allow all" default).
 # export SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS="$(pwd)/backend/saz/examples/ansible"
 ```
 

@@ -28,11 +28,11 @@ checks, audit events, human approvals, and webhook callbacks.
 | **YAML DSL**              | The strict workflow schema (`schema_version: 1`). Compiled by `saz.compiler.dsl`.                                                                    |
 | **Run**                   | A single execution of a workflow against a specific payload. Lifecycle: `queued → running → suspended? → completed` (or `failed`).                   |
 | **Step**                  | A single unit inside a run. Carries `status`, `attempt`, `output`, and `error`.                                                                      |
-| **Deterministic planner** | Translates `workflow.steps` 1:1 into an execution plan. No LLM is used to plan the graph.                                                            |
-| **Agentic planner**       | LLM-driven planner that generates an execution plan from the DSL plus tool catalog.                                                                  |
-| **Verifier / critic**     | Optional `CriticAgent` that inspects proposed step inputs before execution and step outputs after. Verdicts: `PASS`, `FAIL`, `REPLAN`, `ESCALATE`.   |
-| **Policy checks**         | Budget, PII, and rate-limit enforcement applied before tool calls.                                                                                   |
-| **Audit events**          | Structured events (`run.*`, `step.*`, `tool.*`, `approval.*`, `webhook.callback_received`, `policy.checked`) persisted and broadcast over WebSocket. |
+| **Deterministic planner** | Translates `workflow.steps` 1:1 into an execution plan. No LLM is used to plan the graph (planning is $0); the verifier/critic may still run per step unless configured off, so a run is not necessarily LLM-free overall. |
+| **Agentic planner**       | LLM-driven planner that generates an execution plan from the DSL plus tool catalog. Plans are bounded to the workflow's declared tools (`tool.call` steps + optional `workflow.allowed_tools`); an undeclared tool is blocked deterministically before execution, not just by the LLM verifier. |
+| **Verifier / critic**     | Optional `CriticAgent` that inspects proposed step inputs before execution and step outputs after. Verdicts: `PASS`, `FAIL`, `REPLAN`, `ESCALATE`. Secrets are redacted from its prompts.   |
+| **Policy checks**         | Budget, PII, and rate-limit enforcement applied before tool calls. Per-run isolated (no shared mutable state across concurrent runs).                 |
+| **Audit events**          | Structured events (`run.*`, `step.*`, `tool.*`, `approval.*`, `critique.completed`, `webhook.callback_received`, `policy.blocked`, `policy.budget.exhausted`, `policy.rate_limited`, `artifact.created`) persisted with a monotonic per-run `seq` and broadcast over WebSocket. |
 | **Human approval**        | A `human.approval` step suspends the run until a caller approves or rejects via API.                                                                 |
 | **Webhook callback**      | A `webhook.wait` step suspends until an external system POSTs to the generated callback URL.                                                         |
 | **Tools**                 | Deterministic side-effecting actions exposed to the executor (HTTP, webhook, artifact, Ansible).                                                     |
@@ -247,7 +247,15 @@ deployments — but most operators should not use those.
   server-side session revocation yet — when the token expires the user
   signs in again.
 - The WebSocket event stream accepts the same JWT as a query parameter
-  (`?token=…`) because browsers cannot set headers on a WS upgrade.
+  (`?token=…`) because browsers cannot set headers on a WS upgrade. It is also
+  authorized per run: a connection is refused unless the authenticated user
+  owns the run (or is an admin), and raw user ids are not sent on the wire.
+- Outbound HTTP tools (`http_request`, `webhook_emit`) are fail-closed: a
+  request is denied unless its host is allow-listed, and allow-listed hosts
+  that resolve to loopback/link-local (incl. cloud-metadata)/private/reserved
+  addresses are blocked (SSRF protection).
+- Resolved `$secret(...)` values are redacted before any verifier/critic LLM
+  prompt, and before anything persisted, returned, or streamed.
 - The webhook callback endpoint (`POST /api/v1/webhooks/callback/{id}`)
   intentionally remains public. It authenticates the caller via the
   unguessable callback id embedded in the URL, which is what external
@@ -269,9 +277,10 @@ Public prototype. Practical limitations to be aware of:
 - CORS is hard-coded to `http://localhost:3000`.
 - Background scheduler and suspension sweeper run in-process; there is no
   separate worker pool.
-- The Ansible tool's path allowlist is empty by default (no allowlist = allow
-  all). Set `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` before running untrusted
-  playbooks.
+- The Ansible tool is fail-closed: by default only the bundled
+  `examples/ansible` playbook root and demo inventory are allowed. Extend
+  `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` to run playbooks elsewhere — there is
+  no "allow all" default.
 - LLM cost and policy budgets are tracked but not billed.
 - Templates ship as illustrative examples, not production-ready playbooks.
 

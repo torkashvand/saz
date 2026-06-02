@@ -196,13 +196,15 @@ def test_run_resumed_event(emitter, fake_uow):
 
 
 def test_critique_completed_event(emitter, fake_uow):
-    """Post-execution critique event."""
+    """Post-execution critique emits its own dedicated event type (not a
+    second STEP_COMPLETED) so it is independently queryable."""
     emitter.critique_completed(
         step_id="s1", verdict="pass", confidence=0.95, reasoning="Result looks good"
     )
     evt = fake_uow.events[0]
-    assert evt.payload["critique_verdict"] == "pass"
-    assert evt.payload["critique_confidence"] == 0.95
+    assert evt.event_type == EventType.CRITIQUE_COMPLETED
+    assert evt.payload["verdict"] == "pass"
+    assert evt.payload["confidence"] == 0.95
     assert evt.tags["critique_verdict"] == "pass"
 
 

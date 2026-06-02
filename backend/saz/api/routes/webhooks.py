@@ -83,6 +83,16 @@ async def resume_run(
         actor="user",
     )
 
+    # Emit a step-level resume event for the suspended step so the timeline
+    # records which step was advanced (mirrors the webhook-callback path).
+    suspended_step = next((s for s in run.steps if s.status == "suspended"), None)
+    if suspended_step is not None:
+        emitter.step_resumed(
+            step_id=suspended_step.id,
+            step_name=suspended_step.name,
+            resume_source="api",
+        )
+
     # Resume the run (marks as queued, stores resume data, commits — also
     # flushes the buffered audit event in the same transaction).
     service.resume_run(
@@ -244,6 +254,12 @@ async def handle_webhook_callback(
         step_id=suspended_step_db_id,
         step_name=suspended_step_name,
     )
+    if suspended_step_db_id is not None:
+        emitter.step_resumed(
+            step_id=suspended_step_db_id,
+            step_name=suspended_step_name,
+            resume_source="webhook_callback",
+        )
     emitter.run_resumed(resume_source="webhook_callback")
 
     # Mark run as queued, preserving callback_id for idempotent duplicate detection.

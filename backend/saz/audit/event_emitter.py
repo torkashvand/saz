@@ -252,6 +252,38 @@ class EventEmitter:
             },
         )
 
+    def policy_blocked(self, step_id: str | None, tool_name: str, reason: str, **kwargs) -> None:
+        """Emit policy.blocked event when a tool call is denied by policy."""
+        self.emit(
+            EventType.POLICY_BLOCKED,
+            f"Policy blocked tool call: {tool_name} - {reason}",
+            payload={"tool": tool_name, "reason": reason, **kwargs},
+            step_id=step_id,
+            severity="error",
+        )
+
+    def policy_budget_exhausted(self, reason: str, step_id: str | None = None, **kwargs) -> None:
+        """Emit policy.budget.exhausted event when a run hits a budget cap."""
+        self.emit(
+            EventType.POLICY_BUDGET_EXHAUSTED,
+            f"Budget exhausted: {reason}",
+            payload={"reason": reason, **kwargs},
+            step_id=step_id,
+            severity="error",
+        )
+
+    def policy_rate_limited(
+        self, tool_name: str, reason: str, step_id: str | None = None, **kwargs
+    ) -> None:
+        """Emit policy.rate_limited event when a tool call hits a rate limit."""
+        self.emit(
+            EventType.POLICY_RATE_LIMITED,
+            f"Rate limit hit for {tool_name}: {reason}",
+            payload={"tool": tool_name, "reason": reason, **kwargs},
+            step_id=step_id,
+            severity="warn",
+        )
+
     def usage_recorded(
         self,
         step_id: str | None,
@@ -464,23 +496,75 @@ class EventEmitter:
             actor="user",
         )
 
+    def step_suspended(self, step_id: str | None, step_name: str, reason: str, **kwargs) -> None:
+        """Emit step.suspended event (step-level pause, e.g. approval/wait)."""
+        self.emit(
+            EventType.STEP_SUSPENDED,
+            f"Step suspended: {step_name} ({reason})",
+            payload={"step_name": step_name, "reason": reason, **kwargs},
+            step_id=step_id,
+            severity="warn",
+        )
+
+    def step_resumed(
+        self, step_id: str | None, step_name: str, resume_source: str = "api", **kwargs
+    ) -> None:
+        """Emit step.resumed event when a suspended step is advanced."""
+        self.emit(
+            EventType.STEP_RESUMED,
+            f"Step resumed: {step_name} via {resume_source}",
+            payload={"step_name": step_name, "resume_source": resume_source, **kwargs},
+            step_id=step_id,
+            actor="user",
+        )
+
+    # --- Artifact events ---
+
+    def artifact_created(
+        self,
+        step_id: str | None,
+        artifact_id: str,
+        name: str,
+        content_type: str = "",
+        **kwargs,
+    ) -> None:
+        """Emit artifact.created event when an artifact is persisted."""
+        self.emit(
+            EventType.ARTIFACT_CREATED,
+            f"Artifact created: {name}",
+            payload={
+                "artifact_id": artifact_id,
+                "name": name,
+                "content_type": content_type,
+                **kwargs,
+            },
+            step_id=step_id,
+        )
+
     # --- Critique events (post-execution) ---
 
     def critique_completed(
         self, step_id: str, verdict: str, confidence: float, reasoning: str, **kwargs
     ) -> None:
-        """Emit a post-execution critique result as part of the step trace."""
-        # Use STEP_COMPLETED with critique data in tags for queryability
+        """Emit a post-execution critique result as its own queryable event.
+
+        Uses the dedicated CRITIQUE_COMPLETED type (not STEP_COMPLETED) so the
+        critic verdict is independently auditable and does not double-signal
+        step completion to the live overlay. A FAIL/ESCALATE verdict is raised
+        as INFO here because the consequent step/run failure carries its own
+        error-severity event.
+        """
         self.emit(
-            EventType.STEP_COMPLETED,
+            EventType.CRITIQUE_COMPLETED,
             f"Post-execution critique: {verdict} (confidence: {confidence:.2f})",
             payload={
-                "critique_verdict": verdict,
-                "critique_confidence": confidence,
-                "critique_reasoning": reasoning,
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": reasoning,
                 **kwargs,
             },
             step_id=step_id,
             actor="llm",
+            severity="warn" if verdict not in ("pass",) else "info",
             tags={"critique_verdict": verdict},
         )

@@ -1,301 +1,244 @@
-"""Deterministic expression engine for template resolution.
+"""Safe boolean expression evaluator for workflow ``condition`` steps.
 
-Supports:
-- {{ $form.field_name }}
-- {{ $step('step_id').output_field }}
-- {{ $secret('credential_name') }}
-- {{ $env('VAR_NAME') }}
-- Helpers: coalesce(a, b, default), toInt(x), lower(x), upper(x), len(x)
+Evaluates expressions such as::
 
-Pure functions, no LLM calls.
+    $form.budget > 0 && $form.budget < 5000 && $step('x').risk == "high"
+    !($form.dry_run) || $env('FORCE') == "1"
+
+Operands: ``$form.*``, ``$step('id').path``, ``$env('NAME')``,
+``$secret('NAME')`` references (resolved through an injected callback),
+quoted string literals, numbers, and ``true``/``false``/``null``.
+Operators: ``== != > >= < <= && || !`` and parentheses.
+
+No Python ``eval``; expressions are tokenised and parsed with a
+recursive-descent parser. Malformed expressions raise :class:`ConditionError`
+so callers fail closed.
 """
 
-import os
+from __future__ import annotations
+
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 
-class ExpressionEngine:
-    """Deterministic expression resolver for workflow templates."""
+class ConditionError(ValueError):
+    """Raised when a condition expression is malformed."""
 
-    def __init__(
-        self,
-        form_data: dict[str, Any],
-        step_outputs: dict[str, Any],
-        secrets_resolver: Callable[[str], str] | None = None,
-        env_resolver: Callable[[str], str] | None = None,
-    ):
-        """
-        Initialize expression engine.
 
-        Args:
-            form_data: Form submission data
-            step_outputs: Map of step_id -> output data
-            secrets_resolver: Function to resolve secret by name (injected)
-            env_resolver: Function to resolve env var by name (default: os.getenv)
-        """
-        self.form_data = form_data
-        self.step_outputs = step_outputs
-        self.secrets_resolver = secrets_resolver or (lambda name: "")
-        self.env_resolver = env_resolver or os.getenv
+_REF_RE: Final[re.Pattern[str]] = re.compile(
+    r"\$form\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*"
+    r"|\$step\(\s*(?:'[^']*'|\"[^\"]*\")\s*\)(?:\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)?"
+    r"|\$env\(\s*(?:'[^']*'|\"[^\"]*\")\s*(?:,\s*(?:'[^']*'|\"[^\"]*\")\s*)?\)"
+    r"|\$secret\(\s*(?:'[^']*'|\"[^\"]*\")\s*\)"
+)
 
-        # Register helper functions
-        self.helpers = {
-            "coalesce": self._coalesce,
-            "toInt": self._to_int,
-            "lower": self._lower,
-            "upper": self._upper,
-            "len": self._len,
-            "toString": self._to_string,
-            "toBool": self._to_bool,
-        }
+_TOKEN_SPECS: Final[list[tuple[str, re.Pattern[str]]]] = [
+    ("WS", re.compile(r"\s+")),
+    ("AND", re.compile(r"&&")),
+    ("OR", re.compile(r"\|\|")),
+    ("EQ", re.compile(r"==")),
+    ("NE", re.compile(r"!=")),
+    ("GE", re.compile(r">=")),
+    ("LE", re.compile(r"<=")),
+    ("GT", re.compile(r">")),
+    ("LT", re.compile(r"<")),
+    ("NOT", re.compile(r"!")),
+    ("LP", re.compile(r"\(")),
+    ("RP", re.compile(r"\)")),
+    ("REF", _REF_RE),
+    ("NUM", re.compile(r"-?\d+(?:\.\d+)?")),
+    ("STR", re.compile(r"'[^']*'|\"[^\"]*\"")),
+    ("KW", re.compile(r"(?:true|false|null)\b", re.IGNORECASE)),
+]
 
-    def resolve(self, value: Any) -> Any:
-        """
-        Recursively resolve expressions in a value.
+_COMPARATORS: Final[frozenset[str]] = frozenset({"EQ", "NE", "GT", "GE", "LT", "LE"})
 
-        Args:
-            value: Value that may contain template expressions
 
-        Returns:
-            Resolved value
-        """
-        if isinstance(value, str):
-            return self._resolve_string(value)
-        elif isinstance(value, dict):
-            return {k: self.resolve(v) for k, v in value.items()}
-        elif isinstance(value, list):
-            return [self.resolve(item) for item in value]
+def _strip_braces(expr: str) -> str:
+    expr = expr.strip()
+    if expr.startswith("{{") and expr.endswith("}}"):
+        return expr[2:-2].strip()
+    return expr
+
+
+def _tokenize(expr: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    pos = 0
+    while pos < len(expr):
+        for kind, pattern in _TOKEN_SPECS:
+            m = pattern.match(expr, pos)
+            if m:
+                if kind != "WS":
+                    tokens.append((kind, m.group(0)))
+                pos = m.end()
+                break
         else:
-            return value
+            raise ConditionError(f"Unexpected character at position {pos} in {expr!r}")
+    return tokens
 
-    def _resolve_string(self, template: str) -> Any:
-        """
-        Resolve template string with expressions.
 
-        Examples:
-            "Hello {{ $form.username }}" -> "Hello john"
-            "{{ $step('validate').status }}" -> "success"
-            "{{ coalesce($form.email, 'default@example.com') }}" -> "user@example.com"
-        """
-        # Pattern: {{ ... }}
-        pattern = r'\{\{\s*([^}]+)\s*\}\}'
+def coerce_bool(value: Any) -> bool:
+    """Strict truthiness for the final result and ``&&``/``||`` operands."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, int | float):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "false", "no", "0", "null", "none")
+    if isinstance(value, dict | list):
+        return len(value) > 0
+    return bool(value)
 
-        def replacer(match: Any) -> str:
-            expr = match.group(1).strip()
-            try:
-                result = self._eval_expression(expr)
-                return str(result) if result is not None else ""
-            except Exception as e:
-                logger.warning("expression_eval_failed", expr=expr, error=str(e))
-                return str(match.group(0))  # Return original if eval fails
 
-        # Check if entire string is a single expression (return typed value)
-        single_expr_match = re.fullmatch(pattern, template)
-        if single_expr_match:
-            expr = single_expr_match.group(1).strip()
-            return self._eval_expression(expr)
-
-        # Multiple expressions or mixed text (return string)
-        return re.sub(pattern, replacer, template)
-
-    def _eval_expression(self, expr: str) -> Any:
-        """
-        Evaluate a single expression.
-
-        Supported:
-            $form.field_name
-            $step('step_id').field
-            $secret('name')
-            $env('VAR')
-            helper(args...)
-        """
-        expr = expr.strip()
-
-        # $form.field_name
-        if expr.startswith("$form."):
-            field = expr[6:]
-            return self._get_nested(self.form_data, field)
-
-        # $step('step_id').field or $step('step_id')
-        step_match = re.match(r"\$step\('([^']+)'\)(?:\.(.+))?", expr)
-        if step_match:
-            step_id = step_match.group(1)
-            field = step_match.group(2)
-            step_data = self.step_outputs.get(step_id, {})
-            if field:
-                return self._get_nested(step_data, field)
-            return step_data
-
-        # $secret('name')
-        secret_match = re.match(r"\$secret\('([^']+)'\)", expr)
-        if secret_match:
-            secret_name = secret_match.group(1)
-            return self.secrets_resolver(secret_name)
-
-        # $env('VAR_NAME')
-        env_match = re.match(r"\$env\('([^']+)'\)", expr)
-        if env_match:
-            var_name = env_match.group(1)
-            return self.env_resolver(var_name) or ""
-
-        # Helper functions
-        helper_match = re.match(r"(\w+)\((.*)\)", expr)
-        if helper_match:
-            helper_name = helper_match.group(1)
-            args_str = helper_match.group(2)
-            if helper_name in self.helpers:
-                args = self._parse_args(args_str)
-                return self.helpers[helper_name](*args)  # type: ignore[operator]
-
-        # Literal values
-        if expr.startswith("'") and expr.endswith("'"):
-            return expr[1:-1]
-        if expr.startswith('"') and expr.endswith('"'):
-            return expr[1:-1]
-        if expr.isdigit():
-            return int(expr)
-        if expr in ("true", "True"):
-            return True
-        if expr in ("false", "False"):
-            return False
-        if expr == "null":
-            return None
-
-        # Return as-is if unrecognized
-        return expr
-
-    def _get_nested(self, data: dict[str, Any], path: str) -> Any:
-        """Get nested field from dict using dot notation."""
-        parts = path.split(".")
-        current: Any = data
-        for part in parts:
-            if isinstance(current, dict):
-                current = current.get(part)
-            else:
-                return None
-        return current
-
-    def _parse_args(self, args_str: str) -> list:
-        """Parse comma-separated arguments (simple parser)."""
-        if not args_str.strip():
-            return []
-
-        # Simple split by comma (doesn't handle nested parens)
-        raw_args = [arg.strip() for arg in args_str.split(",")]
-        return [self._eval_expression(arg) for arg in raw_args]
-
-    # --- Helper Functions ---
-
-    def _coalesce(self, *args: Any) -> Any:
-        """Return first non-null value."""
-        for arg in args:
-            if arg is not None:
-                return arg
+def _to_number(value: Any) -> float | None:
+    if isinstance(value, bool):
         return None
-
-    def _to_int(self, value: Any) -> int:
-        """Convert to integer."""
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
         try:
-            return int(value)
-        except (ValueError, TypeError):
-            return 0
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
-    def _lower(self, value: Any) -> str:
-        """Convert to lowercase."""
-        return str(value).lower()
 
-    def _upper(self, value: Any) -> str:
-        """Convert to uppercase."""
-        return str(value).upper()
+def _stringify(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
-    def _len(self, value: Any) -> int:
-        """Get length of string/list/dict."""
-        try:
-            return len(value)
-        except TypeError:
-            return 0
 
-    def _to_string(self, value: Any) -> str:
-        """Convert to string."""
-        return str(value)
+def _compare(left: Any, op: str, right: Any) -> bool:
+    if op in ("EQ", "NE"):
+        ln, rn = _to_number(left), _to_number(right)
+        equal = (
+            (ln == rn)
+            if (ln is not None and rn is not None)
+            else (_stringify(left) == _stringify(right))
+        )
+        return equal if op == "EQ" else not equal
 
-    def _to_bool(self, value: Any) -> bool:
-        """Convert to boolean."""
-        if isinstance(value, bool):
+    ln, rn = _to_number(left), _to_number(right)
+    lhs: Any
+    rhs: Any
+    if ln is None or rn is None:
+        lhs, rhs = _stringify(left), _stringify(right)
+    else:
+        lhs, rhs = ln, rn
+    if op == "GT":
+        return bool(lhs > rhs)
+    if op == "GE":
+        return bool(lhs >= rhs)
+    if op == "LT":
+        return bool(lhs < rhs)
+    return bool(lhs <= rhs)
+
+
+class _Parser:
+    def __init__(self, tokens: list[tuple[str, str]], resolve_ref: Callable[[str], Any]) -> None:
+        self.tokens = tokens
+        self.pos = 0
+        self.resolve_ref = resolve_ref
+
+    def _peek(self) -> str | None:
+        return self.tokens[self.pos][0] if self.pos < len(self.tokens) else None
+
+    def _advance(self) -> tuple[str, str]:
+        tok = self.tokens[self.pos]
+        self.pos += 1
+        return tok
+
+    def parse(self) -> Any:
+        value = self._parse_or()
+        if self.pos != len(self.tokens):
+            raise ConditionError("Unexpected trailing tokens in condition")
+        return value
+
+    def _parse_or(self) -> Any:
+        left = self._parse_and()
+        while self._peek() == "OR":
+            self._advance()
+            right = self._parse_and()
+            left = coerce_bool(left) or coerce_bool(right)
+        return left
+
+    def _parse_and(self) -> Any:
+        left = self._parse_not()
+        while self._peek() == "AND":
+            self._advance()
+            right = self._parse_not()
+            left = coerce_bool(left) and coerce_bool(right)
+        return left
+
+    def _parse_not(self) -> Any:
+        if self._peek() == "NOT":
+            self._advance()
+            return not coerce_bool(self._parse_not())
+        return self._parse_comparison()
+
+    def _parse_comparison(self) -> Any:
+        left = self._parse_primary()
+        if self._peek() in _COMPARATORS:
+            op, _ = self._advance()
+            right = self._parse_primary()
+            return _compare(left, op, right)
+        return left
+
+    def _parse_primary(self) -> Any:
+        kind = self._peek()
+        if kind is None:
+            raise ConditionError("Unexpected end of condition")
+        if kind == "LP":
+            self._advance()
+            value = self._parse_or()
+            if self._peek() != "RP":
+                raise ConditionError("Missing closing parenthesis")
+            self._advance()
             return value
-        if isinstance(value, str):
-            return value.lower() in ("true", "1", "yes")
-        return bool(value)
+        kind, text = self._advance()
+        if kind == "NUM":
+            return float(text) if "." in text else int(text)
+        if kind == "STR":
+            return text[1:-1]
+        if kind == "KW":
+            lowered = text.lower()
+            return True if lowered == "true" else (False if lowered == "false" else None)
+        if kind == "REF":
+            return self.resolve_ref(text)
+        raise ConditionError(f"Unexpected token {text!r} in condition")
 
 
-def resolve_expressions(
-    template: Any,
-    form_data: dict[str, Any],
-    step_outputs: dict[str, Any],
-    secrets_resolver: Callable[[str], str] | None = None,
-) -> Any:
+def evaluate_condition(expr: Any, resolve_ref: Callable[[str], Any]) -> bool:
+    """Evaluate a boolean condition expression to a strict ``bool``.
+
+    ``resolve_ref`` receives each ``$...`` reference token and returns its
+    native value. Raises :class:`ConditionError` on malformed input.
     """
-    Convenience function to resolve expressions in a template.
-
-    Args:
-        template: Template value (string, dict, list, etc.)
-        form_data: Form submission data
-        step_outputs: Map of step_id -> output data
-        secrets_resolver: Function to resolve secrets
-
-    Returns:
-        Resolved value
-    """
-    engine = ExpressionEngine(
-        form_data=form_data, step_outputs=step_outputs, secrets_resolver=secrets_resolver
-    )
-    return engine.resolve(template)
-
-
-def evaluate_expression(expr: Any, context: dict[str, Any]) -> bool:
-    """
-    Evaluate a boolean expression for conditions.
-
-    Args:
-        expr: Expression to evaluate (can be bool, string, or complex)
-        context: Context with 'form' and 'steps' data
-
-    Returns:
-        Boolean result
-    """
-    # Direct boolean
     if isinstance(expr, bool):
         return expr
-
-    # String literals
-    if isinstance(expr, str):
-        expr_lower = expr.lower().strip()
-        if expr_lower in ("true", "1", "yes"):
-            return True
-        if expr_lower in ("false", "0", "no", ""):
-            return False
-
-        # Simple comparisons (placeholder - extend as needed)
-        # For now, non-empty string is truthy
-        return bool(expr_lower)
-
-    # Numeric: 0 is false, non-zero is true
-    if isinstance(expr, int | float):
-        return expr != 0
-
-    # Dict/List: non-empty is true
-    if isinstance(expr, dict | list):
-        return len(expr) > 0
-
-    # None is false
     if expr is None:
         return False
+    if not isinstance(expr, str):
+        return coerce_bool(expr)
 
-    # Default: truthy check
-    return bool(expr)
+    stripped = _strip_braces(expr)
+    tokens = _tokenize(stripped)
+    if not tokens:
+        raise ConditionError("Empty condition expression")
+    value = _Parser(tokens, resolve_ref).parse()
+    return coerce_bool(value)
+
+
+def render_condition(expr: str, resolve_ref: Callable[[str], Any]) -> str:
+    """Substitute reference tokens with resolved values for audit display."""
+    return _REF_RE.sub(lambda m: _stringify(resolve_ref(m.group(0))), _strip_braces(expr))

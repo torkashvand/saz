@@ -13,6 +13,7 @@ runtime tests:
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -319,6 +320,45 @@ def test_resolve_secret_returns_value_from_encrypted_credential(
             assert resolved == "shhh-secret-value"
 
 
+def test_resolved_secret_is_tracked_and_redacted_from_persisted_data(
+    db_engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A secret resolved via $secret() is tracked and scrubbed from anything
+    persisted (step.input/output), while non-secret values survive."""
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(settings, "CREDENTIALS_ENCRYPTION_KEY", key)
+
+    with Session(db_engine) as session:
+        cred = Credential(
+            created_by_user_id=TEST_USER_ID,
+            name="ERP_TOKEN",
+            type="api_token",
+            data_encrypted=_fernet_encrypt(key, {"token": "tok-super-secret-12345"}),
+        )
+        session.add(cred)
+        session.commit()
+
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = _make_executor(uow)
+            secret = executor._resolve_secret("ERP_TOKEN")
+            assert secret == "tok-super-secret-12345"
+            assert secret in executor._secret_values
+
+            grounded = {
+                "headers": {"Authorization": f"Bearer {secret}"},
+                "body": {"requester": "alice", "note": "no secret here"},
+            }
+            redacted = executor._redact_secrets(grounded)
+
+            blob = json.dumps(redacted)
+            assert "tok-super-secret-12345" not in blob
+            assert redacted["headers"]["Authorization"] == "Bearer ***REDACTED***"
+            # Non-secret payload is preserved.
+            assert redacted["body"]["requester"] == "alice"
+            assert redacted["body"]["note"] == "no secret here"
+
+
 def test_resolve_secret_returns_none_for_missing_credential(db_engine) -> None:
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
@@ -349,8 +389,8 @@ def test_resolve_secret_returns_none_when_decrypt_fails(db_engine) -> None:
 
 
 def test_execute_condition_returns_boolean_result_from_form(db_engine) -> None:
-    """The condition step resolves $form / $step expressions, then coerces
-    the result to bool via evaluate_expression."""
+    """The condition step resolves $form / $step references and evaluates the
+    boolean expression to a strict bool."""
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             executor = _make_executor(uow)
@@ -386,6 +426,79 @@ def test_execute_condition_returns_false_for_falsy_input(db_engine) -> None:
             context = {"form_data": {"approve": "no"}, "step_results": {}}
             out = asyncio.run(executor._execute_condition(plan_step, context))
             assert out["result"] is False
+
+
+def test_execute_condition_compound_expression_true(db_engine) -> None:
+    """The procurement-style compound condition with comparisons and && must
+    evaluate correctly against form + prior-step references."""
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = _make_executor(uow)
+            plan_step = PlanStep(
+                step_id="validate_budget",
+                step_type="condition",
+                input_template={
+                    "condition": (
+                        "{{ $form.estimated_budget_eur > 0 "
+                        "&& $form.estimated_budget_eur < 5000 "
+                        "&& $step('extract_requirements').criticality == 'high' }}"
+                    )
+                },
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+                reasoning="budget sanity",
+            )
+            context = {
+                "form_data": {"estimated_budget_eur": 3000},
+                "step_results": {"extract_requirements": {"output": {"criticality": "high"}}},
+            }
+            out = asyncio.run(executor._execute_condition(plan_step, context))
+            assert out["result"] is True
+
+
+def test_execute_condition_compound_expression_false(db_engine) -> None:
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = _make_executor(uow)
+            plan_step = PlanStep(
+                step_id="validate_budget",
+                step_type="condition",
+                input_template={
+                    "condition": (
+                        "{{ $form.estimated_budget_eur > 0 "
+                        "&& $form.estimated_budget_eur < 5000 "
+                        "&& $step('extract_requirements').criticality == 'high' }}"
+                    )
+                },
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+                reasoning="budget sanity",
+            )
+            context = {
+                "form_data": {"estimated_budget_eur": 12000},
+                "step_results": {"extract_requirements": {"output": {"criticality": "high"}}},
+            }
+            out = asyncio.run(executor._execute_condition(plan_step, context))
+            assert out["result"] is False
+
+
+def test_execute_condition_invalid_expression_raises(db_engine) -> None:
+    """A malformed condition fails closed with a clear ValueError instead of
+    silently passing."""
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = _make_executor(uow)
+            plan_step = PlanStep(
+                step_id="gate",
+                step_type="condition",
+                input_template={"condition": "{{ 5 > > 3 }}"},
+                error_handling=ErrorHandling.FAIL,
+                max_retries=0,
+                reasoning="gate",
+            )
+            context: dict = {"form_data": {}, "step_results": {}}
+            with pytest.raises(ValueError, match="Invalid condition expression"):
+                asyncio.run(executor._execute_condition(plan_step, context))
 
 
 def test_execute_condition_default_when_no_expression(db_engine) -> None:

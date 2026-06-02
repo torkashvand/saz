@@ -35,6 +35,7 @@ class LLMResponse:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     model: str | None = None
+    cost_usd: float = 0.0
 
 
 class LLMPort(ABC):
@@ -130,12 +131,20 @@ class LiteLLMPort(LLMPort):
         except self._transport_exceptions() as exc:
             raise LLMTransportError(f"{type(exc).__name__}: {exc}") from exc
 
+        try:
+            from litellm import completion_cost
+
+            cost_usd = float(completion_cost(completion_response=response) or 0.0)
+        except Exception:
+            cost_usd = 0.0
+
         return LLMResponse(
             content=response.choices[0].message.content,
             total_tokens=response.usage.total_tokens,
             prompt_tokens=response.usage.prompt_tokens,
             completion_tokens=response.usage.completion_tokens,
             model=response.model,
+            cost_usd=cost_usd,
         )
 
 

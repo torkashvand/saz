@@ -1,6 +1,7 @@
 """Planner Agent - Generates execution plans from workflow specifications using LLM."""
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -347,6 +348,9 @@ class AgenticPlanner:
         self.model = model
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="planner")
+        # Set by the executor wiring so planner LLM spend counts toward the
+        # run budget. Signature: (run_id, tokens, cost_usd).
+        self.usage_recorder: Callable[[str, int, float], None] | None = None
 
     async def plan(
         self,
@@ -404,6 +408,8 @@ class AgenticPlanner:
                 response_format={"type": "json_object"},
                 temperature=0.1,  # Low temperature for determinism
             )
+            if self.usage_recorder is not None:
+                self.usage_recorder(run_id, response.total_tokens, response.cost_usd)
 
             plan_json = json.loads(response.content)
 

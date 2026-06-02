@@ -6,11 +6,12 @@ Provides two evaluation modes:
 """
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import structlog
 
-from .llm_port import LLMPort, LLMTransportError, get_llm_port
+from .llm_port import LLMPort, LLMResponse, LLMTransportError, get_llm_port
 from .schemas import Critique, PlanStep, Verdict
 
 logger = structlog.get_logger(__name__)
@@ -198,6 +199,13 @@ class CriticAgent:
         self.model = model
         self.llm_port = llm_port or get_llm_port()
         self.logger = logger.bind(agent="critic")
+        # Set by the executor wiring so verifier/critic LLM spend counts
+        # toward the run budget. Signature: (run_id, tokens, cost_usd).
+        self.usage_recorder: Callable[[str, int, float], None] | None = None
+
+    def _record_usage(self, run_id: str, response: LLMResponse) -> None:
+        if self.usage_recorder is not None:
+            self.usage_recorder(run_id, response.total_tokens, response.cost_usd)
 
     async def verify_proposal(
         self,
@@ -259,6 +267,7 @@ class CriticAgent:
                 response_format={"type": "json_object"},
                 temperature=0.1,
             )
+            self._record_usage(run_id, response)
 
             verdict_json = json.loads(response.content)
             critique = Critique.model_validate(verdict_json)
@@ -362,6 +371,7 @@ class CriticAgent:
                 response_format={"type": "json_object"},
                 temperature=0.2,  # Slightly higher for nuanced evaluation
             )
+            self._record_usage(run_id, response)
 
             critique_json = json.loads(response.content)
 

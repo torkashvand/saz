@@ -40,9 +40,10 @@ from saz.agents.schemas import (
 from saz.audit.event_emitter import EventEmitter
 from saz.db.models import Step
 from saz.db.unit_of_work import UnitOfWork
-from saz.engine.expressions import evaluate_expression
+from saz.engine.expressions import ConditionError, evaluate_condition, render_condition
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
+from saz.security.redaction import redact_secret_values
 from saz.settings import settings
 from saz.tools.registry import ToolRegistry
 
@@ -179,8 +180,18 @@ class WorkflowExecutor:
         self.critic = critic
         self.policy_engine = policy_engine
 
+        # Plaintext secret values resolved during this run, tracked so they can
+        # be scrubbed from anything persisted, returned, or emitted.
+        self._secret_values: set[str] = set()
+
         # Set secret resolver for executor agent
         self.executor_agent.secret_resolver = self._resolve_secret
+
+        # Route planner/critic LLM spend to this run's budget so verification
+        # and (re)planning count against budget_usd / token limits.
+        self.critic.usage_recorder = self.policy_engine.record_llm_usage
+        if hasattr(self.planner, "usage_recorder"):
+            self.planner.usage_recorder = self.policy_engine.record_llm_usage
 
     async def execute_run(self, run_id: str) -> None:
         """
@@ -572,17 +583,7 @@ class WorkflowExecutor:
         # Get tool registry specs
         tool_specs = self.tool_registry.get_tool_specs()
 
-        # Get remaining budget from policy engine
-        budget_remaining = self.policy_engine.get_budget_status(run_id)
-
-        budget_dict = {
-            "remaining_tokens": budget_remaining["tokens"]["remaining"],
-            "max_tokens": self.policy_engine.budget_tracker.max_tokens,
-            "remaining_cost": budget_remaining["cost"]["remaining"],
-            "max_cost_usd": self.policy_engine.budget_tracker.max_cost_usd,
-            "remaining_steps": budget_remaining["steps"]["remaining"],
-            "max_steps": self.policy_engine.budget_tracker.max_steps,
-        }
+        budget_dict = self._budget_dict(run_id)
 
         # Generate plan using injected planner (type chosen at construction)
         planner_mode = workflow_spec["planner_mode"]
@@ -699,7 +700,7 @@ class WorkflowExecutor:
                     step.duration_ms = int((end - start).total_seconds() * 1000)
 
                 # Store result
-                step.output = result
+                step.output = self._redact_secrets(result)
                 self.uow.commit()
 
                 # Emit step completed event
@@ -1095,7 +1096,10 @@ class WorkflowExecutor:
 
             # Store grounded input in step record
             step = self._get_current_step(run_id, plan_step.step_id)
-            step.input = {"tool": tool_call.tool, "arguments": tool_call.arguments}
+            step.input = {
+                "tool": tool_call.tool,
+                "arguments": self._redact_secrets(tool_call.arguments),
+            }
             self.uow.commit()
 
             # Policy check (before tokenization, to detect raw PII)
@@ -1227,7 +1231,7 @@ class WorkflowExecutor:
                     run_id=run_id,
                     completed_steps=context.get("completed_steps", []),
                     current_data=context.get("form_data", {}),
-                    budget=self.policy_engine.get_budget_status(run_id),
+                    budget=self._budget_dict(run_id),
                 )
 
                 if revised_plan.steps:
@@ -1276,19 +1280,20 @@ class WorkflowExecutor:
         """
         condition_expr = plan_step.input_template.get("condition", "true")
 
-        # Resolve variables in condition
         template_context = TemplateContext(
             form_data=context["form_data"],
             step_results=context["step_results"],
             secret_resolver=self._resolve_secret,
         )
-        resolved_condition = template_context.resolve(condition_expr)
 
-        # Evaluate expression
-        result = evaluate_expression(
-            resolved_condition,
-            context={"form": context["form_data"], "steps": context["step_results"]},
-        )
+        def resolve_ref(token: str) -> Any:
+            return template_context.resolve("{{ " + token + " }}")
+
+        try:
+            result = evaluate_condition(condition_expr, resolve_ref)
+            resolved_condition = render_condition(condition_expr, resolve_ref)
+        except ConditionError as exc:
+            raise ValueError(f"Invalid condition expression: {exc}") from exc
 
         logger.info(f"Condition '{condition_expr}' evaluated to {result}")
 
@@ -1468,6 +1473,23 @@ class WorkflowExecutor:
             raise ValueError(f"Step not found: {step_id}")
         return step
 
+    def _budget_dict(self, run_id: str) -> dict[str, Any]:
+        """Flattened budget shape the planner prompt expects."""
+        remaining = self.policy_engine.get_budget_status(run_id)
+        tracker = self.policy_engine.budget_tracker
+        return {
+            "remaining_tokens": remaining["tokens"]["remaining"],
+            "max_tokens": tracker.max_tokens,
+            "remaining_cost": remaining["cost"]["remaining"],
+            "max_cost_usd": tracker.max_cost_usd,
+            "remaining_steps": remaining["steps"]["remaining"],
+            "max_steps": tracker.max_steps,
+        }
+
+    def _redact_secrets(self, obj: Any) -> Any:
+        """Scrub resolved secret values from anything persisted or returned."""
+        return redact_secret_values(obj, self._secret_values)
+
     def _resolve_secret(self, secret_name: str) -> str | None:
         """
         Resolve secret from credentials store.
@@ -1496,8 +1518,13 @@ class WorkflowExecutor:
 
             if isinstance(data, dict):
                 # Extract first value from data dict (API key, token, etc.)
-                return next(iter(data.values()), None)
-            return str(data)
+                value = next(iter(data.values()), None)
+            else:
+                value = str(data)
+
+            if isinstance(value, str) and value:
+                self._secret_values.add(value)
+            return value
 
         except Exception as e:
             logger.warning(f"Failed to resolve secret '{secret_name}': {e}")

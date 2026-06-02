@@ -86,11 +86,17 @@ class HttpTool:
             ValueError: If domain not allowed
             httpx.HTTPError: If request fails
         """
-        # Validate domain allowlist
-        if self.allowed_domains:
+        # Fail closed: outbound HTTP is denied unless an allowlist is configured.
+        # An explicit "*" entry opts into allow-all (local/dev only).
+        allowed = self.allowed_domains or []
+        if "*" not in allowed:
             domain = httpx.URL(url).host
-            if domain not in self.allowed_domains:
-                raise ValueError(f"Domain '{domain}' not in allowlist: {self.allowed_domains}")
+            if domain not in allowed:
+                raise ValueError(
+                    f"HTTP request to '{domain}' blocked: not in allowed_domains "
+                    f"{allowed or '[] (none configured)'}. Configure an allowlist "
+                    f"(or '*' to permit all) to enable outbound calls."
+                )
 
         # Redact sensitive headers for logging
         safe_headers = self._redact_headers(headers or {})

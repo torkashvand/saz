@@ -46,11 +46,11 @@ def real_inventory(tmp_path):
 
 @pytest.fixture
 def ansible_tool_unrestricted(tmp_path):
-    """AnsibleTool with no allowlists — for tests that drive .execute()
+    """AnsibleTool with wildcard allowlists — for tests that drive .execute()
     with real (tmp_path) playbook/inventory paths."""
     return AnsibleTool(
-        allowed_playbook_roots=[],
-        allowed_inventories=[],
+        allowed_playbook_roots=["*"],
+        allowed_inventories=["*"],
         artifact_storage_path=str(tmp_path / "artifacts"),
         runner_artifacts_dir=str(tmp_path / "runner"),
     )
@@ -132,7 +132,7 @@ async def test_execute_with_allowlist_validation_playbook(ansible_tool, mock_bac
                 step_id="step1",
             )
 
-        assert "not in allowed roots" in str(exc_info.value)
+        assert "not under allowed roots" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -188,6 +188,46 @@ async def test_execute_with_all_parameters(
         assert call_kwargs["verbosity"] == 2
 
 
+@pytest.mark.asyncio
+async def test_execute_redacts_secrets_from_output(
+    ansible_tool_unrestricted, real_playbook, real_inventory
+):
+    """Injected credentials and sensitive extra_vars echoed into stdout must be
+    scrubbed from stdout_preview, recap, events, and the stored artifact."""
+    tool = ansible_tool_unrestricted
+    leaky = {
+        "status": "success",
+        "mode": "apply",
+        "recap": {"ok": 1, "changed": 0, "failed": 0},
+        "return_code": 0,
+        "stdout": "task output: vault was tok-super-secret-99999 and db_pw-xyz123456",
+        "events": [{"event": "runner_on_ok", "stdout": "key=tok-super-secret-99999"}],
+        "runner_artifacts_dir": "/tmp/test/artifacts",
+        "changed": False,
+    }
+    with patch.object(tool.backend, "execute", new=AsyncMock(return_value=leaky)):
+        result = await tool.execute(
+            mode="apply",
+            playbook=real_playbook,
+            inventory=real_inventory,
+            extra_vars={"db_password": "db_pw-xyz123456", "env": "prod"},
+            credentials={"vault_password": "tok-super-secret-99999"},
+            run_id="r1",
+            step_id="s1",
+        )
+
+    assert "tok-super-secret-99999" not in result["stdout_preview"]
+    assert "db_pw-xyz123456" not in result["stdout_preview"]
+    assert "***REDACTED***" in result["stdout_preview"]
+
+    artifact_path = tool.artifact_storage_path / "r1_s1_ansible.json"
+    blob = artifact_path.read_text()
+    assert "tok-super-secret-99999" not in blob
+    assert "db_pw-xyz123456" not in blob
+    # Non-sensitive extra_var value must NOT be scrubbed.
+    assert "prod" in blob or result["status"] == "success"
+
+
 def test_is_allowed_playbook_with_restrictions(ansible_tool):
     """Test playbook allowlist checking."""
     # Allowed
@@ -199,15 +239,22 @@ def test_is_allowed_playbook_with_restrictions(ansible_tool):
     assert not ansible_tool._is_allowed_playbook("/allowed/site.yml")  # Parent dir
 
 
-def test_is_allowed_playbook_no_restrictions(tmp_path):
-    """Test playbook allowlist checking with no restrictions."""
+def test_is_allowed_playbook_empty_allowlist_denies(tmp_path):
+    """Fail closed: an empty allowlist denies every playbook."""
     tool = AnsibleTool(
-        allowed_playbook_roots=[],  # No restrictions
+        allowed_playbook_roots=[],
         allowed_inventories=[],
         artifact_storage_path=str(tmp_path / "artifacts"),
     )
+    assert not tool._is_allowed_playbook("/any/path/playbook.yml")
 
-    # All playbooks should be allowed
+
+def test_is_allowed_playbook_wildcard_allows_all(tmp_path):
+    tool = AnsibleTool(
+        allowed_playbook_roots=["*"],
+        allowed_inventories=["*"],
+        artifact_storage_path=str(tmp_path / "artifacts"),
+    )
     assert tool._is_allowed_playbook("/any/path/playbook.yml")
 
 
@@ -221,16 +268,14 @@ def test_is_allowed_inventory_with_restrictions(ansible_tool):
     assert not ansible_tool._is_allowed_inventory("/allowed/other_inventory.ini")
 
 
-def test_is_allowed_inventory_no_restrictions(tmp_path):
-    """Test inventory allowlist checking with no restrictions."""
+def test_is_allowed_inventory_empty_allowlist_denies(tmp_path):
+    """Fail closed: an empty allowlist denies every inventory."""
     tool = AnsibleTool(
         allowed_playbook_roots=[],
-        allowed_inventories=[],  # No restrictions
+        allowed_inventories=[],
         artifact_storage_path=str(tmp_path / "artifacts"),
     )
-
-    # All inventories should be allowed
-    assert tool._is_allowed_inventory("/any/path/inventory.ini")
+    assert not tool._is_allowed_inventory("/any/path/inventory.ini")
 
 
 @pytest.mark.asyncio

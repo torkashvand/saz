@@ -1,6 +1,7 @@
 """Tool Registry - Central registry for MCP-style tool discovery and execution."""
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, cast
 
 import structlog
@@ -314,6 +315,19 @@ def create_default_registry(
     Returns:
         Configured ToolRegistry
     """
+    # Fail closed by default. The bundled change-approval demo ships a safe
+    # localhost playbook under saz/examples/ansible; allow that directory so
+    # the recommended demo runs out of the box, but nothing else. Operators
+    # extend the allowlists explicitly for real infrastructure.
+    if allowed_playbook_roots is None:
+        bundled_ansible = str(Path(__file__).resolve().parent.parent / "examples" / "ansible")
+        allowed_playbook_roots = [bundled_ansible]
+    if allowed_inventories is None:
+        bundled_inventory = str(
+            Path(__file__).resolve().parent.parent / "examples" / "ansible" / "demo_inventory.ini"
+        )
+        allowed_inventories = [bundled_inventory]
+
     http_tool = HttpTool(allowed_domains=allowed_domains)
     webhook_tool = WebhookTool(callback_base_url=callback_base_url)
     artifact_tool = ArtifactTool(storage_path=artifact_storage_path)

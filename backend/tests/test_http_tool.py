@@ -19,7 +19,7 @@ from saz.tools.http_tool import HttpTool
 
 @pytest.fixture
 def tool() -> HttpTool:
-    return HttpTool(allowed_domains=None, timeout=5)
+    return HttpTool(allowed_domains=["example.com"], timeout=5)
 
 
 def _mock_transport(status_code: int, body: dict | None = None) -> httpx.MockTransport:
@@ -114,4 +114,34 @@ async def test_http_tool_returns_2xx_normally(tool: HttpTool, monkeypatch):
     monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
 
     result = await tool.execute(method="GET", url="https://example.com/ok")
+    assert result["status_code"] == 200
+
+
+@pytest.mark.asyncio
+async def test_http_tool_fails_closed_when_no_allowlist() -> None:
+    """With no allowlist configured, outbound requests are denied."""
+    closed = HttpTool(allowed_domains=None, timeout=5)
+    with pytest.raises(ValueError, match="not in allowed_domains"):
+        await closed.execute(method="GET", url="https://example.com/api")
+
+
+@pytest.mark.asyncio
+async def test_http_tool_blocks_unlisted_domain() -> None:
+    tool = HttpTool(allowed_domains=["api.allowed.com"], timeout=5)
+    with pytest.raises(ValueError, match="blocked"):
+        await tool.execute(method="GET", url="https://evil.example.com/x")
+
+
+@pytest.mark.asyncio
+async def test_http_tool_wildcard_allows_all(monkeypatch) -> None:
+    tool = HttpTool(allowed_domains=["*"], timeout=5)
+    transport = _mock_transport(200, {"ok": True})
+    original_client = httpx.AsyncClient
+
+    def make_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
+    result = await tool.execute(method="GET", url="https://anything.example.org/x")
     assert result["status_code"] == 200

@@ -90,6 +90,7 @@ _DSL_SCHEMA: dict[str, Any] | None = {
     "required": ["schema_version", "flow", "workflow"],
     "properties": {
         "schema_version": {"const": 1},
+        "meta": {"type": "object"},
         "flow": {
             "type": "object",
             "additionalProperties": False,

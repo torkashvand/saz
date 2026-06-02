@@ -109,37 +109,17 @@ class TemplateManager:
                 recommended=meta_dict.get('recommended', False),
             )
 
-            # Remove meta section for compilation
-            yaml_for_compile = yaml_content
-            if 'meta:' in yaml_content:
-                # Remove the meta section (simple string manipulation)
-                lines = yaml_content.split('\n')
-                cleaned_lines = []
-                in_meta = False
-                for line in lines:
-                    if line.strip().startswith('meta:'):
-                        in_meta = True
-                        continue
-                    if in_meta:
-                        # Check if we've exited the meta section
-                        if line and not line.startswith(' ') and not line.startswith('\t'):
-                            in_meta = False
-                        else:
-                            continue
-                    if not in_meta:
-                        cleaned_lines.append(line)
-                yaml_for_compile = '\n'.join(cleaned_lines)
-
-            # Compile and validate
+            # The compiler accepts an optional top-level `meta` block, so the
+            # raw file compiles as-is — no string surgery required.
             try:
-                compiled = compile_dsl(yaml_for_compile)
+                compiled = compile_dsl(yaml_content)
             except Exception as e:
                 logger.error(f"Template {metadata.id} failed compilation: {e}")
                 return None
 
             return FlowTemplate(
                 metadata=metadata,
-                yaml_content=yaml_for_compile,  # Store cleaned YAML without meta
+                yaml_content=yaml_content,
                 compiled=compiled,
                 file_path=str(yaml_file),
             )

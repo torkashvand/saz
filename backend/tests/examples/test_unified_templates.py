@@ -19,43 +19,14 @@ def discover_templates():
     return list(templates_dir.glob("*.yaml"))
 
 
-def strip_meta_section(yaml_content: str) -> str:
-    """Remove meta section from YAML content before compilation."""
-    if 'meta:' not in yaml_content:
-        return yaml_content
-
-    lines = yaml_content.split('\n')
-    cleaned_lines = []
-    in_meta = False
-
-    for line in lines:
-        if line.strip().startswith('meta:'):
-            in_meta = True
-            continue
-        if in_meta:
-            # Check if we've exited the meta section
-            if line and not line.startswith(' ') and not line.startswith('\t'):
-                in_meta = False
-            else:
-                continue
-        if not in_meta:
-            cleaned_lines.append(line)
-
-    return '\n'.join(cleaned_lines)
-
-
 @pytest.mark.parametrize("template_path", discover_templates())
 def test_template_compiles(template_path):
-    """Test that a template compiles successfully."""
-    # Read template YAML
+    """Each template compiles as-is — including its top-level meta block —
+    through the same compiler the API uses, no string stripping required."""
     yaml_content = template_path.read_text(encoding='utf-8')
 
-    # Strip meta section
-    cleaned_yaml = strip_meta_section(yaml_content)
-
-    # Compile and assert no exceptions
     try:
-        compiled = compile_dsl(cleaned_yaml)
+        compiled = compile_dsl(yaml_content)
         assert compiled is not None
         assert compiled.flow_name is not None
         assert len(compiled.workflow_spec.get("steps", [])) > 0

@@ -7,7 +7,13 @@ import structlog
 
 from saz.engine.templating import resolve_template
 
-from .schemas import PlanStep, ToolCall
+from .schemas import (
+    InvalidToolArgumentsError,
+    PlanStep,
+    ToolCall,
+    ToolNotFoundError,
+    UnresolvedTemplateError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +56,7 @@ class ExecutorAgent:
 
         # Validate tool exists
         if step.tool_name not in tool_registry:
-            raise ValueError(f"Tool '{step.tool_name}' not found in registry")
+            raise ToolNotFoundError(f"Tool '{step.tool_name}' not found in registry")
 
         tool_spec = tool_registry[step.tool_name]
 
@@ -113,19 +119,19 @@ class ExecutorAgent:
 
         missing = [p for p in required_params if p not in arguments]
         if missing:
-            raise ValueError(f"Missing required parameters for {name}: {missing}")
+            raise InvalidToolArgumentsError(f"Missing required parameters for {name}: {missing}")
 
         properties = input_schema.get("properties", {})
         for key, value in arguments.items():
             # An unresolved template that survived grounding means a bad
             # $form/$step/$env reference — fail before the tool executes.
             if isinstance(value, str) and "{{" in value and "}}" in value:
-                raise ValueError(
+                raise UnresolvedTemplateError(
                     f"Unresolved template reference in argument '{key}' for {name}: {value!r}"
                 )
             prop = properties.get(key)
             if isinstance(prop, dict) and "enum" in prop and value not in prop["enum"]:
-                raise ValueError(
+                raise InvalidToolArgumentsError(
                     f"Invalid value for '{key}' in {name}: {value!r} not in {prop['enum']}"
                 )
 

@@ -175,30 +175,37 @@ class BudgetTracker:
         budget = self._budgets[run_id]
         elapsed_seconds = (datetime.now(UTC) - budget["start_time"]).total_seconds()
 
+        def _pct(used: float, limit: float) -> float:
+            # A zero (or negative) limit means "no headroom"; report 100% used
+            # rather than dividing by zero.
+            if limit <= 0:
+                return 100.0
+            return (used / limit) * 100
+
         return {
             "tokens": {
                 "used": budget["tokens_used"],
                 "max": self.max_tokens,
                 "remaining": max(0, self.max_tokens - budget["tokens_used"]),
-                "percentage": (budget["tokens_used"] / self.max_tokens) * 100,
+                "percentage": _pct(budget["tokens_used"], self.max_tokens),
             },
             "cost": {
                 "used": budget["cost_usd"],
                 "max": self.max_cost_usd,
                 "remaining": max(0, self.max_cost_usd - budget["cost_usd"]),
-                "percentage": (budget["cost_usd"] / self.max_cost_usd) * 100,
+                "percentage": _pct(budget["cost_usd"], self.max_cost_usd),
             },
             "steps": {
                 "used": budget["steps_executed"],
                 "max": self.max_steps,
                 "remaining": max(0, self.max_steps - budget["steps_executed"]),
-                "percentage": (budget["steps_executed"] / self.max_steps) * 100,
+                "percentage": _pct(budget["steps_executed"], self.max_steps),
             },
             "time": {
                 "used_seconds": elapsed_seconds,
                 "max_seconds": self.max_time_seconds,
                 "remaining_seconds": max(0, self.max_time_seconds - elapsed_seconds),
-                "percentage": (elapsed_seconds / self.max_time_seconds) * 100,
+                "percentage": _pct(elapsed_seconds, self.max_time_seconds),
             },
         }
 

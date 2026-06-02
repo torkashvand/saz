@@ -35,7 +35,9 @@ from saz.agents.schemas import (
     ErrorHandling,
     ExecutionPlan,
     PlanStep,
+    UnknownStepTypeError,
     Verdict,
+    WorkflowStructuralError,
 )
 from saz.audit.event_emitter import EventEmitter
 from saz.db.models import Step
@@ -43,11 +45,40 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.engine.expressions import ConditionError, evaluate_condition, render_condition
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
-from saz.security.redaction import redact_secret_values
+from saz.security.redaction import redact_secret_values, redact_sensitive
 from saz.settings import settings
 from saz.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def derive_declared_tools(workflow_spec: dict[str, Any]) -> set[str]:
+    """Compute the set of tools a workflow is allowed to ground.
+
+    The allowlist is the union of an explicit ``workflow.allowed_tools`` list
+    and the tools referenced by the declared steps (mirroring how the
+    deterministic planner maps a step to its tool name). Returns an empty set
+    when nothing constrains the workflow (e.g. an agentic workflow with no
+    declared steps and no explicit allowlist), in which case the caller falls
+    back to the full registry and logs that the plan is unconstrained.
+    """
+    declared: set[str] = set()
+    explicit = workflow_spec.get("allowed_tools") or []
+    declared.update(t for t in explicit if isinstance(t, str))
+    for step in workflow_spec.get("steps", []) or []:
+        stype = step.get("type", "")
+        if stype == "tool.call":
+            tool = step.get("tool")
+            if tool:
+                declared.add(tool)
+        elif stype.startswith("ai."):
+            declared.add(stype)
+        elif stype in {"artifact.store", "artifact.retrieve"}:
+            declared.add(stype)
+        elif stype == "webhook.wait":
+            declared.add("webhook_wait")
+        # condition / human.approval are control steps, not grounded tools.
+    return declared
 
 
 # Exception classes for agentic loop
@@ -235,6 +266,17 @@ class WorkflowExecutor:
             workflow_spec = flow.definition.get("workflow", {})
             planner_mode = workflow_spec.get("planner_mode", "deterministic")
 
+            # Bound the tools any plan may ground to the workflow's declared
+            # set. Empty => unconstrained (full registry); warn so an
+            # unbounded agentic workflow is visible.
+            allowed_tools = derive_declared_tools(workflow_spec)
+            if not allowed_tools and planner_mode == "agentic":
+                logger.warning(
+                    "agentic plan is unconstrained for run %s: declare "
+                    "workflow.allowed_tools (or tool.call steps) to bound it",
+                    run_id,
+                )
+
             # Get PII policy from DSL (policies at root level in stored YAML)
             policies_dict = flow.definition.get("policies", {})
             # DSL uses pii.allow (boolean); convert to sanitizer mode string
@@ -269,6 +311,7 @@ class WorkflowExecutor:
                 "completed_steps": [],
                 "emitter": emitter,
                 "planner_mode": planner_mode,
+                "allowed_tools": allowed_tools,
             }
 
             # Restore context from the latest attempt of each completed step.
@@ -311,12 +354,12 @@ class WorkflowExecutor:
                 f"(estimated: ${plan.estimated_cost_usd:.3f}, {plan.estimated_time_seconds}s)"
             )
 
-            # Emit plan generated event
+            # Emit plan generated event. Steps execute sequentially; PlanStep
+            # has no dependency graph, so no "deps" field is emitted.
             steps_summary = [
                 {
                     "id": step.step_id,
                     "intent": step.reasoning,
-                    "deps": getattr(step, "dependencies", []),
                 }
                 for step in plan.steps
             ]
@@ -340,6 +383,10 @@ class WorkflowExecutor:
                 within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
                 if not within_budget:
                     logger.error(f"Budget exceeded for run {run_id}: {budget_error}")
+                    emitter.policy_budget_exhausted(
+                        reason=budget_error or "budget exceeded", step_id=plan_step.step_id
+                    )
+                    await emitter.commit_and_broadcast()
                     await self._fail_run(
                         run_id,
                         {
@@ -421,6 +468,32 @@ class WorkflowExecutor:
                         "step_number": step_number,
                     }
                     logger.error(f"Step {plan_step.step_id} blocked by policy: {step_error}")
+                    await self._fail_run(run_id, error_dict, emitter)
+                    return
+
+                except WorkflowStructuralError as step_error:
+                    # Permanent config/plan error (unknown tool/step type,
+                    # missing args, unresolved template). Not retryable: mark the
+                    # step failed and fail the run immediately. Mirrors the
+                    # PolicyViolation path so the step row never sticks in
+                    # "running".
+                    current_step = context.get("current_step")
+                    if current_step is not None:
+                        current_step.status = "failed"
+                        current_step.end_ts = datetime.now(UTC)
+                        current_step.error = {
+                            "message": str(step_error),
+                            "type": type(step_error).__name__,
+                        }
+                    error_dict = {
+                        "message": str(step_error),
+                        "type": type(step_error).__name__,
+                        "category": "structural",
+                        "retryable": False,
+                        "step": plan_step.step_id,
+                        "step_number": step_number,
+                    }
+                    logger.error(f"Step {plan_step.step_id} structural error: {step_error}")
                     await self._fail_run(run_id, error_dict, emitter)
                     return
 
@@ -523,6 +596,9 @@ class WorkflowExecutor:
                             "output": {"error": error_dict}
                         }
                         context["completed_steps"].append(plan_step.step_id)
+                        # A continued-on-fail step still consumed a step slot —
+                        # count it so max_steps is not undercounted.
+                        self.policy_engine.record_step(run_id)
                         continue
 
                     else:
@@ -717,10 +793,12 @@ class WorkflowExecutor:
                 # Suspension is not a failure — let it propagate to the main loop
                 raise
 
-            except (PolicyViolation, EscalationRequired):
+            except (PolicyViolation, EscalationRequired, WorkflowStructuralError):
                 # Deterministic failures — retrying will not fix them.
                 # PolicyViolation: PII on disallowed paths, budget exceeded, etc.
                 # EscalationRequired: needs human review.
+                # WorkflowStructuralError: unknown tool/step type, missing args,
+                # unresolved template — permanent config/plan errors, fail fast.
                 raise
 
             except Exception as e:
@@ -816,7 +894,7 @@ class WorkflowExecutor:
             return await self._execute_webhook_wait(plan_step, context, run_id)
 
         else:
-            raise ValueError(
+            raise UnknownStepTypeError(
                 f"Unknown step_type: {t!r}. "
                 f"Expected: ai.*, tool.call, artifact.*, condition, human.approval, or webhook.wait"
             )
@@ -858,7 +936,13 @@ class WorkflowExecutor:
         emitter: EventEmitter = context["emitter"]
         planner_mode = context.get("planner_mode", "deterministic")
         tool_specs_dict = self.tool_registry.get_tool_specs_dict()
-        allowed_tool_names = list(tool_specs_dict.keys())
+        # Bound tool selection to the workflow's declared tools when an
+        # allowlist is available (declared steps and/or workflow.allowed_tools);
+        # otherwise fall back to the full registry. This is the deterministic
+        # gate that keeps an agentic planner inside workflow boundaries instead
+        # of trusting only the LLM verifier.
+        declared = context.get("allowed_tools") or set()
+        allowed_tool_names = sorted(declared) if declared else list(tool_specs_dict.keys())
 
         # --- Phase 1: Ground and verify with replan loop ---
         tool_call, step = await self._ground_and_verify(
@@ -951,9 +1035,10 @@ class WorkflowExecutor:
             ):
                 artifact_id = result.get("artifact_id")
                 if artifact_id:
+                    artifact_name = result.get("name") or "artifact"
                     self.uow.artifacts.create(
                         run_id=run_id,
-                        name=result.get("name") or "artifact",
+                        name=artifact_name,
                         blob_ref=result.get("storage_path") or "",
                         meta={
                             "artifact_id": artifact_id,
@@ -962,6 +1047,13 @@ class WorkflowExecutor:
                         step_id=current_step.id,
                     )
                     self.uow.commit()
+                    emitter.artifact_created(
+                        step_id=current_step.id,
+                        artifact_id=str(artifact_id),
+                        name=artifact_name,
+                        content_type=str(result.get("content_type", "json")),
+                    )
+                    await emitter.commit_and_broadcast()
 
         except Exception as tool_error:
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)
@@ -1009,7 +1101,10 @@ class WorkflowExecutor:
         # --- Phase 6: Post-execution critique ---
         critique = await self.critic.critique(
             step=plan_step,
-            tool_call={"tool": tool_call.tool, "arguments": tool_call.arguments},
+            tool_call={
+                "tool": tool_call.tool,
+                "arguments": self._redact_for_prompt(tool_call.arguments),
+            },
             result=redacted_result,
             run_id=run_id,
             completed_steps=context.get("completed_steps", []),
@@ -1018,6 +1113,15 @@ class WorkflowExecutor:
 
         step.critique = critique.model_dump()
         self.uow.commit()
+
+        # Emit the post-execution critique verdict as a first-class audit event.
+        emitter.critique_completed(
+            step_id=step.id,
+            verdict=critique.verdict.value,
+            confidence=critique.confidence,
+            reasoning=critique.reasoning,
+        )
+        await emitter.commit_and_broadcast()
 
         logger.info(
             "critique_received",
@@ -1083,6 +1187,24 @@ class WorkflowExecutor:
                 run_id=run_id,
             )
 
+            # Deterministic boundary: the grounded tool must be within the
+            # workflow's declared/allowed tool set. This keeps an agentic plan
+            # inside workflow boundaries regardless of the LLM verifier's
+            # judgment. (No-op in deterministic mode, where the plan == steps.)
+            if allowed_tool_names and tool_call.tool not in allowed_tool_names:
+                step = self._get_current_step(run_id, plan_step.step_id)
+                deny_reason = (
+                    f"Tool '{tool_call.tool}' is not in the workflow's allowed tools "
+                    f"{list(allowed_tool_names)}"
+                )
+                step.policy_flags = {"blocked": True, "reason": deny_reason}
+                self.uow.commit()
+                emitter.policy_blocked(
+                    step_id=step.id, tool_name=tool_call.tool, reason=deny_reason
+                )
+                await emitter.commit_and_broadcast()
+                raise PolicyViolation(f"Tool call blocked: {deny_reason}")
+
             logger.info(
                 "grounding_step",
                 extra={
@@ -1111,12 +1233,30 @@ class WorkflowExecutor:
             if not allowed:
                 step.policy_flags = {"blocked": True, "reason": reason}
                 self.uow.commit()
+                # Emit a first-class, queryable safety event for the block. The
+                # specific event type is derived from check_tool_call's reason
+                # prefix so rate-limit / budget / PII blocks are distinguishable.
+                reason_text = reason or "policy violation"
+                if reason_text.startswith("Rate limit"):
+                    emitter.policy_rate_limited(
+                        tool_name=tool_call.tool, reason=reason_text, step_id=step.id
+                    )
+                elif reason_text.startswith("Budget exceeded"):
+                    emitter.policy_budget_exhausted(reason=reason_text, step_id=step.id)
+                else:
+                    emitter.policy_blocked(
+                        step_id=step.id, tool_name=tool_call.tool, reason=reason_text
+                    )
+                await emitter.commit_and_broadcast()
                 raise PolicyViolation(f"Tool call blocked: {reason}")
 
             # Pre-execution verification
             verification = await self.critic.verify_proposal(
                 step=plan_step,
-                proposed_tool_call={"tool": tool_call.tool, "arguments": tool_call.arguments},
+                proposed_tool_call={
+                    "tool": tool_call.tool,
+                    "arguments": self._redact_for_prompt(tool_call.arguments),
+                },
                 run_id=run_id,
                 completed_steps=context.get("completed_steps", []),
                 current_state=context.get("step_results", {}),
@@ -1335,6 +1475,13 @@ class WorkflowExecutor:
         if current_step:
             current_step.status = "suspended"
 
+        # Emit step-level suspension event (run-level emitted below).
+        emitter.step_suspended(
+            step_id=step_db_id,
+            step_name=plan_step.step_id,
+            reason="awaiting_human_approval",
+        )
+
         # Suspend run with callback_id for webhook lookup
         assert self.uow.runs is not None
         error_payload: dict[str, Any] = {
@@ -1383,6 +1530,13 @@ class WorkflowExecutor:
         # Mark the step as suspended
         if current_step:
             current_step.status = "suspended"
+
+        # Emit step-level suspension event (run-level emitted below).
+        emitter.step_suspended(
+            step_id=step_db_id,
+            step_name=plan_step.step_id,
+            reason="awaiting_webhook_callback",
+        )
 
         # Suspend run with callback_id
         assert self.uow.runs is not None
@@ -1489,6 +1643,15 @@ class WorkflowExecutor:
         """Scrub resolved secret values from anything persisted or returned."""
         return redact_secret_values(obj, self._secret_values)
 
+    def _redact_for_prompt(self, obj: Any) -> Any:
+        """Redact secrets before sending tool arguments to the verifier/critic LLM.
+
+        Combines sensitive-key redaction with known resolved secret-value
+        scrubbing so neither ``$secret(...)`` values nor credential-named
+        fields ever reach an LLM provider.
+        """
+        return redact_sensitive(obj, self._secret_values)
+
     def _resolve_secret(self, secret_name: str) -> str | None:
         """
         Resolve secret from credentials store.
@@ -1499,32 +1662,48 @@ class WorkflowExecutor:
         Returns:
             Secret value or None
         """
+        import yaml
+        from cryptography.fernet import Fernet
+
+        assert self.uow.credentials is not None
+        credential = self.uow.credentials.get(secret_name)
+        if not credential:
+            # Missing credential: return None so the templating layer raises a
+            # clear "Secret '<name>' not found" at the point of use. This is the
+            # only swallowed case — and it is not silent (the caller raises).
+            logger.warning("secret_not_found name=%s", secret_name)
+            return None
+
+        # Decryption / config failures must NOT silently degrade to "no secret"
+        # (which would let a step run with a missing credential). Fail loudly —
+        # but never log or embed the key or ciphertext in the error.
+        key = settings.CREDENTIALS_ENCRYPTION_KEY
         try:
-            import yaml
-            from cryptography.fernet import Fernet
-
-            assert self.uow.credentials is not None
-            credential = self.uow.credentials.get(secret_name)
-            if not credential:
-                return None
-
-            # Decrypt credential data
-            key = settings.CREDENTIALS_ENCRYPTION_KEY
             cipher = Fernet(key.encode())
-
             decrypted = cipher.decrypt(credential.data_encrypted)
             data = yaml.safe_load(decrypted.decode())
-
-            if isinstance(data, dict):
-                # Extract first value from data dict (API key, token, etc.)
-                value = next(iter(data.values()), None)
-            else:
-                value = str(data)
-
-            if isinstance(value, str) and value:
-                self._secret_values.add(value)
-            return value
-
         except Exception as e:
-            logger.warning(f"Failed to resolve secret '{secret_name}': {e}")
-            return None
+            raise WorkflowStructuralError(
+                f"Failed to decrypt credential '{secret_name}': check the "
+                f"CREDENTIALS_ENCRYPTION_KEY configuration ({type(e).__name__})"
+            ) from None
+
+        if isinstance(data, dict):
+            # Deterministic contract: one value per credential. A multi-key blob
+            # is ambiguous for $secret(name) — fail loudly rather than guessing.
+            if len(data) == 1:
+                value = next(iter(data.values()))
+            elif len(data) == 0:
+                value = None
+            else:
+                raise WorkflowStructuralError(
+                    f"Credential '{secret_name}' stores multiple keys "
+                    f"({sorted(data)}); $secret() resolves a single value. "
+                    f"Store one value per credential."
+                )
+        else:
+            value = str(data)
+
+        if isinstance(value, str) and value:
+            self._secret_values.add(value)
+        return value

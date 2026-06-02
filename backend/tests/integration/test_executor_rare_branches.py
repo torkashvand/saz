@@ -366,9 +366,12 @@ def test_resolve_secret_returns_none_for_missing_credential(db_engine) -> None:
             assert executor._resolve_secret("NOT_CONFIGURED") is None
 
 
-def test_resolve_secret_returns_none_when_decrypt_fails(db_engine) -> None:
-    """A corrupted ciphertext must not crash the executor — it returns None
-    so the template resolver raises a clear 'Secret X not found'."""
+def test_resolve_secret_raises_when_decrypt_fails(db_engine) -> None:
+    """A corrupted ciphertext / misconfigured key must fail loudly — silently
+    returning None would let a step run with a missing credential. The error
+    must not leak the ciphertext or the encryption key."""
+    from saz.agents.schemas import WorkflowStructuralError
+
     with Session(db_engine) as session:
         cred = Credential(
             created_by_user_id=TEST_USER_ID,
@@ -382,7 +385,37 @@ def test_resolve_secret_returns_none_when_decrypt_fails(db_engine) -> None:
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             executor = _make_executor(uow)
-            assert executor._resolve_secret("BAD_SECRET") is None
+            with pytest.raises(WorkflowStructuralError) as exc:
+                executor._resolve_secret("BAD_SECRET")
+            msg = str(exc.value)
+            assert "BAD_SECRET" in msg
+            assert "not-real-ciphertext" not in msg
+
+
+def test_resolve_secret_rejects_multi_key_blob(db_engine, monkeypatch) -> None:
+    """A credential with multiple keys is ambiguous for $secret() — reject it
+    deterministically instead of returning an arbitrary value."""
+    from cryptography.fernet import Fernet
+
+    from saz.agents.schemas import WorkflowStructuralError
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(settings, "CREDENTIALS_ENCRYPTION_KEY", key)
+    with Session(db_engine) as session:
+        session.add(
+            Credential(
+                created_by_user_id=TEST_USER_ID,
+                name="MULTI",
+                type="api_token",
+                data_encrypted=_fernet_encrypt(key, {"a": "1", "b": "2"}),
+            )
+        )
+        session.commit()
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = _make_executor(uow)
+            with pytest.raises(WorkflowStructuralError, match="multiple keys"):
+                executor._resolve_secret("MULTI")
 
 
 # --------------------------- _execute_condition ---------------------------

@@ -5,6 +5,35 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+class WorkflowStructuralError(ValueError):
+    """A permanent workflow/tool/config error that retrying cannot fix.
+
+    Structural errors (unknown tool, unknown step type, missing required
+    arguments, unresolved template references, invalid schema) are deterministic
+    by definition — retrying with backoff only wastes time and budget. The
+    executor's retry loop re-raises these immediately instead of retrying.
+
+    Subclasses ValueError so existing ``except ValueError`` handlers and tests
+    that assert ValueError for these conditions keep working unchanged.
+    """
+
+
+class ToolNotFoundError(WorkflowStructuralError):
+    """Referenced tool is not registered."""
+
+
+class InvalidToolArgumentsError(WorkflowStructuralError):
+    """Grounded tool arguments are missing/invalid against the tool schema."""
+
+
+class UnresolvedTemplateError(WorkflowStructuralError):
+    """A template reference could not be resolved to a concrete value."""
+
+
+class UnknownStepTypeError(WorkflowStructuralError):
+    """Step type has no executor dispatch."""
+
+
 class ErrorHandling(str, Enum):
     """How to handle step errors"""
 

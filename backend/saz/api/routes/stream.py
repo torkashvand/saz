@@ -65,8 +65,18 @@ async def stream_run_events(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     try:
-        AuthService(uow).user_from_token(token)
+        user = AuthService(uow).user_from_token(token)
     except AuthError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Per-run authorization: a valid token is not enough — the user must own
+    # the run (or be an admin). Otherwise any authenticated user could stream
+    # any run's events. Close before accept so an unauthorized client never
+    # sees a single event (and cannot distinguish "not found" from "forbidden").
+    assert uow.runs is not None
+    run = uow.runs.get(run_id)
+    if run is None or (run.created_by_user_id != user.id and not user.is_admin):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -88,13 +98,14 @@ async def stream_run_events(
             "event_type": event_type_str,
             "timestamp": event.timestamp.isoformat(),
             "schema_version": event.schema_version,
+            "seq": getattr(event, "seq", None),
             "run_id": event.run_id,
             "step_id": event.step_id,
             "correlation_id": event.correlation_id,
             "planner_mode": event.planner_mode,
-            "severity": event.severity,
+            # actor_user_id (a raw user id) is intentionally not sent on the
+            # wire; the actor *role* is enough for the client to attribute.
             "actor": event.actor,
-            "actor_user_id": event.actor_user_id,
             "summary": event.summary,
             "payload": event.payload,
             "tags": event.tags,
@@ -124,6 +135,17 @@ async def stream_run_events(
             try:
                 # Wait for event with timeout for keepalive
                 event: Event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                # If the bus had to drop events for this slow consumer, tell the
+                # client to treat REST/DB as canonical and refetch the timeline.
+                if subscription.dropped:
+                    subscription.dropped = False
+                    await websocket.send_json(
+                        {
+                            "type": "gap",
+                            "run_id": run_id,
+                            "message": "events dropped; refetch run events via REST",
+                        }
+                    )
                 await websocket.send_json(_serialize(event))
 
             except TimeoutError:

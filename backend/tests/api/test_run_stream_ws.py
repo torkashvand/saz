@@ -231,13 +231,65 @@ def test_websocket_only_receives_own_run_events(app_client, db_engine, test_user
 
 
 def test_websocket_connection_to_nonexistent_run(app_client, test_user_token):
-    """WebSocket connection to nonexistent run is accepted (auth required)."""
-    # WebSocket endpoint accepts connections even for nonexistent runs as
-    # long as the caller is authenticated.
-    with app_client.websocket_connect(
-        f"/api/v1/runs/nonexistent/stream?token={test_user_token}"
-    ) as ws:
-        # Should receive connection acknowledgment
-        ack = ws.receive_json()
-        assert ack["type"] == "connected"
-        assert ack["run_id"] == "nonexistent"
+    """A stream for a nonexistent run is rejected (closed before accept).
+
+    The endpoint authorizes per-run: a run that doesn't exist cannot be owned
+    by the caller, so the connection is refused (and "not found" is
+    indistinguishable from "forbidden" to avoid leaking run existence)."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect):
+        with app_client.websocket_connect(
+            f"/api/v1/runs/nonexistent/stream?token={test_user_token}"
+        ) as ws:
+            ws.receive_json()
+
+
+def test_websocket_rejects_non_owner(app_client, db_engine, test_user_token):
+    """A run owned by another user cannot be streamed by this user."""
+    from datetime import UTC, datetime
+
+    from starlette.websockets import WebSocketDisconnect
+
+    from saz.db.models import Flow, Run, User
+    from saz.security.passwords import hash_password
+
+    other_id = "00000000-0000-0000-0000-0000000000ff"
+    with Session(db_engine) as session:
+        session.add(
+            User(
+                id=other_id,
+                username="other",
+                email="other@example.com",
+                display_name="Other",
+                password_hash=hash_password("x"),
+                is_active=True,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        session.add(
+            Flow(
+                created_by_user_id=other_id,
+                id="flow_other",
+                name="other flow",
+                definition={"workflow": {"planner_mode": "deterministic"}},
+            )
+        )
+        session.add(
+            Run(
+                created_by_user_id=other_id,
+                id="run_other",
+                flow_id="flow_other",
+                status="running",
+                planner_mode="deterministic",
+            )
+        )
+        session.commit()
+
+    # test_user_token belongs to TEST_USER_ID, not other_id -> must be refused.
+    with pytest.raises(WebSocketDisconnect):
+        with app_client.websocket_connect(
+            f"/api/v1/runs/run_other/stream?token={test_user_token}"
+        ) as ws:
+            ws.receive_json()

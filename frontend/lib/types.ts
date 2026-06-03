@@ -208,7 +208,7 @@ export interface RunStep {
   name: string;
   attempt: number;
   step_type: string;
-  status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
+  status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'skipped';
   start_ts?: string;
   end_ts?: string;
   duration_ms?: number;
@@ -350,7 +350,8 @@ export interface FlowGraphResponse {
 
 // Mirrors backend StepStatus (saz.domain.literals.StepStatus). The backend
 // never emits 'pending' or 'success'; those phantom values were removed.
-export type StepStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
+// 'skipped' is set when a step's `when` guard evaluates false.
+export type StepStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'skipped';
 
 export interface RunGraphResponse {
   nodes: GraphNode[];

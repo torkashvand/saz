@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, Loader2, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Clock, AlertCircle, MinusCircle } from 'lucide-react';
 import type { StepStatus } from '@/lib/types';
 
 interface StatusBadgeProps {
@@ -36,6 +36,12 @@ const STATUS_CONFIG = {
     color: 'text-amber-600',
     bg: 'bg-amber-50',
     label: 'Suspended',
+  },
+  skipped: {
+    icon: MinusCircle,
+    color: 'text-slate-400',
+    bg: 'bg-slate-50',
+    label: 'Skipped',
   },
 } as const;
 

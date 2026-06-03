@@ -27,6 +27,7 @@ const STATUS_COLORS: Record<StepStatus, string> = {
   completed: '#22c55e', // green-500
   failed: '#ef4444', // red-500
   suspended: '#f59e0b', // amber-500
+  skipped: '#cbd5e1', // slate-300
 };
 
 const NODE_TYPES: Record<string, { color: string; bg: string }> = {

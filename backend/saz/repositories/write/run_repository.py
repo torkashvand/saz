@@ -130,6 +130,42 @@ class RunRepository(BaseRepository[Run]):
                 self._set_duration_ms(run)
         return applied
 
+    def mark_queued_if_suspended(self, run_id: str, error: dict | None = None) -> bool:
+        """Atomically requeue a run only if it is still suspended.
+
+        Closes the resume-vs-timeout race symmetrically with
+        :meth:`mark_failed_if_suspended`: a concurrent SuspensionSweeper may
+        have failed the run between the resume handler's status read and now. A
+        plain read-then-write (``run.status = "queued"``) would resurrect that
+        failed run with stale in-memory state. This issues
+        ``UPDATE ... WHERE id = :id AND status = 'suspended'`` so the guard is
+        evaluated against committed DB state.
+
+        ``error`` becomes the new ``Run.error`` (pass ``None`` to clear the
+        suspension error, or a resolved marker dict to preserve callback
+        context for idempotent duplicate detection).
+
+        Returns:
+            True if this call transitioned the run from suspended to queued;
+            False if the run was no longer suspended (timed out / resumed
+            elsewhere).
+        """
+        stmt = (
+            update(Run)
+            .where(Run.id == run_id, Run.status == RunStatus.SUSPENDED)
+            .values(status=RunStatus.QUEUED, error=error)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(stmt)
+        applied = (getattr(result, "rowcount", 0) or 0) > 0
+        if applied:
+            # The core UPDATE bypassed the identity map; refresh so downstream
+            # reads in this session see queued state and a cleared error.
+            run = self.get(run_id)
+            if run is not None:
+                self.session.refresh(run)
+        return applied
+
     def mark_suspended(self, run_id: str, error: dict | None = None) -> Run | None:
         """Mark run as suspended."""
         run = self.get(run_id)

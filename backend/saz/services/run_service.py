@@ -130,41 +130,37 @@ class RunService:
         assert self.uow.steps is not None
         assert self.uow.run_reads is not None
 
-        # Get run detail
+        # Get run detail (used to locate the suspended step).
         run_detail = self.uow.run_reads.detail(run_id)
         if not run_detail:
             raise ValueError(f"Run not found: {run_id}")
 
-        if run_detail.status != "suspended":
-            raise ValueError(f"Run {run_id} is not suspended (status: {run_detail.status})")
+        # Atomically claim the suspended run BEFORE mutating any step state.
+        # This closes the resume-vs-timeout race: if the SuspensionSweeper has
+        # already failed the run, the guarded UPDATE matches zero rows and we
+        # must not resurrect it. (Mirrors mark_failed_if_suspended on the
+        # sweeper side.)
+        if not self.uow.runs.mark_queued_if_suspended(run_id):
+            current = self.uow.runs.get(run_id)
+            status = current.status if current is not None else "missing"
+            raise ValueError(f"Run {run_id} is not suspended (status: {status})")
 
-        # Find the suspended step
-        suspended_step = None
-        for step in run_detail.steps:
-            if step.status == "suspended":
-                suspended_step = step
-                break
-
-        # Always complete the suspended step on resume — leaving it suspended
-        # while requeuing the run causes the executor to either re-enter the
-        # same gate or never advance it (only completed steps are skipped on
-        # restart). When the caller does not provide explicit resume_data,
-        # store a minimal "resumed" marker so the step output is still a dict.
+        # Now that we own the transition, complete the suspended step. Leaving
+        # it suspended while requeuing the run causes the executor to either
+        # re-enter the same gate or never advance it (only completed steps are
+        # skipped on restart). When the caller does not provide explicit
+        # resume_data, store a minimal "resumed" marker so the output is a dict.
+        suspended_step = next((s for s in run_detail.steps if s.status == "suspended"), None)
         if suspended_step:
             step_entity = self.uow.steps.get(suspended_step.id)
             if step_entity:
                 step_entity.output = resume_data or {"resumed": True}
                 self.uow.steps.mark_completed(suspended_step.id)
 
-        # Update run payload if override provided and mark as queued
-        run = self.uow.runs.get(run_id)
-        if run:
-            if override_payload:
-                # Create new dict to trigger SQLAlchemy update detection
-                updated_payload = {**run.payload, **override_payload}
-                run.payload = updated_payload
-
-            run.status = "queued"
-            run.error = None  # Clear suspension error
+        # Apply payload override now that the run is queued.
+        if override_payload:
+            run = self.uow.runs.get(run_id)
+            if run:
+                run.payload = {**run.payload, **override_payload}
 
         self.uow.commit()

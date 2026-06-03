@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from saz.api.dependencies import CurrentUserDep, RunServiceDep, UnitOfWorkDep
-from saz.api.errors import NotFoundError, ValidationError
+from saz.api.errors import AuthorizationError, NotFoundError, ValidationError
 from saz.api.schemas.webhook_schemas import (
     ResumeRunRequest,
     ResumeRunResponse,
@@ -59,6 +59,26 @@ async def resume_run(
 
     if run.status != "suspended":
         raise ValidationError(f"Run {run_id} is not suspended (status: {run.status})")
+
+    # Authorize this authenticated resume.
+    #  * If the human.approval step declared an ``approvers`` allowlist
+    #    (usernames/emails), only a named approver (or an admin) may approve —
+    #    an approver need not own the run.
+    #  * Otherwise only the run's owner (or an admin) may resume it, matching
+    #    the per-run access model used by the read endpoints and WS stream.
+    # approver_role is surfaced but not enforced (Saz has no role system). The
+    # raw webhook callback URL remains a separate capability and is not gated
+    # here.
+    approval_meta = (run.error or {}).get("approval") or {}
+    approvers = approval_meta.get("approvers")
+    if approvers:
+        if not user.is_admin and not ({user.username, user.email} & set(approvers)):
+            raise AuthorizationError(f"User '{user.username}' is not an approver for run {run_id}")
+    elif not user.is_admin:
+        assert service.uow.runs is not None
+        owner_run = service.uow.runs.get(run_id)
+        if owner_run is not None and owner_run.created_by_user_id != user.id:
+            raise AuthorizationError(f"Not authorized to resume run {run_id}")
 
     # Pre-buffer the user-attributed event into the same UoW the service
     # will commit, so attribution does not add a second DB transaction.
@@ -167,6 +187,17 @@ async def handle_webhook_callback(
     if req.action not in ("approve", "reject"):
         raise ValidationError(f"Invalid action '{req.action}'. Must be 'approve' or 'reject'.")
 
+    # Validate the event name against the one the webhook.wait step declared.
+    # A caller that provides a mismatched event_name is rejected so a callback
+    # meant for a different event cannot resume this wait. A caller that omits
+    # event_name is allowed (possession of the callback_id is the capability).
+    expected_event = (run.error or {}).get("event_name")
+    if expected_event and req.event_name and req.event_name != expected_event:
+        raise ValidationError(
+            f"Callback event '{req.event_name}' does not match the awaited "
+            f"event '{expected_event}'"
+        )
+
     # Emit webhook callback received event
     emitter = EventEmitter(
         uow=uow,
@@ -232,6 +263,21 @@ async def handle_webhook_callback(
             message=f"Run rejected: {reason}",
         )
 
+    # Approval: atomically claim the suspended run BEFORE mutating step state,
+    # closing the approve-vs-timeout race. If the SuspensionSweeper already
+    # failed this run after the idempotency pre-check above, the guarded UPDATE
+    # matches zero rows and we must not resurrect it. The resolved marker
+    # preserves callback_id so a later duplicate callback returns
+    # already_processed instead of 404.
+    resolved_error = {**(run.error or {}), "callback_id": callback_id, "resolved": True}
+    if not uow.runs.mark_queued_if_suspended(run.id, error=resolved_error):
+        current = uow.runs.get(run.id)
+        return WebhookCallbackResponse(
+            status="already_processed",
+            run_id=run.id,
+            message=f"Run already in state: {current.status if current else 'unknown'}",
+        )
+
     # Approval: resume the run
     resume_data = {
         "approved": True,
@@ -262,12 +308,8 @@ async def handle_webhook_callback(
         )
     emitter.run_resumed(resume_source="webhook_callback")
 
-    # Mark run as queued, preserving callback_id for idempotent duplicate detection.
-    # Merge resolved marker into the existing error dict so the original suspension
-    # context (step_id, type, reasoning) remains available for audit/debugging.
-    resolved_error = {**(run.error or {}), "callback_id": callback_id, "resolved": True}
-    run.status = "queued"
-    run.error = resolved_error
+    # Run was already transitioned to queued atomically above; just flush the
+    # step completion + audit events.
     await emitter.commit_and_broadcast()
 
     # Schedule run for re-execution

@@ -45,6 +45,11 @@ class WebhookCallbackRequest(BaseModel):
     action: WebhookCallbackAction = "approve"
     data: dict[str, Any] | None = None
     reason: str | None = None
+    # Optional event name. When the suspended webhook.wait declared an
+    # event_name, a provided value here must match it or the callback is
+    # rejected. Omit to skip the check (capability-URL possession still
+    # authorizes).
+    event_name: str | None = None
 
 
 class WebhookCallbackResponse(BaseModel):

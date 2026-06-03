@@ -129,6 +129,7 @@ function NewRunPageContent() {
                       const isRequired = field.required === true;
                       const fieldType =
                         field.type === 'number' || field.type === 'integer' ? 'number' : 'text';
+                      const enumValues: string[] = Array.isArray(field.enum) ? field.enum : [];
 
                       return (
                         <div key={field.name} className="space-y-2">
@@ -139,20 +140,44 @@ function NewRunPageContent() {
                           {field.description && (
                             <p className="text-xs text-slate-500">{field.description}</p>
                           )}
-                          <Input
-                            id={field.name}
-                            type={fieldType}
-                            value={formData[field.name] || ''}
-                            onChange={(e) => {
-                              const value =
-                                fieldType === 'number'
-                                  ? parseFloat(e.target.value)
-                                  : e.target.value;
-                              setFormData({ ...formData, [field.name]: value });
-                            }}
-                            required={isRequired}
-                            placeholder={field.description}
-                          />
+                          {enumValues.length > 0 ? (
+                            // Enum fields render as a dropdown so the operator
+                            // can only pick a valid value (rather than a free
+                            // text box that lets them type an invalid one).
+                            <select
+                              id={field.name}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                              value={formData[field.name] ?? ''}
+                              onChange={(e) =>
+                                setFormData({ ...formData, [field.name]: e.target.value })
+                              }
+                              required={isRequired}
+                            >
+                              <option value="" disabled={isRequired}>
+                                {isRequired ? 'Select…' : '— none —'}
+                              </option>
+                              {enumValues.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Input
+                              id={field.name}
+                              type={fieldType}
+                              value={formData[field.name] ?? ''}
+                              onChange={(e) => {
+                                const value =
+                                  fieldType === 'number'
+                                    ? parseFloat(e.target.value)
+                                    : e.target.value;
+                                setFormData({ ...formData, [field.name]: value });
+                              }}
+                              required={isRequired}
+                              placeholder={field.description}
+                            />
+                          )}
                         </div>
                       );
                     })}

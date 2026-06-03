@@ -118,6 +118,44 @@ async def test_http_tool_returns_2xx_normally(tool: HttpTool, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_http_tool_redacts_upstream_response_secrets(tool: HttpTool, monkeypatch):
+    """Set-Cookie / sensitive response headers and credential-named body fields
+    must be redacted before the result is returned (and thus persisted)."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"access_token": "tok_secret_value_123", "name": "ok"},
+            headers={
+                "Set-Cookie": "session=supersecretcookie; HttpOnly",
+                "WWW-Authenticate": "Bearer realm=x",
+                "X-Trace-Id": "trace-123",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+
+    def make_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
+
+    result = await tool.execute(method="GET", url="https://example.com/login")
+
+    headers = result["headers"]
+    assert headers["set-cookie"] == "***REDACTED***"
+    assert headers["www-authenticate"] == "***REDACTED***"
+    # Non-sensitive headers pass through.
+    assert headers["x-trace-id"] == "trace-123"
+    # Credential-named body fields are redacted by key name.
+    assert result["body"]["access_token"] == "***REDACTED***"
+    assert result["body"]["name"] == "ok"
+    assert "supersecretcookie" not in str(result)
+
+
+@pytest.mark.asyncio
 async def test_http_tool_fails_closed_when_no_allowlist() -> None:
     """With no allowlist configured, outbound requests are denied."""
     closed = HttpTool(allowed_domains=None, timeout=5)

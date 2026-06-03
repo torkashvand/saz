@@ -6,9 +6,28 @@ from typing import Any
 import httpx
 import structlog
 
+from saz.security.redaction import is_sensitive_key, redact_sensitive
 from saz.security.url_guard import validate_outbound_url
 
 logger = structlog.get_logger(__name__)
+
+# Response headers an upstream may set that carry credentials/session secrets.
+# These are redacted before the result is returned (and thus persisted into
+# step.output / surfaced via the API). The membership test below also runs the
+# segment-aware ``is_sensitive_key`` so variants like ``X-Subject-Token`` are
+# caught too.
+_RESPONSE_SENSITIVE_HEADERS = frozenset(
+    {
+        "set-cookie",
+        "authorization",
+        "proxy-authorization",
+        "www-authenticate",
+        "x-api-key",
+        "x-auth-token",
+        "x-subject-token",
+        "cookie",
+    }
+)
 
 
 class HttpTool:
@@ -124,8 +143,13 @@ class HttpTool:
                 result = {
                     "status_code": response.status_code,
                     "ok": ok,
-                    "headers": dict(response.headers),
-                    "body": response_body,
+                    # Redact secrets the upstream echoed back before this result
+                    # is persisted into step.output: Set-Cookie / reflected
+                    # tokens / sensitive headers (names) and credential-named
+                    # body fields. $secret()-resolved values are additionally
+                    # scrubbed by the executor's _redact_secrets on persistence.
+                    "headers": self._redact_response_headers(dict(response.headers)),
+                    "body": redact_sensitive(response_body),
                     "metadata": {
                         "duration_ms": duration_ms,
                         "idempotency_key": idempotency_key,
@@ -175,6 +199,21 @@ class HttpTool:
                 idempotency_key=idempotency_key,
             )
             raise
+
+    def _redact_response_headers(self, headers: dict[str, str]) -> dict[str, str]:
+        """Redact secret-bearing response headers before they are persisted.
+
+        Covers the explicit credential/session headers an upstream may echo
+        (Set-Cookie, WWW-Authenticate, X-Api-Key, …) plus any header whose
+        name is segment-sensitive (token/secret/password/credential/api-key).
+        """
+        out: dict[str, str] = {}
+        for key, value in headers.items():
+            if key.lower() in _RESPONSE_SENSITIVE_HEADERS or is_sensitive_key(key):
+                out[key] = "***REDACTED***"
+            else:
+                out[key] = value
+        return out
 
     def _redact_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """Redact sensitive header values for logging"""

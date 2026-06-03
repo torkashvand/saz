@@ -89,6 +89,7 @@ PLAN_STEPS = [
     PlanStep(
         step_id="send",
         step_type="tool.call",
+        tool_name="http_request",
         reasoning="Send",
         error_handling=ErrorHandling.FAIL,
         max_retries=0,
@@ -1139,6 +1140,7 @@ def test_policy_violation_marks_step_failed_so_retry_can_find_it(db_engine):
             PlanStep(
                 step_id="store_record",
                 step_type="tool.call",
+                tool_name="artifact.store",
                 reasoning="Audit record",
                 error_handling=ErrorHandling.FAIL,
                 max_retries=0,

@@ -47,7 +47,7 @@ async def test_critic_usage_is_recorded_against_budget() -> None:
 
     before = engine.get_budget_status("run-1")
     await critic.verify_proposal(
-        step=PlanStep(step_id="s1", step_type="tool.call", reasoning="r"),
+        step=PlanStep(step_id="s1", step_type="tool.call", tool_name="http_request", reasoning="r"),
         proposed_tool_call={"tool": "http_request", "arguments": {}},
         run_id="run-1",
         completed_steps=[],
@@ -64,7 +64,7 @@ async def test_critic_without_recorder_does_not_crash() -> None:
     critic = CriticAgent(llm_port=_CostingLLM(tokens=10, cost_usd=0.0))
     # No usage_recorder wired — must still return a verdict.
     verdict = await critic.verify_proposal(
-        step=PlanStep(step_id="s1", step_type="tool.call", reasoning="r"),
+        step=PlanStep(step_id="s1", step_type="tool.call", tool_name="http_request", reasoning="r"),
         proposed_tool_call={"tool": "http_request", "arguments": {}},
         run_id="run-x",
         completed_steps=[],

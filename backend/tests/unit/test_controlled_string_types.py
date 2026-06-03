@@ -232,6 +232,8 @@ def test_step_status_members():
         "suspended",
         "failed",
         "completed",
+        # A step whose `when` guard evaluated false — never executed.
+        "skipped",
     }
 
 

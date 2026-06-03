@@ -394,18 +394,20 @@ class PolicyEngine:
             run_id: Run identifier
             policies_dict: DSL policies section
         """
-        # Extract budget limits
+        # Extract budget limits. Use ``is not None`` so an explicit zero
+        # (e.g. budget_usd: 0) is honored as "no budget" rather than being
+        # treated as falsy and silently replaced by the default limit.
         budget_usd = policies_dict.get("budget_usd")
-        if budget_usd:
+        if budget_usd is not None:
             self.budget_tracker.max_cost_usd = budget_usd
         max_tokens = policies_dict.get("max_tokens")
-        if max_tokens:
+        if max_tokens is not None:
             self.budget_tracker.max_tokens = int(max_tokens)
         max_steps = policies_dict.get("max_steps")
-        if max_steps:
+        if max_steps is not None:
             self.budget_tracker.max_steps = int(max_steps)
         max_time_seconds = policies_dict.get("max_time_seconds")
-        if max_time_seconds:
+        if max_time_seconds is not None:
             self.budget_tracker.max_time_seconds = int(max_time_seconds)
 
         # Extract rate limits.

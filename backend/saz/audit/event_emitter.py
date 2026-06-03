@@ -67,8 +67,12 @@ class EventEmitter:
             actor_user_id: Overrides the emitter-level default user id for
                 this single event. Only meaningful when ``actor == "user"``.
         """
-        # Sanitize payload
+        # Sanitize payload AND the human-readable summary. The summary is built
+        # by interpolating error text, LLM reasoning, and exception messages, so
+        # it can leak the same PII/secrets the payload redactor strips — it must
+        # not be a bypass around the sanitizer.
         sanitized_payload = self.sanitizer.redact_payload(payload or {}, self.pii_policy)
+        sanitized_summary = self.sanitizer.redact_text(summary, self.pii_policy)
 
         actor_value = Actor(actor)
 
@@ -88,7 +92,7 @@ class EventEmitter:
             severity=Severity(severity),
             actor=actor_value,
             actor_user_id=resolved_user_id,
-            summary=summary,
+            summary=sanitized_summary,
             payload=sanitized_payload,
             tags=tags or {},
             timestamp=datetime.now(UTC),
@@ -494,6 +498,15 @@ class EventEmitter:
             f"Run resumed via {resume_source}",
             payload={"resume_source": resume_source, **kwargs},
             actor="user",
+        )
+
+    def step_skipped(self, step_id: str | None, step_name: str, condition: str, **kwargs) -> None:
+        """Emit step.skipped event when a step's ``when`` guard evaluates false."""
+        self.emit(
+            EventType.STEP_SKIPPED,
+            f"Step skipped: {step_name} (guard false)",
+            payload={"step_name": step_name, "condition": condition, **kwargs},
+            step_id=step_id,
         )
 
     def step_suspended(self, step_id: str | None, step_name: str, reason: str, **kwargs) -> None:

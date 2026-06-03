@@ -133,3 +133,20 @@ class AuditSanitizer:
             Sanitized payload
         """
         return self.sanitize_event(payload, pii_policy)
+
+    def redact_text(self, text: str, pii_policy: str = "redact") -> str:
+        """Sanitize a free-text string (e.g. an event summary).
+
+        Summaries are built by interpolating error messages, LLM reasoning,
+        and exception text directly into a sentence, so they can leak the same
+        PII/secrets the payload redactor strips. Run the same PII/secret
+        masking over the string. Under ``allow`` mode only secrets are masked,
+        matching :meth:`redact_payload`.
+        """
+        if not isinstance(text, str):
+            return text
+        if pii_policy == "allow":
+            result = self._redact_secrets(text)
+        else:
+            result = self._redact_all(text)
+        return result if isinstance(result, str) else text

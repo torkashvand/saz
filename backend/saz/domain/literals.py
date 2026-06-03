@@ -54,6 +54,10 @@ class StepStatus(StrEnum):
     SUSPENDED = "suspended"
     FAILED = "failed"
     COMPLETED = "completed"
+    # A step whose ``when`` guard evaluated false — never executed, no side
+    # effects. Distinct from completed so the UI and downstream logic do not
+    # treat a skipped step as a successful one.
+    SKIPPED = "skipped"
 
 
 class PlannerMode(StrEnum):

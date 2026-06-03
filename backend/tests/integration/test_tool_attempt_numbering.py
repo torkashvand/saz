@@ -58,6 +58,7 @@ def _make_critique(verdict, reasoning="ok", confidence=0.9):
 RETRYABLE_PLAN_STEP = PlanStep(
     step_id="call_api",
     step_type="tool.call",
+    tool_name="http_request",
     reasoning="Call external API",
     error_handling=ErrorHandling.RETRY,
     max_retries=3,

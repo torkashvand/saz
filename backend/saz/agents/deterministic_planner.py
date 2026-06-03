@@ -119,6 +119,10 @@ class DeterministicPlanner:
         # Build reasoning from description/instruction
         reasoning = step_dict.get("description") or step_dict.get("instruction", "")
 
+        # Optional per-step guard: when present and false at runtime, the
+        # executor skips this step without side effects.
+        guard = step_dict.get("when")
+
         return PlanStep(
             step_id=step_id,
             step_type=step_type,
@@ -128,6 +132,7 @@ class DeterministicPlanner:
             error_handling=error_handling,
             max_retries=max_retries,
             reasoning=reasoning,
+            guard=guard if isinstance(guard, str) and guard.strip() else None,
         )
 
     def _get_tool_name(self, step_dict: dict[str, Any], step_type: str) -> str:

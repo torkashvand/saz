@@ -59,8 +59,11 @@ def derive_declared_tools(workflow_spec: dict[str, Any]) -> set[str]:
     and the tools referenced by the declared steps (mirroring how the
     deterministic planner maps a step to its tool name). Returns an empty set
     when nothing constrains the workflow (e.g. an agentic workflow with no
-    declared steps and no explicit allowlist), in which case the caller falls
-    back to the full registry and logs that the plan is unconstrained.
+    declared steps and no explicit allowlist).
+
+    An empty set is NOT "allow everything": in agentic mode the runtime treats
+    an empty declared set as deny-all (an agentic workflow that declares no
+    tools may not ground any). See ``WorkflowExecutor._execute_tool_call``.
     """
     declared: set[str] = set()
     explicit = workflow_spec.get("allowed_tools") or []
@@ -134,6 +137,21 @@ _DEFAULT_SUSPENSION_TIMEOUT_MINUTES = 1440  # 24h
 # the human/external system even saw it. The floor matches the sweeper's
 # default polling interval (60s), so anything below it is unenforceable.
 _MIN_SUSPENSION_TIMEOUT_MINUTES = 1.0
+
+
+_APPROVAL_METADATA_FIELDS = ("title", "message", "payload", "approvers", "approver_role")
+
+
+def _extract_approval_metadata(input_template: dict[str, Any] | None) -> dict[str, Any]:
+    """Pull the human.approval DSL fields out of a step's params.
+
+    Returns only the keys that were actually declared (non-None), so the
+    approval event and suspension payload surface exactly what the YAML asked
+    for instead of silently dropping ``title`` / ``message`` / ``payload`` /
+    ``approvers`` / ``approver_role``.
+    """
+    params = input_template or {}
+    return {k: params[k] for k in _APPROVAL_METADATA_FIELDS if params.get(k) is not None}
 
 
 def _attach_timeout_metadata(
@@ -272,8 +290,9 @@ class WorkflowExecutor:
             allowed_tools = derive_declared_tools(workflow_spec)
             if not allowed_tools and planner_mode == "agentic":
                 logger.warning(
-                    "agentic plan is unconstrained for run %s: declare "
-                    "workflow.allowed_tools (or tool.call steps) to bound it",
+                    "agentic workflow %s declares no tools: grounded tool calls "
+                    "will be denied. Declare workflow.allowed_tools (or tool.call "
+                    "steps) to permit tools.",
                     run_id,
                 )
 
@@ -344,6 +363,31 @@ class WorkflowExecutor:
                 await self._complete_run(run_id, emitter)
                 return
 
+            # Budget gate before agentic planning. The agentic planner makes an
+            # LLM call before any step runs, so a near-zero budget must stop it
+            # here — otherwise the first planning call always bypasses the
+            # budget. Deterministic planning is LLM-free and needs no pre-check.
+            if planner_mode == "agentic":
+                within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
+                if not within_budget:
+                    logger.error(
+                        f"Budget exhausted before planning for run {run_id}: {budget_error}"
+                    )
+                    emitter.policy_budget_exhausted(
+                        reason=budget_error or "budget exhausted before planning",
+                        step_id=None,
+                    )
+                    await emitter.commit_and_broadcast()
+                    await self._fail_run(
+                        run_id,
+                        {
+                            "message": f"Budget exhausted before planning: {budget_error}",
+                            "type": "BudgetExceededError",
+                        },
+                        emitter,
+                    )
+                    return
+
             # Generate execution plan
             plan = await self._generate_plan(
                 workflow_spec=workflow_spec, run_id=run_id, context=context
@@ -398,6 +442,53 @@ class WorkflowExecutor:
                         emitter,
                     )
                     return
+
+                # Optional `when` guard: a false guard skips the step entirely
+                # — no grounding, no tool/model call, no side effects — and
+                # records it as skipped (not completed) so downstream logic
+                # never treats it as a successful result.
+                try:
+                    should_run, rendered_guard = self._evaluate_guard(plan_step, context)
+                except WorkflowStructuralError as guard_error:
+                    logger.error(f"Step {plan_step.step_id} guard error: {guard_error}")
+                    await self._fail_run(
+                        run_id,
+                        {
+                            "message": str(guard_error),
+                            "type": type(guard_error).__name__,
+                            "category": "structural",
+                            "retryable": False,
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
+                        },
+                        emitter,
+                    )
+                    return
+
+                if not should_run:
+                    assert self.uow.steps is not None
+                    attempt = self.uow.steps.get_max_attempt(run_id, plan_step.step_id) + 1
+                    skipped_step = self.uow.steps.append(
+                        run_id=run_id,
+                        number=step_number,
+                        name=plan_step.step_id,
+                        step_type=plan_step.step_type,
+                        status="skipped",
+                        attempt=attempt,
+                    )
+                    self.uow.commit()
+                    emitter.step_skipped(
+                        step_id=skipped_step.id,
+                        step_name=plan_step.step_id,
+                        condition=rendered_guard,
+                    )
+                    await emitter.commit_and_broadcast()
+                    # Expose a skipped marker (NOT a success output) and mark the
+                    # step handled so a resume does not re-run it.
+                    context["step_results"][plan_step.step_id] = {"output": {"skipped": True}}
+                    context["completed_steps"].append(plan_step.step_id)
+                    logger.info(f"Step {plan_step.step_id} skipped (guard false): {rendered_guard}")
+                    continue
 
                 # Execute step
                 try:
@@ -583,8 +674,26 @@ class WorkflowExecutor:
 
                     elif plan_step.error_handling == ErrorHandling.ESCALATE:
                         logger.error(f"Step {plan_step.step_id} requires escalation: {step_error}")
+                        # Route through proper suspension machinery. A bare
+                        # mark_suspended leaves an unresumable run: no
+                        # callback_id (so no webhook/resume can target it) and
+                        # no timeout_at (so the SuspensionSweeper can never reap
+                        # it). Attach both and emit run.suspended so the run is
+                        # resumable and bounded. The step itself stays failed —
+                        # it genuinely failed; the run is paused for a human
+                        # decision (resume = same-run retry, or let it time out).
+                        current_step = context.get("current_step")
+                        step_db_id = current_step.id if current_step is not None else None
+                        callback_id = uuid4().hex
+                        error_dict["callback_id"] = callback_id
+                        error_dict["type"] = "EscalationRequired"
+                        _attach_timeout_metadata(error_dict, plan_step.input_template)
                         self.uow.runs.mark_suspended(run_id, error_dict)
-                        self.uow.commit()
+                        emitter.run_suspended(
+                            reason=f"Step {plan_step.step_id} escalated after failure",
+                            step_id=step_db_id,
+                        )
+                        await emitter.commit_and_broadcast()
                         return
 
                     elif plan_step.error_handling == ErrorHandling.CONTINUE:
@@ -662,6 +771,15 @@ class WorkflowExecutor:
 
         # Generate plan using injected planner (type chosen at construction)
         planner_mode = workflow_spec["planner_mode"]
+
+        # In agentic mode only advertise the workflow's declared tools so the
+        # planner never proposes a tool the runtime would deny. An empty
+        # declared set advertises nothing (fail closed). Deterministic planning
+        # ignores tool_registry for graph building, so leave it untouched.
+        if planner_mode == "agentic":
+            declared = context.get("allowed_tools") or set()
+            tool_specs = [s for s in tool_specs if s.get("name") in declared]
+
         logger.info(
             f"Planning workflow for run {run_id} (mode: {planner_mode}, "
             f"steps: {len(workflow_spec.get('steps', []))})"
@@ -672,7 +790,9 @@ class WorkflowExecutor:
             tool_registry=tool_specs,
             run_id=run_id,
             completed_steps=context.get("completed_steps", []),
-            current_data=context.get("form_data", {}),
+            # Redact PII/secrets from run payload before it reaches the planner
+            # LLM prompt (no-op for the deterministic planner, which ignores it).
+            current_data=self._redact_pii_for_prompt(context.get("form_data", {})),
             budget=budget_dict,
         )
 
@@ -936,13 +1056,28 @@ class WorkflowExecutor:
         emitter: EventEmitter = context["emitter"]
         planner_mode = context.get("planner_mode", "deterministic")
         tool_specs_dict = self.tool_registry.get_tool_specs_dict()
-        # Bound tool selection to the workflow's declared tools when an
-        # allowlist is available (declared steps and/or workflow.allowed_tools);
-        # otherwise fall back to the full registry. This is the deterministic
-        # gate that keeps an agentic planner inside workflow boundaries instead
-        # of trusting only the LLM verifier.
+        # Bound tool selection to the workflow's declared tools. The declared
+        # set is the union of workflow.allowed_tools and the tools referenced
+        # by declared steps. This deterministic gate keeps a plan inside
+        # workflow boundaries instead of trusting only the LLM verifier:
+        #
+        #   - declared non-empty    -> enforce membership against it
+        #   - empty + agentic mode  -> fail closed: deny ALL grounded tools.
+        #     An agentic workflow that declares no tools may not ground any;
+        #     falling back to the full registry would let it call anything.
+        #   - empty + deterministic -> no boundary needed; the plan IS the
+        #     declared steps 1:1, so the grounded tool is whatever the step
+        #     named (full registry, not enforced).
         declared = context.get("allowed_tools") or set()
-        allowed_tool_names = sorted(declared) if declared else list(tool_specs_dict.keys())
+        if declared:
+            allowed_tool_names = sorted(declared)
+            enforce_allowlist = True
+        elif planner_mode == "agentic":
+            allowed_tool_names = []
+            enforce_allowlist = True
+        else:
+            allowed_tool_names = list(tool_specs_dict.keys())
+            enforce_allowlist = False
 
         # --- Phase 1: Ground and verify with replan loop ---
         tool_call, step = await self._ground_and_verify(
@@ -952,16 +1087,34 @@ class WorkflowExecutor:
             emitter=emitter,
             planner_mode=planner_mode,
             allowed_tool_names=allowed_tool_names,
+            enforce_allowlist=enforce_allowlist,
             tool_specs_dict=tool_specs_dict,
         )
 
         # --- Phase 2: Apply PII transformations ---
         if self.policy_engine._is_model_tool(tool_call.tool):
+            # Detect PII on the pre-tokenization arguments so the audit trail
+            # records which paths were tokenized before the model call. The
+            # paths are field names, not PII values, and emit() sanitizes the
+            # payload anyway — so no raw PII is persisted.
+            pii_paths = self.policy_engine.pii_detector.scan_dict(tool_call.arguments)
             tool_call.arguments = self.policy_engine.tokenize_arguments(
                 tool_name=tool_call.tool,
                 arguments=tool_call.arguments,
                 run_id=run_id,
             )
+            if pii_paths:
+                emitter.policy_pii_redacted(
+                    step_id=context["current_step"].id,
+                    pii_stats={
+                        "action": "tokenized",
+                        "tool": tool_call.tool,
+                        "paths": pii_paths,
+                        "count": len(pii_paths),
+                        "policy": "redact" if self.policy_engine.enforce_pii_redaction else "allow",
+                    },
+                )
+                await emitter.commit_and_broadcast()
         elif self.policy_engine._is_outbound_tool(tool_call.tool):
             tool_call.arguments = self.policy_engine.detokenize_arguments(
                 tool_name=tool_call.tool,
@@ -1103,12 +1256,12 @@ class WorkflowExecutor:
             step=plan_step,
             tool_call={
                 "tool": tool_call.tool,
-                "arguments": self._redact_for_prompt(tool_call.arguments),
+                "arguments": self._redact_pii_for_prompt(tool_call.arguments),
             },
             result=redacted_result,
             run_id=run_id,
             completed_steps=context.get("completed_steps", []),
-            current_state=context.get("step_results", {}),
+            current_state=self._redact_pii_for_prompt(context.get("step_results", {})),
         )
 
         step.critique = critique.model_dump()
@@ -1162,6 +1315,7 @@ class WorkflowExecutor:
         emitter: EventEmitter,
         planner_mode: str,
         allowed_tool_names: list[str],
+        enforce_allowlist: bool,
         tool_specs_dict: dict,
     ) -> tuple[Any, Step]:
         """
@@ -1190,13 +1344,23 @@ class WorkflowExecutor:
             # Deterministic boundary: the grounded tool must be within the
             # workflow's declared/allowed tool set. This keeps an agentic plan
             # inside workflow boundaries regardless of the LLM verifier's
-            # judgment. (No-op in deterministic mode, where the plan == steps.)
-            if allowed_tool_names and tool_call.tool not in allowed_tool_names:
+            # judgment. When enforce_allowlist is True an empty allowlist means
+            # deny-all (agentic workflow declaring no tools). Not enforced in
+            # deterministic mode, where the plan == declared steps.
+            if enforce_allowlist and tool_call.tool not in allowed_tool_names:
                 step = self._get_current_step(run_id, plan_step.step_id)
-                deny_reason = (
-                    f"Tool '{tool_call.tool}' is not in the workflow's allowed tools "
-                    f"{list(allowed_tool_names)}"
-                )
+                if allowed_tool_names:
+                    deny_reason = (
+                        f"Agentic workflow attempted to use undeclared tool "
+                        f"'{tool_call.tool}'. Declare it under "
+                        f"workflow.allowed_tools. Allowed: {allowed_tool_names}"
+                    )
+                else:
+                    deny_reason = (
+                        f"Agentic workflow attempted to use tool '{tool_call.tool}' "
+                        f"but declares no tools. Declare it under "
+                        f"workflow.allowed_tools to permit it."
+                    )
                 step.policy_flags = {"blocked": True, "reason": deny_reason}
                 self.uow.commit()
                 emitter.policy_blocked(
@@ -1255,11 +1419,11 @@ class WorkflowExecutor:
                 step=plan_step,
                 proposed_tool_call={
                     "tool": tool_call.tool,
-                    "arguments": self._redact_for_prompt(tool_call.arguments),
+                    "arguments": self._redact_pii_for_prompt(tool_call.arguments),
                 },
                 run_id=run_id,
                 completed_steps=context.get("completed_steps", []),
-                current_state=context.get("step_results", {}),
+                current_state=self._redact_pii_for_prompt(context.get("step_results", {})),
                 allowed_tools=allowed_tool_names,
                 planner_mode=planner_mode,
             )
@@ -1369,7 +1533,7 @@ class WorkflowExecutor:
                     tool_registry=self.tool_registry.get_tool_specs(),
                     run_id=run_id,
                     completed_steps=context.get("completed_steps", []),
-                    current_data=context.get("form_data", {}),
+                    current_data=self._redact_pii_for_prompt(context.get("form_data", {})),
                     budget=self._budget_dict(run_id),
                 )
 
@@ -1438,6 +1602,36 @@ class WorkflowExecutor:
 
         return {"result": result, "condition": resolved_condition}
 
+    def _evaluate_guard(self, plan_step: PlanStep, context: dict) -> tuple[bool, str]:
+        """Evaluate a step's optional ``when`` guard.
+
+        Returns ``(should_run, rendered_condition)``. A step with no guard
+        always runs. A guard expression that cannot be evaluated is a
+        structural error (raised), so a malformed guard fails closed rather
+        than silently running the step.
+        """
+        guard_expr = plan_step.guard
+        if not guard_expr:
+            return True, ""
+
+        template_context = TemplateContext(
+            form_data=context["form_data"],
+            step_results=context["step_results"],
+            secret_resolver=self._resolve_secret,
+        )
+
+        def resolve_ref(token: str) -> Any:
+            return template_context.resolve("{{ " + token + " }}")
+
+        try:
+            result = evaluate_condition(guard_expr, resolve_ref)
+            rendered = render_condition(guard_expr, resolve_ref)
+        except ConditionError as exc:
+            raise WorkflowStructuralError(
+                f"Invalid `when` guard on step {plan_step.step_id}: {exc}"
+            ) from exc
+        return bool(result), rendered
+
     async def _execute_human_approval(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
         Suspend run for human approval.
@@ -1463,12 +1657,22 @@ class WorkflowExecutor:
         # Generate callback_id for webhook-based resumption
         callback_id = uuid4().hex
 
-        # Emit approval requested event
+        # Surface the approval DSL fields instead of silently dropping them.
+        # title/message/payload are display/routing metadata; approvers is an
+        # allowlist enforced on the authenticated /resume path (see
+        # webhooks.resume_run). approver_role is routing metadata only — Saz
+        # has no role system, so it is surfaced but not enforced. The raw
+        # webhook callback URL remains a capability: possessing the callback_id
+        # authorizes resume regardless of approvers.
+        approval_meta = _extract_approval_metadata(plan_step.input_template)
+
+        # Emit approval requested event (payload is sanitized by the emitter).
         emitter.approval_requested(
             step_id=step_db_id,
             step_name=plan_step.step_id,
             reasoning=plan_step.reasoning,
             callback_id=callback_id,
+            **approval_meta,
         )
 
         # Mark the step as suspended (not completed — it is still waiting)
@@ -1491,6 +1695,10 @@ class WorkflowExecutor:
             "reasoning": plan_step.reasoning,
             "callback_id": callback_id,
         }
+        # Persist approval routing metadata so the authenticated /resume path
+        # can enforce the approvers allowlist and the UI can display it.
+        if approval_meta:
+            error_payload["approval"] = approval_meta
         _attach_timeout_metadata(error_payload, plan_step.input_template)
         self.uow.runs.mark_suspended(run_id, error_payload)
 
@@ -1538,7 +1746,10 @@ class WorkflowExecutor:
             reason="awaiting_webhook_callback",
         )
 
-        # Suspend run with callback_id
+        # Suspend run with callback_id and the expected event name. The event
+        # name is a compile-time-required field on webhook.wait; persisting it
+        # lets the callback handler reject a mismatched callback instead of
+        # resuming on any callback to the URL.
         assert self.uow.runs is not None
         error_payload: dict[str, Any] = {
             "message": f"Webhook wait for step {plan_step.step_id}",
@@ -1546,6 +1757,9 @@ class WorkflowExecutor:
             "step_id": plan_step.step_id,
             "callback_id": callback_id,
         }
+        expected_event = (plan_step.input_template or {}).get("event_name")
+        if expected_event:
+            error_payload["event_name"] = expected_event
         _attach_timeout_metadata(error_payload, plan_step.input_template)
         self.uow.runs.mark_suspended(run_id, error_payload)
 
@@ -1651,6 +1865,28 @@ class WorkflowExecutor:
         fields ever reach an LLM provider.
         """
         return redact_sensitive(obj, self._secret_values)
+
+    def _redact_pii_for_prompt(self, obj: Any) -> Any:
+        """Scrub PII and secrets from data before it reaches an LLM prompt.
+
+        Planner, verifier, and critic prompts are built from the run payload,
+        step history, and tool arguments — any of which may carry PII. We
+        redact (mask) rather than tokenize because prompt content is never
+        detokenized, and masking preserves enough structure for the model to
+        reason about which fields are present.
+
+        Secrets/credentials are always scrubbed. PII is additionally redacted
+        when the run's PII policy enforces redaction (``pii.allow: false``,
+        the default). When the operator sets ``pii.allow: true`` they have
+        opted into PII flow, so only secrets are scrubbed here.
+        """
+        scrubbed = self._redact_for_prompt(obj)
+        if not self.policy_engine.enforce_pii_redaction:
+            return scrubbed
+        if isinstance(scrubbed, dict):
+            return self.policy_engine.pii_detector.redact_dict(scrubbed)
+        # Wrap non-dicts so the recursive dict redactor can reach nested strings.
+        return self.policy_engine.pii_detector.redact_dict({"_": scrubbed})["_"]
 
     def _resolve_secret(self, secret_name: str) -> str | None:
         """

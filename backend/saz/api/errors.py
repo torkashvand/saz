@@ -79,6 +79,13 @@ class ConflictError(ServiceError):
         super().__init__(message, "conflict", 409)
 
 
+class AuthorizationError(ServiceError):
+    """Authenticated but not permitted to access or act on this resource."""
+
+    def __init__(self, message: str = "Not authorized to access this resource"):
+        super().__init__(message, "forbidden", 403)
+
+
 async def service_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle service errors."""
     assert isinstance(exc, ServiceError)

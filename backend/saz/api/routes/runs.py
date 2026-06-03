@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from saz.api.dependencies import CurrentUserDep, RunServiceDep
-from saz.api.errors import NotFoundError
+from saz.api.errors import AuthorizationError, NotFoundError
 from saz.api.schemas.event_schemas import EventListResponse, EventResponse
 from saz.api.schemas.run_schemas import (
     ComplianceReportResponse,
@@ -28,6 +28,7 @@ from saz.api.schemas.run_schemas import (
     TriggeredBySchema,
 )
 from saz.audit.event_emitter import EventEmitter
+from saz.db.models import User
 from saz.domain.error_enrichment import ErrorEnrichmentService
 from saz.domain.event_schema import EventType
 from saz.domain.literals import PlannerMode, RunStatus, StepStatus
@@ -89,20 +90,42 @@ def sanitize_error(error: dict | None, include_sensitive: bool) -> dict | None:
     return sanitized
 
 
+def _authorize_run_access(run: Any, user: User) -> None:
+    """Enforce per-run ownership for REST endpoints.
+
+    Mirrors the WebSocket stream's check (saz/api/routes/stream.py): the run's
+    creator or an admin may access it; everyone else is forbidden. Call this on
+    every endpoint that reads or acts on a single run so REST and WebSocket
+    share one access model instead of REST silently authorizing any logged-in
+    user.
+    """
+    if run.created_by_user_id != user.id and not user.is_admin:
+        raise AuthorizationError(f"Not authorized to access run {run.id}")
+
+
 @router.get("", response_model=RunListResponse)
 async def list_runs(
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     flow_id: str | None = Query(None),
     status: str | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> RunListResponse:
-    """List runs with optional filtering."""
+    """List runs with optional filtering.
+
+    Scoped to the caller's own runs unless they are an admin — a non-admin
+    must never see another user's runs (matching the per-run access model).
+    """
     # Use read repository which returns DTOs with flow_name included
     assert service.uow.run_reads is not None
+    owner_scope = None if user.is_admin else user.id
     run_dtos, total = service.uow.run_reads.list(
-        flow_id=flow_id, status=status, limit=limit, offset=offset
+        flow_id=flow_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+        created_by_user_id=owner_scope,
     )
 
     # For each DTO, get the Run model to access flow relationship
@@ -178,7 +201,7 @@ async def create_run(
 async def get_run_summary(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
 ) -> RunSummary:
     """Get run summary with basic information."""
     # Access Run model directly to get all fields
@@ -186,6 +209,7 @@ async def get_run_summary(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     return RunSummary(
         id=run.id,
@@ -205,7 +229,7 @@ async def get_run_summary(
 async def get_run_events(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     event_type: list[str] | None = Query(None),
     severity: str | None = Query(None),
     since: str | None = Query(None),
@@ -219,6 +243,7 @@ async def get_run_events(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     # Parse datetime filters if provided
     since_dt = datetime.fromisoformat(since) if since else None
@@ -248,7 +273,7 @@ async def get_run_events(
 async def get_run_detail(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     include_sensitive: bool = Query(False, description="Include stack traces (for debugging only)"),
 ) -> RunDetailResponse:
     """Get run detail with steps and enhanced UX fields.
@@ -272,6 +297,7 @@ async def get_run_detail(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     # Calculate duration if completed
     duration_ms = None
@@ -396,7 +422,7 @@ async def get_run_detail(
 async def get_run_steps(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
 ) -> RunStepsResponse:
     """Get execution steps for a run."""
     # Access Run model directly
@@ -404,6 +430,7 @@ async def get_run_steps(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     # Convert steps to StepSummary
 
@@ -437,7 +464,7 @@ async def get_run_steps(
 async def get_run_graph(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
 ) -> ExecutionGraphResponse:
     """Get execution graph for a run (nodes and edges)."""
     # Access Run model directly
@@ -445,6 +472,7 @@ async def get_run_graph(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     # Get flow to build graph structure
     assert service.uow.flows is not None
@@ -499,6 +527,7 @@ async def retry_run_endpoint(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     if run.status != RunStatus.FAILED:
         raise ValueError(f"Run {run_id} cannot be retried (status: {run.status})")
@@ -543,7 +572,7 @@ async def retry_run_endpoint(
 async def get_compliance_report(
     run_id: str,
     service: RunServiceDep,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
 ) -> ComplianceReportResponse:
     """Generate compliance audit report for a run."""
     # Access Run model directly
@@ -551,6 +580,7 @@ async def get_compliance_report(
     run = service.uow.runs.get(run_id)
     if not run:
         raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
 
     # Generate compliance report from run data
     total_tokens = sum(s.tokens or 0 for s in run.steps) if run.steps else 0

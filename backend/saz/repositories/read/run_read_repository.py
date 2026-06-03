@@ -25,8 +25,14 @@ class RunReadRepository:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        created_by_user_id: str | None = None,
     ) -> tuple[list[RunListItemDTO], int]:
-        """List runs with filters and pagination."""
+        """List runs with filters and pagination.
+
+        ``created_by_user_id`` scopes the result to a single owner so a
+        non-admin caller never sees other users' runs. Pass ``None`` (admin /
+        system) to list across all owners.
+        """
         # Build query
         stmt = select(Run)
 
@@ -34,6 +40,8 @@ class RunReadRepository:
             stmt = stmt.where(Run.flow_id == flow_id)
         if status:
             stmt = stmt.where(Run.status == status)
+        if created_by_user_id is not None:
+            stmt = stmt.where(Run.created_by_user_id == created_by_user_id)
 
         # Count total
         count_stmt = select(func.count()).select_from(stmt.subquery())

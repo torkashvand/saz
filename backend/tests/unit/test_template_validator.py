@@ -110,7 +110,7 @@ def test_unknown_form_field():
 
 
 def test_env_and_secret_references_allowed():
-    """Test that $env and $secret don't generate errors."""
+    """Test that $env and a declared $secret don't generate errors/warnings."""
     workflow = {
         "steps": [
             {
@@ -123,10 +123,20 @@ def test_env_and_secret_references_allowed():
         ]
     }
 
-    warnings, errors = validate_templates(workflow, [], ["step1"])
+    # A $secret is validated against declared credentials.uses; declare it so
+    # the reference is recognized and produces no warning.
+    warnings, errors = validate_templates(workflow, [], ["step1"], credential_names=["api_key"])
 
     assert len(errors) == 0
     assert len(warnings) == 0
+
+
+def test_undeclared_secret_warns():
+    """A $secret with no matching credentials.uses is flagged, not silent."""
+    workflow = {"steps": [{"id": "s", "params": {"secret": "{{ $secret('api_key') }}"}}]}
+    warnings, errors = validate_templates(workflow, [], ["s"])
+    assert errors == []
+    assert any("api_key" in w for w in warnings), warnings
 
 
 def test_multiple_errors_in_workflow():

@@ -672,6 +672,13 @@ def _validate_and_normalize_steps(
         if stype not in _ALLOWED_STEP_TYPES:
             raise ValueError(f"Unknown step type '{stype}' in step '{sid}'")
 
+        # Optional per-step `when` guard: a boolean expression that, when
+        # false at runtime, skips the step without side effects. Must be a
+        # non-empty string expression if present.
+        when_guard = step.get("when")
+        if when_guard is not None and not (isinstance(when_guard, str) and when_guard.strip()):
+            raise ValueError(f"step '{sid}' 'when' guard must be a non-empty string expression")
+
         # per-type requirements
         if stype == "tool.call":
             _require_keys(step, ["tool", "params"])
@@ -867,7 +874,7 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     form_field_names = [f["name"] for f in form.get("fields", [])]
     step_ids = [s["id"] for s in normalized_steps]
     template_warnings, template_errors = validate_templates(
-        workflow_spec, form_field_names, step_ids
+        workflow_spec, form_field_names, step_ids, credential_names=cred_names
     )
 
     # Raise errors if any template validation failed

@@ -107,8 +107,10 @@ def test_ai_extract_step_completes_with_structured_output(ai_step_flow, db_engin
         steps = session.query(Step).filter(Step.run_id == run_id).all()
         assert run.status == "completed", f"run.status={run.status!r}, error={run.error!r}"
         assert steps and steps[0].status == "completed"
-        # AI op result shape: {"output": {...}, "usage": ..., "metadata": ...}
-        inner = (steps[0].output or {}).get("output") or {}
+        # The AI-op envelope ({"output": {...}, "usage": ..., "metadata": ...})
+        # is unwrapped to its fields as the resolvable step output, so a
+        # downstream $step('id').field reference reaches them directly.
+        inner = steps[0].output or {}
         assert (
             inner.get("order_id") == "ORD-42"
         ), f"AI step output should include order_id=ORD-42; got {steps[0].output!r}"

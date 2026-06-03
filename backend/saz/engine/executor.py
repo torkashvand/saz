@@ -139,6 +139,33 @@ _DEFAULT_SUSPENSION_TIMEOUT_MINUTES = 1440  # 24h
 _MIN_SUSPENSION_TIMEOUT_MINUTES = 1.0
 
 
+def _unwrap_ai_output(tool_name: str, result: Any) -> Any:
+    """Return the resolvable step output for a tool result.
+
+    AI-op tools (``ai.*``) return their model fields wrapped in an envelope:
+    ``{"output": <fields>, "usage": {...}, "metadata": {...}}``. The templating
+    layer resolves ``$step('id').field`` against the stored step output
+    directly, so the wrapped form makes every structured AI field reference
+    resolve to empty (the field is one level too deep). Unwrap the envelope
+    when the inner output is a structured object so the fields are directly
+    addressable by ``$step('id').field``.
+
+    Text-output ops (ai.generate/summarize/translate) keep the envelope: their
+    content is a bare string, and ``Step.output`` (and the API/UI) is a JSON
+    object, so unwrapping to a string would break the response contract. Their
+    content stays reachable via ``$step('id').output``. Non-AI tools
+    (http/webhook/artifact) are returned unchanged — already flat.
+    """
+    if (
+        tool_name.startswith("ai.")
+        and isinstance(result, dict)
+        and "usage" in result
+        and isinstance(result.get("output"), dict)
+    ):
+        return result["output"]
+    return result
+
+
 _APPROVAL_METADATA_FIELDS = ("title", "message", "payload", "approvers", "approver_role")
 
 
@@ -1286,9 +1313,20 @@ class WorkflowExecutor:
             },
         )
 
+        # AI-op tools return their model fields wrapped as
+        # ``{"output": <fields>, "usage": ..., "metadata": ...}`` (see
+        # AIOperations). Downstream ``$step('id').field`` references resolve
+        # against the step output directly, so expose the inner fields as the
+        # step's resolvable output — otherwise every reference to an AI-op
+        # field resolves to empty (the field lives one level too deep). Usage
+        # and cost were already recorded above from the full envelope; whole
+        # ``$step('id')`` references now embed the fields rather than the
+        # usage/metadata envelope.
+        resolvable_output = _unwrap_ai_output(tool_call.tool, redacted_result)
+
         # --- Phase 7: Handle post-execution verdict ---
         if critique.verdict == Verdict.PASS:
-            return redacted_result
+            return resolvable_output
 
         elif critique.verdict == Verdict.FAIL:
             raise CritiqueFailure(f"Critique failed: {critique.reasoning}", critique=critique)
@@ -1305,7 +1343,7 @@ class WorkflowExecutor:
                 f"Post-execution replan requested: {critique.reasoning}", critique=critique
             )
 
-        return redacted_result
+        return resolvable_output
 
     async def _ground_and_verify(
         self,

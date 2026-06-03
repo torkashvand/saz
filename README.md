@@ -246,16 +246,27 @@ deployments — but most operators should not use those.
 - Token lifetime defaults to 12 hours. There are no refresh tokens or
   server-side session revocation yet — when the token expires the user
   signs in again.
-- The WebSocket event stream accepts the same JWT as a query parameter
-  (`?token=…`) because browsers cannot set headers on a WS upgrade. It is also
-  authorized per run: a connection is refused unless the authenticated user
-  owns the run (or is an admin), and raw user ids are not sent on the wire.
+- Run access is authorized per run across both transports: the REST run
+  endpoints (`GET /runs`, `/runs/{id}`, `/runs/{id}/events`, `/steps`,
+  `/graph`, `/summary`, `/compliance`, retry) and the WebSocket event stream
+  all refuse a run the authenticated user does not own (admins see all). The
+  WS stream accepts the JWT as a query parameter (`?token=…`) because browsers
+  cannot set headers on a WS upgrade; raw user ids are not sent on the wire.
 - Outbound HTTP tools (`http_request`, `webhook_emit`) are fail-closed: a
   request is denied unless its host is allow-listed, and allow-listed hosts
   that resolve to loopback/link-local (incl. cloud-metadata)/private/reserved
-  addresses are blocked (SSRF protection).
-- Resolved `$secret(...)` values are redacted before any verifier/critic LLM
-  prompt, and before anything persisted, returned, or streamed.
+  addresses are blocked (SSRF protection). Redirects are not followed. The
+  guard validates the resolved IP before the request, but `httpx` re-resolves
+  at connect time, so a *residual* DNS-rebinding (TOCTOU) risk remains; pair
+  the allowlist with trusted DNS for sensitive deployments.
+- HTTP responses are scrubbed before they are persisted: sensitive response
+  headers (`Set-Cookie`, `WWW-Authenticate`, `X-Api-Key`, …) and
+  credential-named body fields are redacted. This is best-effort for secrets
+  an upstream echoes back, not a guarantee.
+- PII and resolved `$secret(...)` values are redacted before any planner /
+  verifier / critic LLM prompt (under the default `pii.allow: false`), and
+  secrets are redacted before anything persisted, returned, or streamed. Audit
+  event summaries are sanitized too, not just payloads.
 - The webhook callback endpoint (`POST /api/v1/webhooks/callback/{id}`)
   intentionally remains public. It authenticates the caller via the
   unguessable callback id embedded in the URL, which is what external
@@ -281,8 +292,25 @@ Public prototype. Practical limitations to be aware of:
   `examples/ansible` playbook root and demo inventory are allowed. Extend
   `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` to run playbooks elsewhere — there is
   no "allow all" default.
-- LLM cost and policy budgets are tracked but not billed.
-- Templates ship as illustrative examples, not production-ready playbooks.
+- LLM cost and policy budgets are tracked but not billed. In agentic mode the
+  budget is checked before the first planning call, so an exhausted budget
+  stops planning.
+- Conditional execution is via an opt-in per-step `when:` guard — when it
+  evaluates false the step is skipped (status `skipped`, no side effects, a
+  `step.skipped` event). The `condition` step type computes a boolean flag for
+  downstream use; it does not itself branch.
+- `human.approval`: `approvers` (usernames/emails) is enforced on the
+  authenticated `POST /runs/{id}/resume` path; a non-approver gets 403.
+  `approver_role` is surfaced as metadata but not enforced (there is no role
+  system). The public webhook callback URL is a capability and is not gated by
+  `approvers`.
+- `webhook.wait`: when a callback provides an `event_name` it must match the
+  awaited event or the callback is rejected.
+- `policies.concurrency` (`per_flow` / `per_user`) is accepted by the compiler
+  but **not yet enforced** at runtime — treat it as reserved.
+- Templates ship as illustrative examples, not production-ready playbooks. They
+  compile and register; only examples covered by an end-to-end execution test
+  are validated as runnable.
 
 Treat the codebase as suitable for local evaluation, demos, and contributions.
 

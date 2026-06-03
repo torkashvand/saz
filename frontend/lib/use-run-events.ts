@@ -37,6 +37,12 @@ export function useRunEvents(runId: string) {
   const [connectionError, setConnectionError] = useState<AppError | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  // Set true when we close the socket on purpose (effect cleanup on unmount /
+  // navigation). Closing a still-CONNECTING socket fires onerror+onclose with
+  // no real fault — React 18 StrictMode does this on every dev mount — so we
+  // use this flag to stay silent (no error log, no Sentry, no reconnect)
+  // instead of reporting a connection failure that did not happen.
+  const intentionalCloseRef = useRef(false);
 
   // Fetch run data
   const {
@@ -105,10 +111,19 @@ export function useRunEvents(runId: string) {
       return;
     }
 
+    // Fresh connection attempt — not a teardown.
+    intentionalCloseRef.current = false;
+
     const ws = api.connectRunEventStream(
       runId,
       handleEvent,
       (error) => {
+        // Suppress errors from an intentional teardown: closing a still-
+        // CONNECTING socket is not a real failure and must not surface a
+        // connection error or page Sentry.
+        if (intentionalCloseRef.current) {
+          return;
+        }
         console.error('[RunEvents] WebSocket error:', error);
         const appError = fromNetworkError(
           new Error('Failed to connect to event stream. Please check your connection.'),
@@ -124,8 +139,12 @@ export function useRunEvents(runId: string) {
         });
       },
       () => {
-        console.log('[RunEvents] Disconnected, reconnecting in 2s...');
         setIsConnected(false);
+        // Do not reconnect after an intentional teardown (unmount/navigation).
+        if (intentionalCloseRef.current) {
+          return;
+        }
+        console.log('[RunEvents] Disconnected, reconnecting in 2s...');
         reconnectTimeoutRef.current = setTimeout(connect, 2000);
       },
       () => {
@@ -140,6 +159,13 @@ export function useRunEvents(runId: string) {
     wsRef.current = ws;
 
     ws.addEventListener('open', () => {
+      // The component unmounted while the socket was still connecting — close
+      // it cleanly now (rather than calling close() on a CONNECTING socket,
+      // which the browser warns about) and stay silent.
+      if (intentionalCloseRef.current) {
+        ws.close();
+        return;
+      }
       console.log('[RunEvents] Connected to event stream for run:', runId);
       setIsConnected(true);
       setConnectionError(null); // Clear any previous connection errors
@@ -150,11 +176,16 @@ export function useRunEvents(runId: string) {
     connect();
 
     return () => {
+      intentionalCloseRef.current = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      if (wsRef.current) {
-        wsRef.current.close();
+      const ws = wsRef.current;
+      if (ws && ws.readyState !== WebSocket.CONNECTING) {
+        // OPEN/CLOSING: safe to close now. A CONNECTING socket is closed by
+        // the 'open' handler above once it finishes connecting, which avoids
+        // the browser's "closed before the connection is established" warning.
+        ws.close();
       }
     };
   }, [connect]);

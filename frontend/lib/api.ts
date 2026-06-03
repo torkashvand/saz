@@ -487,7 +487,10 @@ export const api = {
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      // A bare WebSocket error Event carries no actionable detail, and an
+      // intentional teardown (component unmount / navigation closing a still-
+      // CONNECTING socket) also fires this. Let the caller decide how to
+      // log/report it — see useRunEvents, which suppresses teardown noise.
       onError?.(error);
     };
 

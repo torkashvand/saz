@@ -212,10 +212,15 @@ export function FlowBuilder({
   };
 
   const handleModeChange = (newMode: FlowBuilderMode) => {
-    if (newMode === 'yaml' && mode === 'guided') {
+    // Only re-serialize the draft to YAML when the guided builder has actually
+    // changed something (lastUpdatedBy === 'builder' — in which case the
+    // regenerate effect has already kept `yaml` in sync). Re-serializing on a
+    // no-op switch produces a formatting/ordering round-trip that differs from
+    // the loaded YAML and falsely flags "unsaved changes". When there are no
+    // pending builder edits, keep the existing YAML untouched.
+    if (newMode === 'yaml' && mode === 'guided' && lastUpdatedBy === 'builder') {
       const generated = draftToUnifiedYaml(draft);
       setYaml(generated);
-      setLastUpdatedBy('builder');
     }
     setMode(newMode);
   };

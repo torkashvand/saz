@@ -259,23 +259,23 @@ def test_snake_case_identifiers_are_not_entropy_tokens(identifier):
         "3F30B8BE-8859-4A76-8F0A-576582BC08A7",
         # UUID embedded inside a longer correlation handle
         "run-3f30b8be-8859-4a76-8f0a-576582bc08a7-attempt-2",
-        # uuid.uuid4().hex — compact 32-char lowercase hex (callback_id,
-        # idempotency keys, internal correlation tokens).
-        "3f30b8be88594a768f0a576582bc08a7",
-        # compact UUID inside a callback URL fragment
-        "/webhooks/callback/3f30b8be88594a768f0a576582bc08a7",
     ],
 )
 def test_uuid_shaped_identifiers_are_not_entropy_or_api_key(identifier):
-    """Run/step/artifact UUIDs surface everywhere in Saz audit logs and
+    """Canonical (dashed) UUIDs surface everywhere in Saz audit logs and
     tool outputs. They are correlation handles, not secrets.
 
     Regression: the change-approval demo's ansible_run result includes an
     artifact_id of shape '<run_uuid>_<step_name>_ansible' that was tripping
     BOTH the api_key (32+ alnum) and entropy_token (24+ alnum) detectors
-    via _validate_entropy. The fix: contains-UUID is a precise rejection
-    because real API keys/tokens essentially never adopt the 8-4-4-4-12
-    hex-with-hyphens layout.
+    via _validate_entropy. The fix: contains-(dashed)-UUID is a precise
+    rejection because real API keys/tokens essentially never adopt the
+    8-4-4-4-12 hex-with-hyphens layout.
+
+    Note: a *bare* compact 32-char hex string (no hyphens) is NOT carved out
+    — it is a secret token shape (MD5/SHA/uuid4().hex callback_id, which is
+    itself a capability credential). See
+    ``test_hex_only_secret_length_strings_are_flagged``.
     """
     det = PIIDetector()
     findings = det.detect(identifier)
@@ -287,6 +287,24 @@ def test_uuid_shaped_identifiers_are_not_entropy_or_api_key(identifier):
     assert "api_key" not in flagged_types, (
         f"UUID-shaped identifier {identifier!r} was flagged as api_key; " f"findings={findings}"
     )
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "3f30b8be88594a768f0a576582bc08a7",  # uuid4().hex (callback_id shape)
+        "a1b2c3d4e5f607182930a1b2c3d4e5f6",  # generic 32-char hex token
+        "da39a3ee5e6b4b0d3255bfef95601890afd80709",  # 40-char SHA1
+    ],
+)
+def test_hex_only_secret_length_strings_are_flagged(token):
+    """A bare hex-only string of secret length (32/40/64) is a token shape,
+    not a correlation handle, and must be flagged even though it shares the
+    32-char length of a uuid4().hex. The dashed-UUID carve-out only exempts
+    the 8-4-4-4-12 layout."""
+    det = PIIDetector()
+    findings = det.detect(token)
+    assert findings, f"hex secret {token!r} must be flagged; got none"
 
 
 @pytest.mark.parametrize(

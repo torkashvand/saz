@@ -548,3 +548,27 @@ def test_empty_arguments():
 
     detokenized = engine.detokenize_arguments("http_request", arguments, run_id)
     assert detokenized == {}
+
+
+def test_hex_secret_on_disallowed_outbound_path_is_blocked():
+    """A bare 32-char hex secret on a non-approved outbound path must block the
+    call. The entropy carve-out previously exempted bare 32-hex as a UUID
+    correlation handle, silently letting hex tokens leave the perimeter."""
+    engine = PolicyEngine(
+        pii_detector=PIIDetector(),
+        budget_tracker=BudgetTracker(max_cost_usd=10.0),
+        enforce_pii_redaction=True,
+        pii_allow_lists={"http_request": ["headers.Authorization"]},
+    )
+    engine.initialize_run("run-hex")
+
+    allowed, reason = engine.check_tool_call(
+        tool_name="http_request",
+        arguments={
+            "url": "https://api.example.com",
+            "body": {"token": "a1b2c3d4e5f607182930a1b2c3d4e5f6"},
+        },
+        run_id="run-hex",
+    )
+    assert allowed is False
+    assert reason and "non-approved" in reason

@@ -28,6 +28,10 @@ _UUID_SHAPE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bare hex-only token (no separators). At secret length this is a credential
+# shape (hash/token/uuid4().hex), not a dashed correlation UUID.
+_HEX_ONLY_RE = re.compile(r"[0-9a-fA-F]+")
+
 logger = structlog.get_logger(__name__)
 
 # Cross-type priority: higher number wins and keeps its span; lower overlapping spans are dropped.
@@ -442,6 +446,15 @@ class PIIDetector:
         return True, None
 
     def _validate_entropy(self, value: str) -> tuple[bool, str | None]:
+        # Bare hex-only strings of secret length (MD5=32, SHA1=40, SHA256=64,
+        # and uuid4().hex callback_ids — themselves capability credentials) are
+        # token shapes, not correlation handles. Flag them before the carve-outs
+        # below so a hex secret cannot slip out by sharing the 32-char length of
+        # a UUID. The dashed 8-4-4-4-12 UUID layout contains hyphens, so genuine
+        # correlation UUIDs never match this and stay carved out.
+        if len(value) >= 32 and _HEX_ONLY_RE.fullmatch(value):
+            return True, "hex_secret"
+
         # UUID-shaped strings (and Saz identifiers that embed a UUID, like
         # "<run_uuid>_<step_name>_ansible" artifact ids or
         # "<run_uuid>:<step_id>" idempotency keys) are correlation handles

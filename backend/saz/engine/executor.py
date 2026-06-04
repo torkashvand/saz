@@ -1557,6 +1557,14 @@ class WorkflowExecutor:
                     f"Replanning step {plan_step.step_id} (attempt {attempt + 1}/{max_replan})"
                 )
 
+                # Advertise only the workflow's declared tools, exactly as the
+                # initial plan does, so the replanner never proposes a tool the
+                # runtime would deny (which would waste a replan attempt).
+                declared = context.get("allowed_tools") or set()
+                replan_tool_specs = [
+                    s for s in self.tool_registry.get_tool_specs() if s.get("name") in declared
+                ]
+
                 # Re-plan: give the planner the feedback and ask for a revised approach
                 revised_plan = await self.planner.plan(
                     workflow_spec={
@@ -1571,7 +1579,7 @@ class WorkflowExecutor:
                             }
                         ],
                     },
-                    tool_registry=self.tool_registry.get_tool_specs(),
+                    tool_registry=replan_tool_specs,
                     run_id=run_id,
                     completed_steps=context.get("completed_steps", []),
                     current_data=self._redact_pii_for_prompt(context.get("form_data", {})),

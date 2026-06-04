@@ -411,6 +411,12 @@ class AgenticPlanner:
             if self.usage_recorder is not None:
                 self.usage_recorder(run_id, response.total_tokens, response.cost_usd)
 
+            # Defend against an empty completion (e.g. a fake/alternate port that
+            # bypasses LiteLLMPort's guard): a clear error beats json.loads(None)
+            # raising an opaque TypeError.
+            if response.content is None:
+                raise ValueError("Empty LLM response: planner received no content to parse")
+
             plan_json = json.loads(response.content)
 
             # Validate with Pydantic

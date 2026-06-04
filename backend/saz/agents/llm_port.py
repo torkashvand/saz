@@ -138,8 +138,15 @@ class LiteLLMPort(LLMPort):
         except Exception:
             cost_usd = 0.0
 
+        content = response.choices[0].message.content
+        if content is None:
+            # The provider returned a completion with no content. Treat this as
+            # a transport-level failure (the model never produced anything to
+            # parse or verify) rather than letting None flow into json.loads().
+            raise LLMTransportError("Empty LLM response: provider returned no content")
+
         return LLMResponse(
-            content=response.choices[0].message.content,
+            content=content,
             total_tokens=response.usage.total_tokens,
             prompt_tokens=response.usage.prompt_tokens,
             completion_tokens=response.usage.completion_tokens,

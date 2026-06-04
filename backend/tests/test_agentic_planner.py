@@ -180,3 +180,31 @@ async def test_planning_failure_handling(planner, sample_agentic_workflow, sampl
                 current_data={},
                 budget={},
             )
+
+
+@pytest.mark.asyncio
+async def test_plan_with_none_content_raises_clear_error(
+    planner, sample_agentic_workflow, sample_tool_registry
+):
+    """An empty (None) LLM completion must surface a clear error, not a
+    TypeError from json.loads(None)."""
+    empty = Mock(content=None, total_tokens=0, cost_usd=0.0)
+    with patch.object(planner.llm_port, "complete", new=AsyncMock(return_value=empty)):
+        with pytest.raises(Exception) as exc_info:
+            await planner.plan(
+                workflow_spec=sample_agentic_workflow,
+                tool_registry=sample_tool_registry,
+                run_id="test_run",
+                completed_steps=[],
+                current_data={},
+                budget={
+                    "remaining_tokens": 10000,
+                    "max_tokens": 100000,
+                    "remaining_cost": 1.0,
+                    "max_cost_usd": 2.0,
+                    "remaining_steps": 10,
+                    "max_steps": 20,
+                },
+            )
+    assert not isinstance(exc_info.value, TypeError), "raw TypeError leaked from json.loads(None)"
+    assert "empty" in str(exc_info.value).lower()

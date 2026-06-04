@@ -86,3 +86,16 @@ def _make_instance(exc_cls: type[BaseException]) -> BaseException:
         except Exception as e:  # noqa: BLE001
             last_err = e
     raise AssertionError(f"Could not instantiate {exc_cls.__name__}: {last_err}")
+
+
+@pytest.mark.asyncio
+async def test_none_content_raises_llmtransporterror() -> None:
+    """A completion with no content must surface as LLMTransportError, not a
+    silent None that later trips json.loads(None) with a TypeError."""
+    resp = _FakeResponse()
+    resp.choices = [type("Msg", (), {"message": type("M", (), {"content": None})()})()]
+    with patch("litellm.completion", return_value=resp):
+        port = LiteLLMPort()
+        with pytest.raises(LLMTransportError) as exc_info:
+            await port.complete(model="gpt-test", messages=[{"role": "user", "content": "hi"}])
+    assert "empty" in str(exc_info.value).lower()

@@ -1047,6 +1047,23 @@ class WorkflowExecutor:
                 f"Expected: ai.*, tool.call, artifact.*, condition, human.approval, or webhook.wait"
             )
 
+    async def _block_if_budget_exhausted(
+        self, run_id: str, emitter: EventEmitter, step_id: str | None
+    ) -> None:
+        """Block before a verifier/critique LLM call when the budget is spent.
+
+        The pre-execution policy check gates the *tool* call, but the verifier
+        and critique are separate LLM calls and tool execution between them
+        records cost. Re-checking here stops a single step from overshooting the
+        cap by a full verifier/critique spend.
+        """
+        within_budget, reason = self.policy_engine.budget_tracker.check_budget(run_id)
+        if within_budget:
+            return
+        emitter.policy_budget_exhausted(reason=reason or "budget exhausted", step_id=step_id)
+        await emitter.commit_and_broadcast()
+        raise PolicyViolation(f"Budget exceeded before LLM call: {reason}")
+
     async def _execute_tool_call(
         self,
         plan_step: PlanStep,
@@ -1280,6 +1297,9 @@ class WorkflowExecutor:
         )
 
         # --- Phase 6: Post-execution critique ---
+        # Tool execution above may have exhausted the budget; do not spend a
+        # critique LLM call on top of it.
+        await self._block_if_budget_exhausted(run_id, emitter, step.id)
         critique = await self.critic.critique(
             step=plan_step,
             tool_call={
@@ -1455,7 +1475,9 @@ class WorkflowExecutor:
                 await emitter.commit_and_broadcast()
                 raise PolicyViolation(f"Tool call blocked: {reason}")
 
-            # Pre-execution verification
+            # Pre-execution verification — gate on budget so an exhausted run
+            # does not spend a verifier LLM call.
+            await self._block_if_budget_exhausted(run_id, emitter, step.id)
             verification = await self.critic.verify_proposal(
                 step=plan_step,
                 proposed_tool_call={

@@ -69,7 +69,9 @@ class BudgetTracker:
         if run_id not in self._budgets:
             self.initialize_run(run_id)
 
-        self._budgets[run_id]["tokens_used"] += tokens
+        # Clamp negative usage: a bogus negative report must never credit the
+        # budget back and reopen a spent cap.
+        self._budgets[run_id]["tokens_used"] += max(0, tokens)
         self._budgets[run_id]["last_updated"] = datetime.now(UTC)
 
         self.logger.debug(
@@ -90,7 +92,9 @@ class BudgetTracker:
         if run_id not in self._budgets:
             self.initialize_run(run_id)
 
-        self._budgets[run_id]["cost_usd"] += cost_usd
+        # Clamp negative usage: a bogus negative report must never credit the
+        # budget back and reopen a spent cap.
+        self._budgets[run_id]["cost_usd"] += max(0.0, cost_usd)
         self._budgets[run_id]["last_updated"] = datetime.now(UTC)
 
         self.logger.debug(

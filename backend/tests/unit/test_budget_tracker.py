@@ -198,3 +198,23 @@ def test_budget_tracker_reset_is_safe_for_unknown_run(tracker: BudgetTracker) ->
     # Idempotent: resetting a run that was never initialized must not raise.
     tracker.reset("never-seen")
     assert tracker.get_stats("never-seen") is None
+
+
+def test_negative_cost_is_clamped_and_cannot_inflate_remaining(tracker: BudgetTracker) -> None:
+    """A negative cost must not credit the budget back: remaining can only
+    shrink. Otherwise a bogus negative usage report reopens a spent budget."""
+    tracker.initialize_run("rneg")
+    tracker.record_cost("rneg", 0.5)
+    tracker.record_cost("rneg", -10.0)  # clamped to 0
+    rem = tracker.get_remaining("rneg")
+    assert rem["cost"]["used"] == pytest.approx(0.5)
+    assert rem["cost"]["remaining"] <= tracker.max_cost_usd
+
+
+def test_negative_tokens_is_clamped_and_cannot_inflate_remaining(tracker: BudgetTracker) -> None:
+    tracker.initialize_run("rneg2")
+    tracker.record_tokens("rneg2", 100)
+    tracker.record_tokens("rneg2", -1000)  # clamped to 0
+    rem = tracker.get_remaining("rneg2")
+    assert rem["tokens"]["used"] == 100
+    assert rem["tokens"]["remaining"] <= tracker.max_tokens

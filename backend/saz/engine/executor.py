@@ -1418,11 +1418,13 @@ class WorkflowExecutor:
                 },
             )
 
-            # Store grounded input in step record
+            # Store grounded input in step record. The persisted copy must
+            # carry neither secrets nor (under pii.allow:false) raw PII; live
+            # execution below still uses the real ``tool_call.arguments``.
             step = self._get_current_step(run_id, plan_step.step_id)
             step.input = {
                 "tool": tool_call.tool,
-                "arguments": self._redact_secrets(tool_call.arguments),
+                "arguments": self._redact_for_storage(tool_call.arguments),
             }
             self.uow.commit()
 
@@ -1895,6 +1897,22 @@ class WorkflowExecutor:
     def _redact_secrets(self, obj: Any) -> Any:
         """Scrub resolved secret values from anything persisted or returned."""
         return redact_secret_values(obj, self._secret_values)
+
+    def _redact_for_storage(self, obj: Any) -> Any:
+        """Scrub secrets, then PII (when policy enforces), for persisted columns.
+
+        Mirrors :meth:`_redact_pii_for_prompt` but keeps the existing secret
+        scrubbing (resolved ``$secret(...)`` values) rather than the broader
+        prompt redaction, so persisted ``step.input`` stays faithful to the
+        real arguments apart from the values that must never be stored.
+        """
+        scrubbed = self._redact_secrets(obj)
+        if not self.policy_engine.enforce_pii_redaction:
+            return scrubbed
+        if isinstance(scrubbed, dict):
+            return self.policy_engine.pii_detector.redact_dict(scrubbed)
+        # Wrap non-dicts so the recursive dict redactor can reach nested strings.
+        return self.policy_engine.pii_detector.redact_dict({"_": scrubbed})["_"]
 
     def _redact_for_prompt(self, obj: Any) -> Any:
         """Redact secrets before sending tool arguments to the verifier/critic LLM.

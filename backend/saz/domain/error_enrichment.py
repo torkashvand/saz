@@ -146,7 +146,7 @@ class ErrorEnrichmentService:
             "succeeded_steps": sum(1 for s in steps if s.status == "completed"),
             "failed_steps": sum(1 for s in steps if s.status == "failed"),
             "running_steps": sum(1 for s in steps if s.status == "running"),
-            "skipped_steps": 0,
+            "skipped_steps": sum(1 for s in steps if s.status == "skipped"),
         }
 
     @staticmethod

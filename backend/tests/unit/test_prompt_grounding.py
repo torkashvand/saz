@@ -129,18 +129,8 @@ def test_ai_op_prompt_branches_enum_from_extras():
 
 def test_verifier_prompt_has_decision_policy():
     """The verifier prompt must include a structured decision policy."""
-    prompt = VERIFIER_SYSTEM_PROMPT.format(
-        step_id="test",
-        step_type="tool.call",
-        tool_name="http_request",
-        step_reasoning="test",
-        proposed_tool_call="{}",
-        allowed_tools="[]",
-        planner_mode="deterministic",
-        run_id="r1",
-        completed_steps="[]",
-        current_state="{}",
-    )
+    # The system prompt is static (no runtime interpolation) — assert directly.
+    prompt = VERIFIER_SYSTEM_PROMPT
     assert "Decision Policy" in prompt
     assert "Tool validity" in prompt
     assert "Required arguments" in prompt
@@ -150,35 +140,13 @@ def test_verifier_prompt_has_decision_policy():
 
 def test_verifier_prompt_requires_evidence_based_reasoning():
     """The verifier must reason only from provided evidence."""
-    prompt = VERIFIER_SYSTEM_PROMPT.format(
-        step_id="test",
-        step_type="tool.call",
-        tool_name="http_request",
-        step_reasoning="test",
-        proposed_tool_call="{}",
-        allowed_tools="[]",
-        planner_mode="deterministic",
-        run_id="r1",
-        completed_steps="[]",
-        current_state="{}",
-    )
+    prompt = VERIFIER_SYSTEM_PROMPT
     assert "ONLY on the information below" in prompt or "Evidence Available" in prompt
 
 
 def test_verifier_prompt_includes_credential_safety():
     """The verifier must check credential usage."""
-    prompt = VERIFIER_SYSTEM_PROMPT.format(
-        step_id="test",
-        step_type="tool.call",
-        tool_name="http_request",
-        step_reasoning="test",
-        proposed_tool_call="{}",
-        allowed_tools="[]",
-        planner_mode="deterministic",
-        run_id="r1",
-        completed_steps="[]",
-        current_state="{}",
-    )
+    prompt = VERIFIER_SYSTEM_PROMPT
     assert "credential" in prompt.lower() or "secret" in prompt.lower()
 
 
@@ -189,18 +157,8 @@ def test_verifier_prompt_includes_credential_safety():
 
 def test_critic_prompt_prioritizes_schema_conformance():
     """The critic must check schema conformance as the highest priority."""
-    prompt = CRITIC_SYSTEM_PROMPT.format(
-        step_id="test",
-        step_type="ai.extract",
-        tool_name="ai.extract",
-        step_reasoning="test",
-        expected_output_schema="{}",
-        tool_call="{}",
-        actual_result="{}",
-        run_id="r1",
-        completed_steps="[]",
-        current_state="{}",
-    )
+    # The system prompt is static (no runtime interpolation) — assert directly.
+    prompt = CRITIC_SYSTEM_PROMPT
     assert "Schema conformance" in prompt or "schema conformance" in prompt
     # Must call out the common failure mode of renamed keys
     assert "human-readable" in prompt.lower()
@@ -208,18 +166,7 @@ def test_critic_prompt_prioritizes_schema_conformance():
 
 def test_critic_prompt_requires_evidence_based_reasoning():
     """The critic must reason only from provided evidence."""
-    prompt = CRITIC_SYSTEM_PROMPT.format(
-        step_id="test",
-        step_type="ai.extract",
-        tool_name="ai.extract",
-        step_reasoning="test",
-        expected_output_schema="{}",
-        tool_call="{}",
-        actual_result="{}",
-        run_id="r1",
-        completed_steps="[]",
-        current_state="{}",
-    )
+    prompt = CRITIC_SYSTEM_PROMPT
     assert "Evidence Available" in prompt or "ONLY on the evidence" in prompt
 
 

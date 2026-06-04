@@ -199,12 +199,14 @@ async def test_verify_proposal_receives_allowed_tools(sample_step, sample_tool_c
         planner_mode="agentic",
     )
 
-    # Check that the LLM was called with the right context
+    # Check that the LLM was called with the right context. The constraints
+    # (allowed tools, planner mode) are per-run evidence and live in the user
+    # message, keeping the system prompt static and prompt-cache friendly.
     assert llm.call_count == 1
-    prompt_content = llm.calls[0]["messages"][0]["content"]
-    assert "ai.extract" in prompt_content
-    assert "http_request" in prompt_content
-    assert "agentic" in prompt_content
+    user_content = llm.calls[0]["messages"][1]["content"]
+    assert "ai.extract" in user_content
+    assert "http_request" in user_content
+    assert "agentic" in user_content
 
 
 @pytest.mark.asyncio

@@ -98,15 +98,21 @@ async def test_planner_agent_prompt_formatting(mock_llm_with_plan):
         budget=budget,
     )
 
-    # Check prompt includes all required fields
+    # Per-run data lives in the user message (the system prompt stays static
+    # and prompt-cache friendly).
     call = mock_llm_with_plan.calls[0]
     system_msg = call["messages"][0]["content"]
+    user_msg = call["messages"][1]["content"]
 
-    assert "run-123" in system_msg
-    assert "5000/10000" in system_msg  # Token budget
-    assert "$2.5/5.0" in system_msg or "2.5/5.0" in system_msg  # Cost budget
-    assert "10/20" in system_msg  # Steps budget
-    assert "tool1" in system_msg
+    assert "run-123" in user_msg
+    assert "5000/10000" in user_msg  # Token budget
+    assert "$2.5/5.0" in user_msg or "2.5/5.0" in user_msg  # Cost budget
+    assert "10/20" in user_msg  # Steps budget
+    assert "tool1" in user_msg
+
+    # And none of that runtime data leaked into the static system message.
+    assert "run-123" not in system_msg
+    assert "5000/10000" not in system_msg
 
 
 @pytest.mark.asyncio
@@ -300,11 +306,16 @@ async def test_critic_agent_prompt_includes_context(mock_llm_with_critique):
 
     call = mock_llm_with_critique.calls[0]
     system_msg = call["messages"][0]["content"]
+    user_msg = call["messages"][1]["content"]
 
-    assert "critical_step" in system_msg
-    assert "run-456" in system_msg
-    assert "step1" in system_msg
-    assert "Critical operation" in system_msg
+    # Per-run evidence lives in the user message; the system prompt is static.
+    assert "critical_step" in user_msg
+    assert "run-456" in user_msg
+    assert "step1" in user_msg
+    assert "Critical operation" in user_msg
+
+    assert "critical_step" not in system_msg
+    assert "run-456" not in system_msg
 
 
 @pytest.mark.asyncio

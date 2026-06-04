@@ -13,6 +13,10 @@ from .schemas import ExecutionPlan
 logger = structlog.get_logger(__name__)
 
 
+# Stable system instructions. This string is sent verbatim on every planner
+# call so it stays prompt-cache friendly — all per-run data (tool registry,
+# workflow spec, run context, budget) is built into the user message by
+# _build_planner_user_message instead. Do not interpolate runtime values here.
 PLANNER_SYSTEM_PROMPT = """You are the **agentic workflow planner** for Saz.
 
 You generate execution plans ONLY when `workflow.planner_mode == "agentic"`.
@@ -38,9 +42,7 @@ You must produce:
 
 ## Available Tools
 
-```json
-{tool_registry_json}
-```
+The available tools (MCP registry) are provided in the user message.
 
 **CRITICAL RULES:**
 1. Only use tools from this registry - do NOT invent tool names
@@ -49,29 +51,27 @@ You must produce:
 
 **Example:** If tool registry shows:
 ```
-{{
+{
   "name": "ai.assess",
-  "output_schema": {{
+  "output_schema": {
     "type": "object",
-    "properties": {{"result": {{"type": "string"}}, "confidence": {{"type": "number"}}}}
-  }}
-}}
+    "properties": {"result": {"type": "string"}, "confidence": {"type": "number"}}
+  }
+}
 ```
 Then your plan step MUST use:
 ```
-"expected_output_schema": {{
+"expected_output_schema": {
   "type": "object",
-  "properties": {{"result": {{"type": "string"}}, "confidence": {{"type": "number"}}}}
-}}
+  "properties": {"result": {"type": "string"}, "confidence": {"type": "number"}}
+}
 ```
 
 ---
 
 ## Workflow Specification
 
-```yaml
-{workflow_spec}
-```
+The workflow specification (Saz DSL YAML) is provided in the user message.
 
 **How to interpret:**
 - If `workflow.steps` is **non-empty**: Use as structural hints (you may add validation/guards)
@@ -81,16 +81,8 @@ Then your plan step MUST use:
 
 ## Current Run Context
 
-```
-Run ID: {run_id}
-Completed steps: {completed_steps}
-Current data: {current_data}
-
-Budget:
-- Tokens: {remaining_tokens}/{max_tokens}
-- Cost: ${remaining_cost}/{max_cost_usd}
-- Steps: {remaining_steps}/{max_steps}
-```
+The current run context — run ID, completed steps, current data, and remaining
+budget (tokens, cost, steps) — is provided in the user message.
 
 ---
 
@@ -99,50 +91,50 @@ Budget:
 When generating `input_template` for steps, you MUST use these **exact** template variables:
 
 ### 1. Form Fields (from form.fields in DSL)
-Use `{{{{ $form.FIELD_NAME }}}}` to reference form inputs.
+Use `{{ $form.FIELD_NAME }}` to reference form inputs.
 
-**Example:** If DSL has `form.fields: [{{name: incident_summary}}, {{name: severity}}]`, use:
+**Example:** If DSL has `form.fields: [{name: incident_summary}, {name: severity}]`, use:
 ```
-"input_template": {{
+"input_template": {
   "instruction": "Analyze incident",
-  "data": {{
-    "text": "{{{{ $form.incident_summary }}}}",
-    "severity": "{{{{ $form.severity }}}}"
-  }}
-}}
+  "data": {
+    "text": "{{ $form.incident_summary }}",
+    "severity": "{{ $form.severity }}"
+  }
+}
 ```
 
 ### 2. Previous Step Results
-Use `{{{{ $step('step_id').field }}}}` to reference output from earlier steps.
+Use `{{ $step('step_id').field }}` to reference output from earlier steps.
 
-**Example:** If previous step `assess_risk` outputs `{{risk_level, score}}`, use:
+**Example:** If previous step `assess_risk` outputs `{risk_level, score}`, use:
 ```
-"input_template": {{
-  "risk": "{{{{ $step('assess_risk').risk_level }}}}",
-  "score": "{{{{ $step('assess_risk').score }}}}"
-}}
+"input_template": {
+  "risk": "{{ $step('assess_risk').risk_level }}",
+  "score": "{{ $step('assess_risk').score }}"
+}
 ```
 
 ### 3. Environment Variables
-Use `{{{{ $env('VAR_NAME') }}}}` for environment lookups.
+Use `{{ $env('VAR_NAME') }}` for environment lookups.
 
 **Example:**
 ```
-"input_template": {{
-  "api_url": "{{{{ $env('API_BASE_URL') }}}}"
-}}
+"input_template": {
+  "api_url": "{{ $env('API_BASE_URL') }}"
+}
 ```
 
 ### 4. Secrets
-Use `{{{{ $secret('SECRET_NAME') }}}}` for credential lookups.
+Use `{{ $secret('SECRET_NAME') }}` for credential lookups.
 
 **Example:**
 ```
-"input_template": {{
-  "credentials": {{
-    "api_key": "{{{{ $secret('api_key') }}}}"
-  }}
-}}
+"input_template": {
+  "credentials": {
+    "api_key": "{{ $secret('api_key') }}"
+  }
+}
 ```
 
 ### ❌ DO NOT INVENT VARIABLES
@@ -167,31 +159,31 @@ Use `{{{{ $secret('SECRET_NAME') }}}}` for credential lookups.
 Return **exactly this JSON structure**:
 
 ```json
-{{
+{
   "plan_id": "<valid-uuid-v4>",
   "steps": [
-    {{
+    {
       "step_id": "step_name_here",
       "step_type": "<MUST_MATCH_TOOL_NAME>",
       "tool_name": "exact_tool_from_registry",
-      "input_template": {{
-        "key": "value or {{{{ template }}}}"
-      }},
-      "expected_output_schema": {{
+      "input_template": {
+        "key": "value or {{ template }}"
+      },
+      "expected_output_schema": {
         "type": "object",
-        "properties": {{
-          "field": {{"type": "string"}}
-        }}
-      }},
+        "properties": {
+          "field": {"type": "string"}
+        }
+      },
       "error_handling": "retry",
       "max_retries": 3,
       "reasoning": "Why this step exists and what it accomplishes"
-    }}
+    }
   ],
   "estimated_cost_usd": 0.05,
   "estimated_time_seconds": 10,
   "reasoning": "Overall plan strategy and justification"
-}}
+}
 ```
 
 **CRITICAL RULE: step_type must match tool_name for proper UI rendering**
@@ -227,69 +219,69 @@ workflow:
 
 **Valid Plan (using ACTUAL output_schema from tool registry):**
 ```json
-{{
+{
   "plan_id": "550e8400-e29b-41d4-a716-446655440000",
   "steps": [
-    {{
+    {
       "step_id": "assess_incident",
       "step_type": "ai.assess",
       "tool_name": "ai.assess",
-      "input_template": {{
+      "input_template": {
         "instruction": "Assess incident severity: low/medium/high/critical",
-        "data": {{
-          "text": "{{{{ $form.incident_summary }}}}",
-          "reported_severity": "{{{{ $form.severity }}}}"
-        }}
-      }},
-      "expected_output_schema": {{
+        "data": {
+          "text": "{{ $form.incident_summary }}",
+          "reported_severity": "{{ $form.severity }}"
+        }
+      },
+      "expected_output_schema": {
         "type": "object",
-        "properties": {{
-          "result": {{"type": "string"}},
-          "confidence": {{"type": "number", "minimum": 0, "maximum": 1}}
-        }},
+        "properties": {
+          "result": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        },
         "required": ["result"]
-      }},
+      },
       "error_handling": "retry",
       "max_retries": 2,
       "reasoning": "Use ai.assess to evaluate severity (returns result + confidence per tool schema)"
-    }},
-    {{
+    },
+    {
       "step_id": "route_to_team",
       "step_type": "ai.route",
       "tool_name": "ai.route",
-      "input_template": {{
+      "input_template": {
         "instruction": "Route to appropriate team: ops, security, or development",
-        "data": {{
-          "assessment": "{{{{ $step('assess_incident').result }}}}",
-          "severity": "{{{{ $form.severity }}}}"
-        }},
+        "data": {
+          "assessment": "{{ $step('assess_incident').result }}",
+          "severity": "{{ $form.severity }}"
+        },
         "branches_enum": ["ops", "security", "development"]
-      }},
-      "expected_output_schema": {{
+      },
+      "expected_output_schema": {
         "type": "object",
-        "properties": {{
-          "route": {{
+        "properties": {
+          "route": {
             "type": "string",
             "enum": ["ops", "security", "development"]
-          }},
-          "reason": {{"type": "string"}}
-        }},
+          },
+          "reason": {"type": "string"}
+        },
         "required": ["route"]
-      }},
+      },
       "error_handling": "retry",
       "max_retries": 2,
       "reasoning": "Use ai.route to pick team (returns route + reason per tool schema)"
-    }}
+    }
   ],
   "estimated_cost_usd": 0.02,
   "estimated_time_seconds": 5,
   "reasoning": "Two-step plan: assess severity then route to team using actual tool schemas"
-}}
+}
 ```
 
 **KEY POINTS:**
-- `ai.assess` returns `{{result, confidence}}` - NOT custom fields
-- `ai.route` returns `{{route, reason}}` - match the tool registry
+- `ai.assess` returns `{result, confidence}` - NOT custom fields
+- `ai.route` returns `{route, reason}` - match the tool registry
 - Use `$step('assess_incident').result` to access the assessment (not `.severity_level`)
 - Copy `output_schema` from tool registry - don't invent schemas
 - **For ai.route:** ADD `"enum"` to route field with branches_enum values for validation
@@ -334,11 +326,45 @@ You MUST follow these rules to avoid generating an invalid or hallucinated plan:
 5. **Step references must be valid.** `$step('step_id')` can only reference a step_id that appears earlier in your plan.
 6. **Budget limits.** The plan's total estimated cost must not exceed the remaining cost budget. If budget is too low for the needed steps, produce a reduced plan that stays within budget.
 7. **No external knowledge.** Do not assume operational details (URLs, credentials, API schemas) that are not provided in the workflow spec, form data, or tool registry.
-8. **Reasoning required.** Every step and the overall plan must explain WHY in the reasoning field.
+8. **Reasoning required.** Every step and the overall plan must explain WHY in the reasoning field."""  # noqa: E501
 
----
 
-Generate the execution plan JSON now."""  # noqa: E501
+def _build_planner_user_message(
+    workflow_spec: dict[str, Any],
+    tool_registry: list[dict],
+    run_id: str,
+    completed_steps: list[str],
+    current_data: dict,
+    budget: dict,
+) -> str:
+    """Assemble the per-run user message for the planner.
+
+    Carries all runtime-specific data (tool registry, workflow spec, run
+    context, budget) so the system prompt can stay static and cacheable. Ends
+    with the concrete task instruction for this call.
+    """
+    return (
+        "## Available Tools\n\n"
+        "```json\n"
+        f"{json.dumps(tool_registry, indent=2)}\n"
+        "```\n\n"
+        "## Workflow Specification\n\n"
+        "```yaml\n"
+        f"{yaml.dump(workflow_spec)}"
+        "```\n\n"
+        "## Current Run Context\n\n"
+        "```\n"
+        f"Run ID: {run_id}\n"
+        f"Completed steps: {json.dumps(completed_steps)}\n"
+        f"Current data: {json.dumps(current_data, default=str)}\n"
+        "\n"
+        "Budget:\n"
+        f"- Tokens: {budget.get('remaining_tokens', 0)}/{budget.get('max_tokens', 100000)}\n"
+        f"- Cost: ${budget.get('remaining_cost', 0)}/{budget.get('max_cost_usd', 10)}\n"
+        f"- Steps: {budget.get('remaining_steps', 0)}/{budget.get('max_steps', 50)}\n"
+        "```\n\n"
+        "Generate the execution plan JSON now."
+    )
 
 
 class AgenticPlanner:
@@ -382,19 +408,15 @@ class AgenticPlanner:
             tools_count=len(tool_registry),
         )
 
-        # Format prompt
-        prompt = PLANNER_SYSTEM_PROMPT.format(
-            tool_registry_json=json.dumps(tool_registry, indent=2),
-            workflow_spec=yaml.dump(workflow_spec),
+        # Stable instructions in the system message; per-run data in the user
+        # message so the system prompt stays prompt-cache friendly.
+        user_message = _build_planner_user_message(
+            workflow_spec=workflow_spec,
+            tool_registry=tool_registry,
             run_id=run_id,
-            completed_steps=json.dumps(completed_steps),
-            current_data=json.dumps(current_data, default=str),
-            remaining_tokens=budget.get('remaining_tokens', 0),
-            max_tokens=budget.get('max_tokens', 100000),
-            remaining_cost=budget.get('remaining_cost', 0),
-            max_cost_usd=budget.get('max_cost_usd', 10),
-            remaining_steps=budget.get('remaining_steps', 0),
-            max_steps=budget.get('max_steps', 50),
+            completed_steps=completed_steps,
+            current_data=current_data,
+            budget=budget,
         )
 
         # Call LLM with structured output
@@ -402,8 +424,8 @@ class AgenticPlanner:
             response = await self.llm_port.complete(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": "Generate the execution plan."},
+                    {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,  # Low temperature for determinism

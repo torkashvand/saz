@@ -120,11 +120,15 @@ async def test_prompt_formatting_works(
         call_args = mock_complete.call_args
         messages = call_args.kwargs["messages"]
 
-        # Verify prompt was formatted successfully (no KeyError)
+        # Stable instructions live in the system message; per-run data lives in
+        # the user message so the system prompt stays prompt-cache friendly.
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
         assert "agentic workflow planner" in messages[0]["content"]
-        assert "test_run" in messages[0]["content"]
+        assert "test_run" not in messages[0]["content"]
+
+        assert messages[1]["role"] == "user"
+        assert "test_run" in messages[1]["content"]
 
 
 @pytest.mark.asyncio

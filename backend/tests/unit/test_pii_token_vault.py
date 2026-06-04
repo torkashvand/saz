@@ -464,3 +464,18 @@ def test_tokenization_preserves_non_string_types(vault: PIITokenVault, detector:
     assert tokenized["active"] is True
     assert tokenized["balance"] == 123.45
     assert tokenized["tags"] is None
+
+
+def test_shared_path_matching_normalizes_indexed_paths():
+    """Both the token vault and the policy engine must normalize array
+    indices identically when matching against allow-list prefixes. The
+    shared helper is the single source of truth: ``to[0]`` is covered by an
+    allowed ``to`` entry, and an un-allowed indexed path is not."""
+    from saz.policies.pii_token_vault import path_matches_allowed
+
+    allowed = {"to", "headers.Authorization"}
+    assert path_matches_allowed("to[0]", allowed) is True
+    assert path_matches_allowed("to", allowed) is True
+    assert path_matches_allowed("headers.Authorization", allowed) is True
+    assert path_matches_allowed("body[3].ssn", allowed) is False
+    assert path_matches_allowed("cc", allowed) is False

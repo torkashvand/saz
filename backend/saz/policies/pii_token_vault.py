@@ -9,6 +9,28 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
+# Array-index segments (``to[0]``) are normalized away before allow-list
+# matching so a list of values is covered by the same allow-list entry as a
+# scalar (``to``). Compiled once, shared by every caller.
+_ARRAY_INDEX_RE = re.compile(r"\[\d+\]")
+
+
+def path_matches_allowed(path: str, allowed_paths: set[str]) -> bool:
+    """Return True if ``path`` is covered by any entry in ``allowed_paths``.
+
+    Single source of truth for PII allow-list matching, used by both the token
+    vault (selective detokenization) and the policy engine (outbound PII
+    gating). An allowed entry covers the path itself plus anything nested under
+    it (``headers`` covers ``headers.Authorization``); array indices are
+    stripped first so ``to[0]`` matches an allowed ``to``.
+    """
+    clean_path = _ARRAY_INDEX_RE.sub("", path)
+    if clean_path in allowed_paths:
+        return True
+    return any(
+        clean_path.startswith(allowed + ".") or clean_path == allowed for allowed in allowed_paths
+    )
+
 
 class PIITokenVault:
     """
@@ -254,19 +276,7 @@ class PIITokenVault:
         Returns:
             True if path is allowed for detokenization
         """
-        # Remove array indices for matching (e.g., "to[0]" -> "to")
-        clean_path = re.sub(r'\[\d+\]', '', path)
-
-        # Check exact match
-        if clean_path in allowed_paths:
-            return True
-
-        # Check if any allowed path is a prefix of this path
-        for allowed in allowed_paths:
-            if clean_path.startswith(allowed + ".") or clean_path == allowed:
-                return True
-
-        return False
+        return path_matches_allowed(path, allowed_paths)
 
     def scan_for_tokens(self, data: dict[str, Any]) -> list[str]:
         """

@@ -6,7 +6,7 @@ import structlog
 
 from .budget_tracker import BudgetTracker
 from .pii_detector import PIIDetector
-from .pii_token_vault import PIITokenVault
+from .pii_token_vault import PIITokenVault, path_matches_allowed
 from .rate_limiter import RateLimiter
 
 logger = structlog.get_logger(__name__)
@@ -100,15 +100,7 @@ class PolicyEngine:
         any entry in ``allowed_paths``. An allowed entry covers the path
         itself plus anything nested under it (so ``content`` allows
         ``content.requester``)."""
-        disallowed: list[str] = []
-        for path in pii_paths:
-            clean = path.replace("[", ".").replace("]", "")
-            if any(
-                clean == allowed or clean.startswith(allowed + ".") for allowed in allowed_paths
-            ):
-                continue
-            disallowed.append(path)
-        return disallowed
+        return [p for p in pii_paths if not path_matches_allowed(p, allowed_paths)]
 
     def tokenize_arguments(
         self, tool_name: str, arguments: dict[str, Any], run_id: str

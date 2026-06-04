@@ -93,6 +93,11 @@ async def stream_run_events(
         # (DB Event) carry a plain string. Normalize to the wire string.
         event_type = event.event_type
         event_type_str = event_type.value if hasattr(event_type, "value") else event_type
+        # severity is a Severity StrEnum on live domain events and a plain
+        # string on snapshot DB rows — normalize to the wire string so the WS
+        # shape matches the REST EventResponse (which marks severity required).
+        severity = event.severity
+        severity_str = severity.value if hasattr(severity, "value") else severity
         return {
             "id": event.id,
             "event_type": event_type_str,
@@ -103,6 +108,7 @@ async def stream_run_events(
             "step_id": event.step_id,
             "correlation_id": event.correlation_id,
             "planner_mode": event.planner_mode,
+            "severity": severity_str,
             # actor_user_id (a raw user id) is intentionally not sent on the
             # wire; the actor *role* is enough for the client to attribute.
             "actor": event.actor,

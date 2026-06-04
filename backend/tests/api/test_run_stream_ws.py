@@ -143,6 +143,33 @@ def test_websocket_multiple_events(app_client, run_for_stream, test_user_token):
         assert received[2]["event_type"] == "tool.succeeded"
 
 
+def test_websocket_event_includes_severity(app_client, run_for_stream, test_user_token):
+    """WS-serialized events must carry `severity`, matching the REST
+    EventResponse shape and the frontend Event type (which marks it required)."""
+    with app_client.websocket_connect(
+        f"/api/v1/runs/{run_for_stream}/stream?token={test_user_token}"
+    ) as ws:
+        ack = ws.receive_json()
+        assert ack["type"] == "connected"
+        _drain_snapshot(ws)
+
+        event = Event(
+            event_type=EventType.STEP_STARTED,
+            run_id=run_for_stream,
+            step_id="step_sev",
+            summary="severity check",
+        )
+
+        async def publish_event():
+            await event_bus.publish([event])
+
+        asyncio.run(publish_event())
+
+        data = ws.receive_json()
+        assert "severity" in data, f"WS event omits severity: {data}"
+        assert data["severity"] == "info"
+
+
 def test_websocket_ping_pong(app_client, run_for_stream, test_user_token):
     """WebSocket handles ping/pong."""
     with app_client.websocket_connect(

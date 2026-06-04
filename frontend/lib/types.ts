@@ -384,6 +384,15 @@ export type EventType =
   | 'plan.generated'
   | 'plan.updated'
   | 'branch.chosen'
+  // Verifier (pre-execution)
+  | 'verifier.approved'
+  | 'verifier.rejected'
+  | 'verifier.replan_requested'
+  | 'verifier.escalated'
+  // Replan
+  | 'replan.attempted'
+  | 'replan.succeeded'
+  | 'replan.exhausted'
   // Critic (post-execution)
   | 'critique.completed'
   // Policy & safety
@@ -400,6 +409,8 @@ export type EventType =
   | 'approval.granted'
   | 'approval.denied'
   | 'action.aborted'
+  // Webhook
+  | 'webhook.callback_received'
   // Artifacts
   | 'artifact.created'
   // System

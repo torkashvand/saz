@@ -150,10 +150,17 @@ async def handle_webhook_callback(
     a unique callback_id. External systems can POST to this endpoint
     with that callback_id to approve/reject and resume the run.
 
-    Security:
-    - callback_id is a non-guessable UUID hex (32 chars)
-    - Only suspended runs can be resumed
-    - Duplicate callbacks are handled idempotently
+    Security / authorization model:
+    - This endpoint is a CAPABILITY URL. The only credential is the
+      non-guessable callback_id (UUID hex, 32 chars) embedded in the path;
+      possession of it authorizes the action. There is no caller identity.
+    - Consequently it does NOT enforce the human.approval ``approvers``
+      allowlist. That allowlist is checked only on the authenticated
+      ``POST /runs/{id}/resume`` path, which has a ``user`` to match against.
+      Do not describe this endpoint as approver-enforced — treat the
+      callback_id as a shared secret and scope it accordingly.
+    - Only suspended runs can be resumed.
+    - Duplicate callbacks are handled idempotently.
 
     Args:
         callback_id: Unique callback identifier generated at suspension

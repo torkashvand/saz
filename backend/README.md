@@ -265,9 +265,12 @@ Without a key, those steps fail with a clear, structured error.
   authenticated non-admin user has the same application-level access.
 - Scheduler and suspension sweeper run in-process; restart loses any
   in-memory state.
-- The Ansible tool's playbook-path allowlist defaults to empty (all paths
-  allowed). Set `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` before running playbooks
-  you do not own.
+- The Ansible tool is fail-closed: an empty allowlist denies every playbook,
+  and the default registry scopes the allowlist to the bundled
+  `examples/ansible` playbook root and demo inventory so the recommended demo
+  runs out of the box — nothing else. Set
+  `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` to run playbooks elsewhere; there is no
+  "allow all" default.
 - LLM cost and policy budgets are tracked, not billed.
 
 [uv]: https://docs.astral.sh/uv/

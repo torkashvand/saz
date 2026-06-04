@@ -140,9 +140,10 @@ class ToolRegistry:
         self._tools["webhook_emit"] = webhook_tool.emit_spec
         self._executors["webhook_emit"] = webhook_tool.emit
 
-        # Webhook wait
+        # Webhook wait is a suspension step owned by the executor
+        # (_execute_webhook_wait); it is registered for tool discovery/schema
+        # only and is never dispatched through the registry executor.
         self._tools["webhook_wait"] = webhook_tool.wait_spec
-        self._executors["webhook_wait"] = webhook_tool.wait_for_webhook
 
         self.logger.info("tool_registered", tool="webhook_emit")
         self.logger.info("tool_registered", tool="webhook_wait")

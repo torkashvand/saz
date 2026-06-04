@@ -1,14 +1,11 @@
 """Unit tests for WebhookTool.
 
-The webhook tool has two surface areas:
-
-  * ``wait_for_webhook`` — generates a callback URL and returns a
-    suspension marker. The executor reads this marker to stop the run
-    and persist callback_id metadata; the contract must remain stable.
-
   * ``emit`` — POSTs JSON payloads to an external system. Failure modes
     matter: a transport exception must propagate so the executor can
     mark the step failed and retry/replan.
+
+Webhook *wait* is not a registry-executed tool: the executor owns the
+suspension via ``_execute_webhook_wait``, so there is nothing to test here.
 """
 
 import asyncio
@@ -28,43 +25,6 @@ def tool() -> WebhookTool:
         timeout=5,
         allowed_domains=["example.test", "unreachable.test"],
     )
-
-
-# --------------------------- wait ---------------------------
-
-
-def test_webhook_tool_wait_returns_suspension_marker_with_callback_url(
-    tool: WebhookTool,
-) -> None:
-    result = asyncio.run(
-        tool.wait_for_webhook(event_name="approval", timeout_seconds=120, run_id="r1", step_id="s1")
-    )
-    assert result["action"] == "suspend"
-    assert result["reason"] == "waiting_for_webhook:approval"
-    assert result["timeout_seconds"] == 120
-    assert result["metadata"] == {
-        "event_name": "approval",
-        "run_id": "r1",
-        "step_id": "s1",
-    }
-
-    cb = result["callback_url"]
-    # The URL must include the runtime identifiers so the callback API can
-    # look up the suspended run/step deterministically.
-    assert cb.startswith("https://saz.test/webhooks/callback/r1/s1/approval")
-    assert "token=" in cb
-
-
-def test_webhook_tool_wait_default_timeout_is_applied(tool: WebhookTool) -> None:
-    result = asyncio.run(tool.wait_for_webhook(event_name="done", run_id="r1", step_id="s1"))
-    # Default timeout from wait_spec is 3600s.
-    assert result["timeout_seconds"] == 3600
-
-
-def test_webhook_tool_generate_callback_url_includes_token(tool: WebhookTool) -> None:
-    url1 = tool.generate_callback_url("r1", "s1", "approval")
-    url2 = tool.generate_callback_url("r1", "s1", "approval")
-    assert url1 != url2, "Each callback URL must carry a unique token to prevent replay"
 
 
 # --------------------------- emit ---------------------------

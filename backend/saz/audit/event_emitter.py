@@ -241,21 +241,6 @@ class EventEmitter:
             severity="warn",
         )
 
-    def policy_budget_updated(
-        self, tokens_used: int, cost_usd: float, budget_remaining_usd: float, **kwargs
-    ) -> None:
-        """Emit policy.budget.updated event."""
-        self.emit(
-            EventType.POLICY_BUDGET_UPDATED,
-            f"Budget updated: ${cost_usd:.4f} spent, ${budget_remaining_usd:.4f} remaining",
-            payload={
-                "tokens_used": tokens_used,
-                "cost_usd": cost_usd,
-                "budget_remaining_usd": budget_remaining_usd,
-                **kwargs,
-            },
-        )
-
     def policy_blocked(self, step_id: str | None, tool_name: str, reason: str, **kwargs) -> None:
         """Emit policy.blocked event when a tool call is denied by policy."""
         self.emit(

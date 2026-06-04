@@ -366,7 +366,6 @@ export type EventType =
   | 'run.started'
   | 'run.completed'
   | 'run.failed'
-  | 'run.cancelled'
   | 'run.suspended'
   | 'run.resumed'
   // Step lifecycle
@@ -382,8 +381,6 @@ export type EventType =
   | 'tool.failed'
   // Planner (agentic mode)
   | 'plan.generated'
-  | 'plan.updated'
-  | 'branch.chosen'
   // Verifier (pre-execution)
   | 'verifier.approved'
   | 'verifier.rejected'
@@ -408,7 +405,6 @@ export type EventType =
   | 'approval.requested'
   | 'approval.granted'
   | 'approval.denied'
-  | 'action.aborted'
   // Webhook
   | 'webhook.callback_received'
   // Artifacts

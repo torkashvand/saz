@@ -20,7 +20,6 @@ class EventType(str, Enum):
     RUN_STARTED = "run.started"
     RUN_COMPLETED = "run.completed"
     RUN_FAILED = "run.failed"
-    RUN_CANCELLED = "run.cancelled"
     RUN_SUSPENDED = "run.suspended"
     RUN_RESUMED = "run.resumed"
 
@@ -39,8 +38,6 @@ class EventType(str, Enum):
 
     # Planner (agentic mode)
     PLAN_GENERATED = "plan.generated"
-    PLAN_UPDATED = "plan.updated"
-    BRANCH_CHOSEN = "branch.chosen"
 
     # Verifier (pre-execution)
     VERIFIER_APPROVED = "verifier.approved"
@@ -74,7 +71,6 @@ class EventType(str, Enum):
     APPROVAL_REQUESTED = "approval.requested"
     APPROVAL_GRANTED = "approval.granted"
     APPROVAL_DENIED = "approval.denied"
-    ACTION_ABORTED = "action.aborted"
 
     # Artifacts
     ARTIFACT_CREATED = "artifact.created"

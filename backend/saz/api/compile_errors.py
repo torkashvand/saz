@@ -126,13 +126,6 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str | None, int | None, str | None]]
         "/policies/concurrency",
     ),
     (
-        re.compile(r"Flow name is required"),
-        "flow.name_required",
-        "flow",
-        None,
-        "/flow/name",
-    ),
-    (
         re.compile(r"^Invalid YAML"),
         "yaml.invalid",
         None,

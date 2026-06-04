@@ -114,7 +114,6 @@ def _make_tracking_emitter_factory(uow):
         "webhook_callback_received",
         "critique_completed",
         "policy_pii_redacted",
-        "policy_budget_updated",
     }
 
     def factory(*args, **kwargs):

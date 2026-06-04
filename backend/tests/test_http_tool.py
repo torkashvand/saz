@@ -183,3 +183,36 @@ async def test_http_tool_wildcard_allows_all(monkeypatch) -> None:
     monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
     result = await tool.execute(method="GET", url="https://anything.example.org/x")
     assert result["status_code"] == 200
+
+
+@pytest.mark.asyncio
+async def test_http_tool_does_not_follow_redirect_to_loopback(monkeypatch) -> None:
+    """SSRF guard: validate_outbound_url checks only the initial URL, so a
+    followed 3xx to a loopback/internal host would bypass it. The client must
+    not follow redirects — the redirect target must never be contacted."""
+    contacted: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        contacted.append(str(request.url))
+        if request.url.host == "example.com":
+            return httpx.Response(302, headers={"Location": "http://127.0.0.1/admin"})
+        return httpx.Response(200, json={"pwned": True})
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+
+    def make_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
+
+    tool = HttpTool(allowed_domains=["example.com"], timeout=5)
+    try:
+        await tool.execute(method="GET", url="https://example.com/x")
+    except httpx.HTTPError:
+        pass  # a 3xx surfacing as non-2xx is acceptable; not-following is the point
+
+    assert contacted == [
+        "https://example.com/x"
+    ], f"redirect was followed to an internal host, bypassing the SSRF guard: {contacted}"

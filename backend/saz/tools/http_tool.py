@@ -126,7 +126,11 @@ class HttpTool:
         start_time = datetime.now(UTC)
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            # Do not follow redirects: validate_outbound_url only vetted the
+            # initial URL, so a followed 3xx to a loopback/internal host would
+            # bypass the SSRF guard. Explicit rather than relying on the httpx
+            # default in case that ever changes.
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
                 response = await client.request(
                     method=method, url=url, headers=headers, json=body, params=params
                 )

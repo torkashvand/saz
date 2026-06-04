@@ -649,6 +649,7 @@ class WorkflowExecutor:
                         "critique": step_error.critique.model_dump(),
                         "callback_id": callback_id,
                     }
+                    _attach_timeout_metadata(error_dict, plan_step.input_template)
                     logger.warning(f"Step {plan_step.step_id} requires escalation: {step_error}")
                     self.uow.runs.mark_suspended(run_id, error_dict)
                     emitter.run_suspended(

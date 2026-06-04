@@ -17,6 +17,10 @@ from .schemas import Critique, PlanStep, Verdict
 logger = structlog.get_logger(__name__)
 
 
+# Stable verifier instructions. Sent verbatim on every call so it stays
+# prompt-cache friendly — the per-run evidence (step details, proposed tool
+# call, constraints, run context) is built into the user message by
+# _build_verifier_user_message. Do not interpolate runtime values here.
 VERIFIER_SYSTEM_PROMPT = """You are a pre-execution safety verifier for the Saz workflow engine.
 
 ## Role
@@ -25,28 +29,8 @@ You are the last gate before execution. The tool has NOT run yet.
 Your verdict determines whether execution proceeds, is replanned, or is blocked.
 
 ## Evidence Available
-You must base your verdict ONLY on the information below.
+You must base your verdict ONLY on the evidence provided in the user message.
 Do not assume information not provided. Do not infer external context.
-
-### Step Details
-- Step ID: {step_id}
-- Step Type: {step_type}
-- Tool: {tool_name}
-- Step Intent: {step_reasoning}
-
-### Proposed Tool Call
-```json
-{proposed_tool_call}
-```
-
-### Constraints
-- Allowed tools: {allowed_tools}
-- Planner mode: {planner_mode}
-
-### Run Context
-- Run ID: {run_id}
-- Previous steps completed: {completed_steps}
-- Current state: {current_state}
 
 ## AI Operation Tool-Call Shape (READ FIRST)
 
@@ -100,19 +84,23 @@ Apply these checks in order:
 
 ## Output Format
 Return ONLY this JSON structure:
-{{
+{
   "verdict": "pass|fail|replan|escalate_to_human",
   "reasoning": "<your analysis referencing specific evidence from above>",
   "issues": ["<specific problems found, empty array if none>"],
   "safety_flags": ["<security/policy concerns, empty array if none>"],
-  "suggestions": {{
+  "suggestions": {
     "next_action": "<what should happen next>",
     "modifications": "<if replan, what specifically should change>"
-  }},
+  },
   "confidence": 0.0-1.0
-}}"""  # noqa: E501
+}"""  # noqa: E501
 
 
+# Stable critic instructions. Sent verbatim on every call so it stays
+# prompt-cache friendly — the per-run evidence (step details, expected schema,
+# executed tool call, actual result, run context) is built into the user
+# message by _build_critic_user_message. Do not interpolate runtime values here.
 CRITIC_SYSTEM_PROMPT = """You are the post-execution critic for the Saz workflow engine.
 
 ## Role
@@ -121,39 +109,31 @@ You must be rigorous on schema conformance but fair on content — small variati
 wording are acceptable if the data structure and required fields are correct.
 
 ## Evidence Available
-Base your verdict ONLY on the evidence below.
+Base your verdict ONLY on the evidence provided in the user message.
 
-### Step Details
-- Step ID: {step_id}
-- Step Type: {step_type}
-- Tool: {tool_name}
-- Step Intent: {step_reasoning}
+## Expected Output Schema Contract (READ FIRST)
 
-### Expected Output Schema
-```json
-{expected_output_schema}
-```
+The `### Expected Output Schema` block carries the step's declared OUTPUT contract.
+Decide which case you are in BEFORE applying the checklist:
 
-### Tool Call That Was Executed
-```json
-{tool_call}
-```
-
-### Actual Result
-```json
-{actual_result}
-```
-
-### Run Context
-- Run ID: {run_id}
-- Previous steps: {completed_steps}
-- Current state: {current_state}
+- If the schema declares properties and/or required fields (a real contract), enforce
+  schema conformance strictly, exactly as described in check 1.
+- If the schema is EMPTY ({}) or otherwise declares no properties and no required
+  fields, the step has NO declared output contract. This is normal and expected for
+  deterministic `tool.call` and `artifact.*` steps, whose result shape is defined by
+  the tool itself, not by the workflow author. In that case:
+  - Do NOT treat an empty schema as "no output expected."
+  - Do NOT FAIL because the actual result contains fields (e.g. status, mode, recap,
+    artifact_id, stdout_preview, changed). Extra fields are expected, not a violation.
+  - Skip schema conformance entirely (check 1 does not apply) and judge the step on
+    content quality and safety: did the tool succeed, are there error/partial-failure
+    signals (non-zero return codes, failed counts, error fields), is the data unsafe.
 
 ## Evaluation Checklist
 
 Apply these checks in order of priority:
 
-1. **Schema conformance** (most common failure mode):
+1. **Schema conformance** (only when a contract is declared — see above):
    - Do the JSON keys in the result EXACTLY match the expected schema property names?
    - Are all required fields present?
    - Are field types correct (string vs number vs boolean vs array)?
@@ -179,17 +159,102 @@ Apply these checks in order of priority:
 
 ## Output Format
 Return ONLY this JSON structure:
-{{
+{
   "verdict": "pass|fail|replan|escalate_to_human",
   "reasoning": "<your analysis referencing specific schema fields and evidence>",
   "issues": ["<specific problems: name each wrong field, missing field, or type error>"],
   "safety_flags": ["<security/policy concerns, empty array if none>"],
-  "suggestions": {{
+  "suggestions": {
     "next_action": "<what should happen next>",
     "modifications": "<if replan, what specifically should change in the instruction or approach>"
-  }},
+  },
   "confidence": 0.0-1.0
-}}"""  # noqa: E501
+}"""  # noqa: E501
+
+
+def _build_verifier_user_message(
+    step: PlanStep,
+    proposed_tool_call: dict[str, Any],
+    run_id: str,
+    completed_steps: list[str],
+    current_state: dict[str, Any],
+    allowed_tools: list[str] | None,
+    planner_mode: str,
+) -> str:
+    """Assemble the per-run evidence message for the pre-execution verifier.
+
+    Carries the runtime-specific evidence (step details, proposed tool call,
+    constraints, run context) so the system prompt stays static and cacheable.
+    Ends with the concrete task instruction for this call.
+    """
+    return (
+        "### Step Details\n"
+        f"- Step ID: {step.step_id}\n"
+        f"- Step Type: {step.step_type}\n"
+        f"- Tool: {step.tool_name or 'N/A'}\n"
+        f"- Step Intent: {step.reasoning}\n"
+        "\n"
+        "### Proposed Tool Call\n"
+        "```json\n"
+        f"{json.dumps(proposed_tool_call, indent=2)}\n"
+        "```\n"
+        "\n"
+        "### Constraints\n"
+        f"- Allowed tools: {json.dumps(allowed_tools or [])}\n"
+        f"- Planner mode: {planner_mode}\n"
+        "\n"
+        "### Run Context\n"
+        f"- Run ID: {run_id}\n"
+        f"- Previous steps completed: {json.dumps(completed_steps)}\n"
+        f"- Current state: {json.dumps(current_state, default=str)}\n"
+        "\n"
+        "Evaluate whether this proposed tool call is safe to execute."
+    )
+
+
+def _build_critic_user_message(
+    step: PlanStep,
+    tool_call: dict[str, Any],
+    result: dict[str, Any],
+    run_id: str,
+    completed_steps: list[str],
+    current_state: dict[str, Any],
+) -> str:
+    """Assemble the per-run evidence message for the post-execution critic.
+
+    Carries the runtime-specific evidence (step details, expected schema,
+    executed tool call, actual result, run context) so the system prompt stays
+    static and cacheable. Ends with the concrete task instruction for this call.
+    """
+    return (
+        "### Step Details\n"
+        f"- Step ID: {step.step_id}\n"
+        f"- Step Type: {step.step_type}\n"
+        f"- Tool: {step.tool_name or 'N/A'}\n"
+        f"- Step Intent: {step.reasoning}\n"
+        "\n"
+        "### Expected Output Schema\n"
+        "```json\n"
+        f"{json.dumps(step.expected_output_schema, indent=2)}\n"
+        "```\n"
+        "\n"
+        "### Tool Call That Was Executed\n"
+        "```json\n"
+        f"{json.dumps(tool_call, indent=2)}\n"
+        "```\n"
+        "\n"
+        "### Actual Result\n"
+        "```json\n"
+        f"{json.dumps(result, indent=2, default=str)}\n"
+        "```\n"
+        "\n"
+        "### Run Context\n"
+        f"- Run ID: {run_id}\n"
+        f"- Previous steps: {json.dumps(completed_steps)}\n"
+        f"- Current state: {json.dumps(current_state, default=str)}\n"
+        "\n"
+        "Evaluate the step execution and provide your critique."
+    )
 
 
 class CriticAgent:
@@ -241,28 +306,22 @@ class CriticAgent:
             run_id=run_id,
         )
 
-        prompt = VERIFIER_SYSTEM_PROMPT.format(
-            step_id=step.step_id,
-            step_type=step.step_type,
-            tool_name=step.tool_name or "N/A",
-            step_reasoning=step.reasoning,
-            proposed_tool_call=json.dumps(proposed_tool_call, indent=2),
-            allowed_tools=json.dumps(allowed_tools or []),
-            planner_mode=planner_mode,
+        user_message = _build_verifier_user_message(
+            step=step,
+            proposed_tool_call=proposed_tool_call,
             run_id=run_id,
-            completed_steps=json.dumps(completed_steps),
-            current_state=json.dumps(current_state, default=str),
+            completed_steps=completed_steps,
+            current_state=current_state,
+            allowed_tools=allowed_tools,
+            planner_mode=planner_mode,
         )
 
         try:
             response = await self.llm_port.complete(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": "Evaluate whether this proposed tool call is safe to execute.",
-                    },
+                    {"role": "system", "content": VERIFIER_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,
@@ -343,18 +402,13 @@ class CriticAgent:
             "critiquing_step", step_id=step.step_id, tool=step.tool_name, run_id=run_id
         )
 
-        # Format prompt
-        prompt = CRITIC_SYSTEM_PROMPT.format(
-            step_id=step.step_id,
-            step_type=step.step_type,
-            tool_name=step.tool_name or "N/A",
-            step_reasoning=step.reasoning,
-            expected_output_schema=json.dumps(step.expected_output_schema, indent=2),
-            tool_call=json.dumps(tool_call, indent=2),
-            actual_result=json.dumps(result, indent=2, default=str),
+        user_message = _build_critic_user_message(
+            step=step,
+            tool_call=tool_call,
+            result=result,
             run_id=run_id,
-            completed_steps=json.dumps(completed_steps),
-            current_state=json.dumps(current_state, default=str),
+            completed_steps=completed_steps,
+            current_state=current_state,
         )
 
         # Call LLM with structured output
@@ -362,11 +416,8 @@ class CriticAgent:
             response = await self.llm_port.complete(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": "Evaluate the step execution and provide your critique.",
-                    },
+                    {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.2,  # Slightly higher for nuanced evaluation

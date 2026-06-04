@@ -23,6 +23,10 @@ os.environ["SUSPENSION_SWEEP_ENABLED"] = "False"
 # Auth tests need a JWT secret. Set it before importing saz modules so the
 # settings singleton picks it up.
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-do-not-use-in-prod")
+# Credential tests encrypt/decrypt with Fernet, which rejects a blank key.
+# Provide a valid throwaway key so the suite is self-contained and does not
+# depend on a developer's local .env (CI sets no CREDENTIALS_ENCRYPTION_KEY).
+os.environ.setdefault("CREDENTIALS_ENCRYPTION_KEY", "dd0qHBIV-Wv_KlnZVjRzzfl4x8crVfFargy4WRUV_FI=")
 
 from saz.agents import LLMPort, LLMResponse
 from saz.api.app import app

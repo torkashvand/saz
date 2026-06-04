@@ -1,3 +1,14 @@
+# NOT runnable with the default fail-closed registry.
+#
+# This flow performs live outbound calls to an ERP/notification service at
+# http://localhost:8001 and reads the $secret('erp_api_token') and
+# $secret('notification_api_token') credentials. To run it you must:
+#   * stand up the endpoints at localhost:8001,
+#   * add localhost:8001 to policies.allowed_domains (default is empty,
+#     so all outbound HTTP is blocked), and
+#   * store the two API-token credentials.
+# Kept as an illustrative pattern, not a ready-to-run demo.
+
 meta:
   id: procurement_rfp_intake
   title: "Procurement RFP Intake and Approval"
@@ -6,7 +17,7 @@ meta:
     requirement extraction and RFP drafting."
   tags: ["procurement", "rfp", "deterministic", "approval"]
   complexity: "advanced"
-  recommended: true
+  recommended: false
 
 
 schema_version: 1

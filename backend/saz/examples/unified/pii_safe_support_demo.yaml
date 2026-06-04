@@ -1,3 +1,13 @@
+# NOT runnable with the default fail-closed registry.
+#
+# This flow performs a live outbound call to https://ticketing.example.com and
+# reads the $secret('ticketing_api_token') credential. To run it you must:
+#   * point it at a real ticketing endpoint,
+#   * add that host to policies.allowed_domains (default is empty, so all
+#     outbound HTTP is blocked), and
+#   * store a real `ticketing_api_token` credential.
+# Kept as an illustrative pattern, not a ready-to-run demo.
+
 meta:
   id: pii_safe_support_demo
   title: "PII-Safe Support Inbox"

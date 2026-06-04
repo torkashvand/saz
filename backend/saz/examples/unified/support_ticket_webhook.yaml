@@ -1,10 +1,19 @@
+# NOT runnable with the default fail-closed registry.
+#
+# This flow performs a live outbound call to https://api.sendgrid.com and reads
+# the $secret('sendgrid_api_key') credential. To run it you must:
+#   * add api.sendgrid.com to policies.allowed_domains (default is empty,
+#     so all outbound HTTP is blocked), and
+#   * store a real `sendgrid_api_key` credential.
+# Kept as an illustrative pattern, not a ready-to-run demo.
+
 meta:
   id: support_ticket_webhook
   title: "Support Ticket Auto-Response"
   description: "Support ticket processing with sentiment analysis and auto-response generation"
-  tags: ["support", "customer-service", "recommended"]
+  tags: ["support", "customer-service"]
   complexity: "medium"
-  recommended: true
+  recommended: false
 
 schema_version: 1
 

@@ -223,12 +223,33 @@ async def handle_webhook_callback(
 
     if req.action == "reject":
         # Rejection: fail the suspended step AND the run.
-        # A failed run must never own a "suspended" step row — that confuses
-        # the timeline UI, retry/resume logic, and any audit consumer that
-        # expects terminal step state on a terminal run. The rejection reason
-        # also belongs on Step.error so operators see WHY the gate failed
-        # without digging through run.error.
+        # Atomically claim the suspended run BEFORE mutating step state,
+        # mirroring the approve path. If a concurrent resume or the
+        # SuspensionSweeper already moved the run out of suspended after the
+        # idempotency pre-check above, the guarded UPDATE matches zero rows and
+        # we must not overwrite that with failed using a stale in-memory view.
         reason = req.reason or "Rejected via webhook callback"
+        if not uow.runs.mark_failed_if_suspended(
+            run.id,
+            {
+                "message": f"Rejected via webhook: {reason}",
+                "type": "WebhookRejection",
+                "callback_id": callback_id,
+            },
+        ):
+            current = uow.runs.get(run.id)
+            return WebhookCallbackResponse(
+                status="already_processed",
+                run_id=run.id,
+                message=f"Run already in state: {current.status if current else 'unknown'}",
+            )
+
+        # Won the transition: now it is safe to fail the suspended step and
+        # emit events. A failed run must never own a "suspended" step row — that
+        # confuses the timeline UI, retry/resume logic, and any audit consumer
+        # that expects terminal step state on a terminal run. The rejection
+        # reason also belongs on Step.error so operators see WHY the gate failed
+        # without digging through run.error.
         emitter.approval_denied(
             step_id=suspended_step_db_id,
             step_name=suspended_step_name,
@@ -246,14 +267,6 @@ async def handle_webhook_callback(
                 },
             )
 
-        uow.runs.mark_failed(
-            run.id,
-            {
-                "message": f"Rejected via webhook: {reason}",
-                "type": "WebhookRejection",
-                "callback_id": callback_id,
-            },
-        )
         emitter.run_failed(error=reason, error_type="WebhookRejection")
         await emitter.commit_and_broadcast()
 

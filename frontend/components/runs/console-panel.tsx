@@ -102,9 +102,9 @@ function LogLine({
         <button
           onClick={onClickStep}
           className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded flex-shrink-0 transition-colors font-semibold"
-          title={`Jump to Step ${stepInfo.number}: ${stepInfo.name}`}
+          title={`Jump to Step ${stepInfo.number + 1}: ${stepInfo.name}`}
         >
-          Step {stepInfo.number}
+          Step {stepInfo.number + 1}
         </button>
       )}
 

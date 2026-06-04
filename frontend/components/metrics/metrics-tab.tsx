@@ -78,7 +78,7 @@ export function CostMetricsTab({ steps, totalTokens, totalCost }: CostMetricsTab
           </CardHeader>
           <CardContent>
             <p className="text-base font-bold text-slate-900 truncate">
-              Step {mostExpensiveStep.number}: {mostExpensiveStep.name}
+              Step {mostExpensiveStep.number + 1}: {mostExpensiveStep.name}
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}

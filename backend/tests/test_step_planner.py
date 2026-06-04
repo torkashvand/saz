@@ -317,3 +317,63 @@ async def test_respects_explicit_retry_config(planner):
     step = plan.steps[0]
     assert step.max_retries == 5
     assert step.error_handling == ErrorHandling.RETRY
+
+
+@pytest.mark.asyncio
+async def test_tool_call_expect_is_not_wired_as_output_schema(planner):
+    """`expect` on a tool.call is documentation only — it must NOT populate
+    expected_output_schema, since the executor enforces that schema only for
+    AI ops. Leaving it populated would imply validation that never runs."""
+    workflow_spec = {
+        "name": "test",
+        "steps": [
+            {
+                "id": "tool_step",
+                "type": "tool.call",
+                "tool": "http_request",
+                "description": "Make HTTP request",
+                "params": {"url": "https://api.example.com", "method": "GET"},
+                "expect": {"type": "object", "properties": {"id": {"type": "string"}}},
+            }
+        ],
+    }
+    plan = await planner.plan(
+        workflow_spec=workflow_spec,
+        tool_registry=[],
+        run_id="test_run",
+        completed_steps=[],
+        current_data={},
+        budget={},
+    )
+    assert (
+        plan.steps[0].expected_output_schema == {}
+    ), "tool.call expect must not be wired into expected_output_schema"
+
+
+@pytest.mark.asyncio
+async def test_ai_step_expect_is_wired_as_output_schema(planner):
+    """By contrast, an AI step's `expect` IS the enforced output schema."""
+    workflow_spec = {
+        "name": "test",
+        "steps": [
+            {
+                "id": "ai_step",
+                "type": "ai.extract",
+                "instruction": "extract fields",
+                "params": {"data": {}},
+                "expect": {"type": "object", "properties": {"name": {"type": "string"}}},
+            }
+        ],
+    }
+    plan = await planner.plan(
+        workflow_spec=workflow_spec,
+        tool_registry=[],
+        run_id="test_run",
+        completed_steps=[],
+        current_data={},
+        budget={},
+    )
+    assert plan.steps[0].expected_output_schema == {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+    }

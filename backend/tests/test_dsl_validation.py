@@ -276,3 +276,82 @@ workflow:
         compile_dsl(yaml_content)
 
     assert "description" in str(exc_info.value)
+
+
+def _compile(steps_yaml: str):
+    return compile_dsl(
+        """
+schema_version: 1
+flow:
+  name: dsl_gap_flow
+  description: DSL gap coverage
+workflow:
+  planner_mode: deterministic
+  steps:
+"""
+        + steps_yaml
+    )
+
+
+def test_unknown_step_key_warns_not_silently_dropped():
+    """A misspelled extra key (branch_enum vs branches_enum) must surface as a
+    compile warning instead of being silently dropped by additionalProperties."""
+    compiled = _compile(
+        """
+    - id: route_it
+      type: ai.route
+      description: route the request
+      instruction: choose a branch
+      expect: {type: object}
+      branch_enum: [a, b]
+"""
+    )
+    blob = " ".join(compiled.warnings)
+    assert "branch_enum" in blob, f"typo'd key not warned: {compiled.warnings}"
+    assert "route_it" in blob
+
+
+def test_known_ai_extras_do_not_warn():
+    """Declared AI extras must compile clean (no false-positive warnings)."""
+    compiled = _compile(
+        """
+    - id: gen
+      type: ai.generate
+      description: write a summary
+      instruction: summarize
+      expect: {type: object}
+      temperature: 0.2
+      max_tokens: 256
+      word_cap: 100
+"""
+    )
+    assert compiled.warnings == [], compiled.warnings
+
+
+def test_webhook_wait_timeout_must_be_positive():
+    with pytest.raises(ValueError) as exc:
+        _compile(
+            """
+    - id: wait
+      type: webhook.wait
+      description: wait for callback
+      params:
+        event_name: done
+        timeout_minutes: -5
+"""
+        )
+    assert "timeout_minutes" in str(exc.value)
+
+
+def test_webhook_wait_valid_timeout_compiles():
+    compiled = _compile(
+        """
+    - id: wait
+      type: webhook.wait
+      description: wait for callback
+      params:
+        event_name: done
+        timeout_seconds: 30
+"""
+    )
+    assert compiled.warnings == [], compiled.warnings

@@ -359,6 +359,59 @@ _ALLOWED_STEP_TYPES: set[str] = {
     "ai.plan",
 }
 
+# Keys every step type may carry. ``params``/``retry`` are added by
+# normalization; ``when`` is the optional guard; ``uses_credentials`` scopes
+# secrets.
+_COMMON_STEP_KEYS: frozenset[str] = frozenset(
+    {"id", "type", "description", "when", "uses_credentials", "retry", "params"}
+)
+
+# Extra keys an AI step (``ai.*``) may declare. These tune the single-shot
+# completion (temperature/max_tokens/word_cap), constrain the output
+# (expect/branches_enum), or feed the op (candidates/rubric/glossary/top_k).
+_AI_STEP_EXTRA_KEYS: frozenset[str] = frozenset(
+    {
+        "instruction",
+        "expect",
+        "temperature",
+        "max_tokens",
+        "tools_allowlist",
+        "branches_enum",
+        "word_cap",
+        "candidates",
+        "rubric",
+        "glossary",
+        "top_k",
+    }
+)
+
+# Extra keys allowed per concrete (non-AI) step type. ``expect`` is accepted on
+# ``tool.call`` as documentation but is NOT wired into output enforcement (only
+# AI steps enforce ``expect`` — see deterministic_planner).
+_STEP_TYPE_EXTRA_KEYS: dict[str, frozenset[str]] = {
+    "tool.call": frozenset({"tool", "expect"}),
+    "condition": frozenset({"if"}),
+    "human.approval": frozenset(),
+    "webhook.wait": frozenset(),
+    "artifact.store": frozenset(),
+    "artifact.retrieve": frozenset(),
+}
+
+
+def _unknown_step_keys(step: dict[str, Any], stype: str) -> list[str]:
+    """Return step keys that are not recognized for this step type.
+
+    The JSON schema's ``stepBase`` is intentionally permissive
+    (additionalProperties: true) so deep checks live here. Unknown keys are
+    almost always typos (e.g. ``branch_enum`` for ``branches_enum``) that would
+    otherwise be silently dropped.
+    """
+    if stype.startswith("ai."):
+        allowed = _COMMON_STEP_KEYS | _AI_STEP_EXTRA_KEYS
+    else:
+        allowed = _COMMON_STEP_KEYS | _STEP_TYPE_EXTRA_KEYS.get(stype, frozenset())
+    return sorted(k for k in step if k not in allowed)
+
 
 _STR_FORMAT_PATTERNS: dict[str, str] = {
     "email": r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$",
@@ -723,6 +776,15 @@ def _validate_and_normalize_steps(
                 raise ValueError(
                     f"step '{sid}' (type: webhook.wait) requires non-empty 'description' field"
                 )
+            # Optional suspension deadline: if present it must be a positive
+            # number — the SuspensionSweeper reads it to bound the wait.
+            for tkey in ("timeout_minutes", "timeout_seconds"):
+                if tkey in params:
+                    tval = params[tkey]
+                    if not isinstance(tval, int | float) or isinstance(tval, bool) or tval <= 0:
+                        raise ValueError(
+                            f"step '{sid}' webhook.wait params.{tkey} must be a positive number"
+                        )
         elif stype in {"artifact.store", "artifact.retrieve"}:
             _require_keys(step, ["params"])
             if not isinstance(step["params"], dict):
@@ -867,6 +929,17 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
     )
     workflow_spec["steps"] = normalized_steps
 
+    # Warn (don't fail) on unrecognized step keys — almost always typos that
+    # additionalProperties:true would otherwise drop silently.
+    step_key_warnings: list[str] = []
+    for step in normalized_steps:
+        unknown = _unknown_step_keys(step, cast(str, step["type"]))
+        if unknown:
+            step_key_warnings.append(
+                f"step '{step['id']}' (type: {step['type']}) has unrecognized "
+                f"key(s): {unknown} — possible typo; they are ignored at runtime"
+            )
+
     # Policies
     policies = _compile_policies(policies_in)
 
@@ -901,5 +974,5 @@ def compile_dsl(yaml_content: str) -> DSLCompiled:
         policies=policies,
         credentials=cred_names,
         raw_dsl=dsl | {"credentials_normalized": cred_objects},
-        warnings=template_warnings,
+        warnings=step_key_warnings + template_warnings,
     )

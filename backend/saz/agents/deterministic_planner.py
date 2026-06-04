@@ -113,8 +113,14 @@ class DeterministicPlanner:
             "attempts", 3 if error_handling == ErrorHandling.RETRY else 0
         )
 
-        # Get expected output schema
-        expected_output_schema = step_dict.get("expect", {})
+        # Get expected output schema. Only AI steps enforce ``expect`` (the
+        # executor injects it into the AI-op validator); for tool.call the
+        # value was never enforced, so do not populate it — keeping it would be
+        # a half-wired contract that implies validation that never happens.
+        if step_type.startswith("ai."):
+            expected_output_schema = step_dict.get("expect", {})
+        else:
+            expected_output_schema = {}
 
         # Build reasoning from description/instruction
         reasoning = step_dict.get("description") or step_dict.get("instruction", "")

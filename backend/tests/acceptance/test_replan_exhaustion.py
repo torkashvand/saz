@@ -90,10 +90,8 @@ def test_replan_exhaustion_blocks_execution_and_fails_run(one_step_flow_low_repl
                 critic=critic,  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(max_replan_attempts=1),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles replan exhaustion internally and fails the run.
+            asyncio.run(executor.execute_run(run_id))
 
     assert fake_http.call_count == 0, (
         f"http_request was called {fake_http.call_count} times despite "

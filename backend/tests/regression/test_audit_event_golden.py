@@ -112,10 +112,10 @@ def _run_to_completion(db_engine, run_id: str, critic: FakeCritic) -> None:
                 critic=critic,  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles domain failures internally and returns; it
+            # must not propagate an unexpected exception. Hardened from a bare
+            # ``except Exception: pass``.
+            asyncio.run(executor.execute_run(run_id))
 
 
 def _assert_subsequence(actual: list[str], expected: list[str], scenario: str) -> None:

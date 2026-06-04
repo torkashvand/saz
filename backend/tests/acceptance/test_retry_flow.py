@@ -69,6 +69,11 @@ def two_step_flow(db_engine):
                                 "method": "GET",
                                 "url": "https://api.example.com/a",
                             },
+                            # Force fail-fast (no within-run auto-retry) so the
+                            # first execution deterministically fails and the
+                            # same-run /retry path is exercised, not masked by an
+                            # auto-retry succeeding inside one execute_run.
+                            "retry": {"attempts": 0},
                         }
                     ],
                 },
@@ -96,8 +101,9 @@ def test_retry_succeeds_when_tool_passes_on_second_attempt(two_step_flow, db_eng
     registry.register_custom_tool("http_request", flaky.spec, flaky.execute)
     critic = FakeCritic()
 
-    # First execution — flaky tool raises on call 1. The executor's inner
-    # retry loop will exhaust max_retries and the step fails.
+    # First execution — flaky tool raises on call 1. With retry.attempts=0 the
+    # step fails fast (no within-run auto-retry), so the run deterministically
+    # fails on the first attempt.
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
             executor = WorkflowExecutor(
@@ -106,28 +112,21 @@ def test_retry_succeeds_when_tool_passes_on_second_attempt(two_step_flow, db_eng
                 planner=DeterministicPlanner(),
                 executor_agent=ExecutorAgent(),
                 critic=critic,  # type: ignore[arg-type]
-                # max_retries on PlanStep default is 0 for fail-fast; force
-                # to 0 globally by setting the planner-side default
                 policy_engine=PolicyEngine(),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            asyncio.run(executor.execute_run(run_id))
 
     with Session(db_engine) as session:
         run = session.get(Run, run_id)
-        if run.status == "completed":
-            # The step's max_retries default is non-zero (RETRY error_handling).
-            # If it auto-retried within one execute_run and succeeded, the
-            # contract is still met: tool called twice, second succeeded.
-            assert flaky.calls and len(flaky.calls) >= 2
-            return
-
-        assert run.status in (
-            "failed",
-            "error",
-        ), f"after the first flaky failure the run must be failed; got {run.status!r}"
+        assert (
+            run.status == "failed"
+        ), f"with retry.attempts=0 the first flaky failure must fail the run; got {run.status!r}"
+        assert isinstance(run.error, dict) and run.error.get(
+            "type"
+        ), f"failed run must carry a structured error; got {run.error!r}"
+        assert (
+            len(flaky.calls) == 1
+        ), f"fail-fast: the tool must be tried exactly once on the first run; got {flaky.calls}"
 
     # Trigger same-run retry via the API. Asserts the API route accepts
     # the retry and re-queues. The scheduler is the sync test scheduler.

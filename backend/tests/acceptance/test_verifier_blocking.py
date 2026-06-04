@@ -106,12 +106,8 @@ def test_verifier_fail_blocks_tool_execution(one_step_flow, db_engine):
             )
             # execute_run captures internal failures and marks the run failed;
             # it should NOT propagate the critique exception as an unhandled
-            # error to the caller, but in either case the tool must not have
-            # been invoked.
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # error to the caller — execute_run handles it and fails the run.
+            asyncio.run(executor.execute_run(run_id))
 
     assert fake_http.call_count == 0, (
         f"http_request was called {fake_http.call_count} times despite the "

@@ -60,10 +60,10 @@ def _run(db_engine, run_id, registry, critic=None):
                 critic=critic or FakeCritic(),  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles domain failures internally (it marks the run
+            # failed/suspended and returns); it must not propagate an unexpected
+            # exception. Hardened from a bare ``except Exception: pass``.
+            asyncio.run(executor.execute_run(run_id))
 
 
 HTTP_SPEC = {
@@ -205,10 +205,7 @@ def test_budget_exhaustion_emits_event(db_engine):
                 critic=FakeCritic(),  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(budget_tracker=_zero_step_budget()),
             )
-            try:
-                asyncio.run(executor.execute_run("run_evt_bud"))
-            except Exception:
-                pass
+            asyncio.run(executor.execute_run("run_evt_bud"))
 
     types = _event_types(db_engine, "run_evt_bud")
     assert "policy.budget.exhausted" in types, types
@@ -234,10 +231,7 @@ def test_rate_limit_emits_event(db_engine):
                 critic=FakeCritic(),  # type: ignore[arg-type]
                 policy_engine=pe,
             )
-            try:
-                asyncio.run(executor.execute_run("run_evt_rl"))
-            except Exception:
-                pass
+            asyncio.run(executor.execute_run("run_evt_rl"))
 
     types = _event_types(db_engine, "run_evt_rl")
     assert "policy.rate_limited" in types, types

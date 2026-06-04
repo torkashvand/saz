@@ -101,10 +101,8 @@ def test_pii_on_disallowed_path_blocks_outbound_tool(pii_emitting_flow, db_engin
                 critic=FakeCritic(),  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(enforce_pii_redaction=True),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles the policy block internally and fails the run.
+            asyncio.run(executor.execute_run(run_id))
 
     assert fake_http.call_count == 0, (
         f"http_request was called {fake_http.call_count} times with PII in "

@@ -103,10 +103,9 @@ def test_approval_gate_suspends_then_resume_continues_execution(
                 critic=critic,  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles suspension/failure internally (RunSuspended is
+            # caught and the run paused); it must not propagate an exception.
+            asyncio.run(executor.execute_run(run_id))
 
     assert fake_http.call_count == 0, (
         f"http_request executed before approval. The gate did not stop the "
@@ -143,10 +142,9 @@ def test_approval_gate_suspends_then_resume_continues_execution(
                 critic=critic,  # type: ignore[arg-type]
                 policy_engine=PolicyEngine(),
             )
-            try:
-                asyncio.run(executor.execute_run(run_id))
-            except Exception:
-                pass
+            # execute_run handles suspension/failure internally (RunSuspended is
+            # caught and the run paused); it must not propagate an exception.
+            asyncio.run(executor.execute_run(run_id))
 
     assert fake_http.call_count >= 1, (
         "post-gate tool must have been called after resume — gate may not "

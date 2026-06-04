@@ -127,3 +127,87 @@ def test_pii_absent_from_persisted_step_input_and_api(db_engine, app_client):
     resp = app_client.get(f"/api/v1/runs/{run_id}")
     assert resp.status_code == 200, resp.text
     assert PII_EMAIL not in resp.text, "raw PII leaked through GET /runs/{id}"
+
+
+OUTPUT_PII = "dana.echo@example.com"
+
+
+def _seed_output_pii_flow(db_engine):
+    with Session(db_engine) as session:
+        session.add_all(
+            [
+                Flow(
+                    created_by_user_id=TEST_USER_ID,
+                    id="flow_pii_out",
+                    name="pii_out",
+                    definition={
+                        "schema_version": 1,
+                        "flow": {"name": "pii_out", "description": "PII echoed in output"},
+                        "workflow": {
+                            "planner_mode": "deterministic",
+                            "steps": [
+                                {
+                                    "id": "fetch",
+                                    "type": "tool.call",
+                                    "description": "Fetch a record that echoes an email",
+                                    "tool": "http_request",
+                                    "params": {
+                                        "method": "GET",
+                                        "url": "https://api.example.com/record",
+                                    },
+                                }
+                            ],
+                        },
+                        "policies": {"budget_usd": 1.0, "pii": {"allow": False}},
+                    },
+                ),
+                Run(
+                    created_by_user_id=TEST_USER_ID,
+                    id="run_pii_out_1",
+                    flow_id="flow_pii_out",
+                    status="queued",
+                    planner_mode="deterministic",
+                    payload={},
+                ),
+            ]
+        )
+        session.commit()
+    return "run_pii_out_1"
+
+
+def test_pii_absent_from_persisted_step_output_and_api(db_engine, app_client):
+    """End-to-end (Phase 1.2 sibling): PII echoed back in a tool's OUTPUT must
+    be redacted before it is persisted and before it reaches GET /runs/{id}."""
+    run_id = _seed_output_pii_flow(db_engine)
+
+    http = RecordingTool(
+        "http_request",
+        response={"ok": True, "body": {"requester": OUTPUT_PII}},
+        spec=HTTP_SPEC,
+    )
+    registry = ToolRegistry()
+    registry.register_custom_tool("http_request", http.spec, http.execute)
+
+    with Session(db_engine) as session, UnitOfWork(session) as uow:
+        executor = WorkflowExecutor(
+            uow=uow,
+            tool_registry=registry,
+            planner=DeterministicPlanner(),
+            executor_agent=ExecutorAgent(),
+            critic=FakeCritic(),  # type: ignore[arg-type]
+            policy_engine=PolicyEngine(enforce_pii_redaction=True),
+        )
+        asyncio.run(executor.execute_run(run_id))
+
+    assert http.call_count == 1
+
+    with Session(db_engine) as session:
+        step = session.query(Step).filter(Step.run_id == run_id).one()
+        assert step.status == "completed", step.status
+        assert OUTPUT_PII not in str(
+            step.output
+        ), f"raw PII leaked into persisted step.output: {step.output!r}"
+
+    resp = app_client.get(f"/api/v1/runs/{run_id}")
+    assert resp.status_code == 200, resp.text
+    assert OUTPUT_PII not in resp.text, "raw PII leaked through GET /runs/{id} step output"

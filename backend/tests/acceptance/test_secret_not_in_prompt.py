@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from saz.agents.deterministic_planner import DeterministicPlanner
 from saz.agents.executor import ExecutorAgent
 from saz.agents.schemas import Critique, Verdict
-from saz.db.models import Credential, Flow, Run
+from saz.db.models import Credential, Event, Flow, Run
 from saz.db.unit_of_work import UnitOfWork
 from saz.engine.executor import WorkflowExecutor
 from saz.policies.policy_engine import PolicyEngine
@@ -167,3 +167,35 @@ def test_secret_value_and_key_redacted_before_critic(secret_flow, db_engine):
         # Non-secret fields remain visible so the critic can still reason.
         assert args["body"]["note"] == "non-secret-marker"
         assert args["url"] == "https://api.example.com/x"
+
+
+def test_secret_value_never_in_persisted_event_payloads(secret_flow, db_engine):
+    """End-to-end: run a real flow with a $secret(...) and assert the raw
+    secret value never lands in any persisted Event (payload, summary, tags)
+    for the run. Events are an audit surface streamed to clients."""
+    tool = RecordingTool("http_request", response={"ok": True}, spec=HTTP_SPEC)
+    registry = ToolRegistry()
+    registry.register_custom_tool("http_request", tool.spec, tool.execute)
+
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = WorkflowExecutor(
+                uow=uow,
+                tool_registry=registry,
+                planner=DeterministicPlanner(),
+                executor_agent=ExecutorAgent(),
+                critic=SpyCritic(),  # type: ignore[arg-type]
+                policy_engine=PolicyEngine(),
+            )
+            asyncio.run(executor.execute_run(secret_flow))
+
+    assert tool.call_count == 1, "sanity: the flow actually executed"
+
+    with Session(db_engine) as session:
+        events = session.query(Event).filter(Event.run_id == secret_flow).all()
+        assert events, "sanity: the run emitted audit events"
+        for e in events:
+            blob = json.dumps({"summary": e.summary, "payload": e.payload, "tags": e.tags})
+            assert (
+                SECRET_VALUE not in blob
+            ), f"secret leaked into persisted event {e.event_type!r}: {blob}"

@@ -8,10 +8,12 @@ import argparse
 from pathlib import Path
 
 from docx import Document
+from docx.document import Document as DocxDocument
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 
 
-def _is_highlighted(run) -> bool:
+def _is_highlighted(run: Run) -> bool:
     color = run.font.highlight_color
     return color is not None and str(color).lower() != "none"
 
@@ -64,7 +66,7 @@ def _replace_in_paragraph(
 
 
 def replace_highlighted_spans(
-    doc, hints: list[tuple[str, str]], label_unmatched: bool = True
+    doc: DocxDocument, hints: list[tuple[str, str]], label_unmatched: bool = True
 ) -> int:
     """Replace highlighted spans in the document body with tokens.
 

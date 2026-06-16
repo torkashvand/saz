@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import structlog
 from docx import Document
+from docx.document import Document as DocxDocument
 from docx.text.paragraph import Paragraph
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +68,7 @@ class DocxRenderTool:
         return filled
 
     @staticmethod
-    def _remaining_tokens(doc: Document) -> list[str]:
+    def _remaining_tokens(doc: DocxDocument) -> list[str]:
         found: list[str] = []
 
         def scan(paragraph: Paragraph) -> None:

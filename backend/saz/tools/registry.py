@@ -8,6 +8,7 @@ import structlog
 
 from .ansible_tool import AnsibleTool
 from .artifact_tool import ArtifactTool
+from .docx_tool import DocxRenderTool
 from .http_tool import HttpTool
 from .webhook_tool import WebhookTool
 
@@ -113,6 +114,7 @@ class ToolRegistry:
         webhook_tool: WebhookTool | None = None,
         artifact_tool: ArtifactTool | None = None,
         ansible_tool: AnsibleTool | None = None,
+        docx_tool: DocxRenderTool | None = None,
     ):
         self.logger = logger.bind(component="tool_registry")
         self._tools: dict[str, dict[str, Any]] = {}
@@ -127,6 +129,8 @@ class ToolRegistry:
             self.register_artifact_tool(artifact_tool)
         if ansible_tool:
             self.register_ansible_tool(ansible_tool)
+        if docx_tool:
+            self.register_docx_tool(docx_tool)
 
     def register_http_tool(self, http_tool: HttpTool) -> None:
         """Register HTTP tool"""
@@ -166,6 +170,12 @@ class ToolRegistry:
         self._tools["ansible_run"] = ansible_tool.spec
         self._executors["ansible_run"] = ansible_tool.execute
         self.logger.info("tool_registered", tool="ansible_run")
+
+    def register_docx_tool(self, docx_tool: DocxRenderTool) -> None:
+        """Register docx render tool"""
+        self._tools["docx_render"] = docx_tool.spec
+        self._executors["docx_render"] = docx_tool.render
+        self.logger.info("tool_registered", tool="docx_render")
 
     def register_ai_ops(self, ai_runner: Any) -> None:
         """Register all AI operations as tools."""
@@ -339,12 +349,14 @@ def create_default_registry(
         allowed_inventories=allowed_inventories,
         artifact_storage_path=artifact_storage_path,
     )
+    docx_tool = DocxRenderTool(storage_path=artifact_storage_path)
 
     registry = ToolRegistry(
         http_tool=http_tool,
         webhook_tool=webhook_tool,
         artifact_tool=artifact_tool,
         ansible_tool=ansible_tool,
+        docx_tool=docx_tool,
     )
 
     # Register AI operations

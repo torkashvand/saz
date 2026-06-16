@@ -114,7 +114,8 @@ class DocxRenderTool:
             raise ValueError(f"Unfilled mandatory tokens: {', '.join(unfilled)}")
 
         artifact_id = str(uuid4())
-        out_path = self.storage_path / f"{artifact_id}_{output_name}.docx"
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", output_name) or "document"
+        out_path = self.storage_path / f"{artifact_id}_{safe_name}.docx"
         doc.save(str(out_path))
 
         self.logger.info(

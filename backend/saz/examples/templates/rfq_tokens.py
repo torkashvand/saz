@@ -55,4 +55,20 @@ TOKEN_SOURCE_HINTS: list[tuple[str, str]] = [
     ("20.000", "budget_cap_licenses"),
     ("10.000", "budget_cap_implementation"),
     ("t88815", "reference_number"),
+    # Cover-page values that carry no distinguishing words; matched last so the
+    # word-bearing plan/criteria spans above win first.
+    ("05/07/2024", "date_of_issue"),
+    ("1.0", "version"),
 ]
+
+# Canonical tokens that the original template does not expose as a single
+# highlighted span. They stay as the template's fixed example text in the POC;
+# values supplied for them are harmless no-ops at render time.
+TOKEN_NOTES: dict[str, str] = {
+    "title_system_name": "Title is fixed text in the template (not highlighted).",
+    "background": "Section 2.3 Background is fixed text in the template (not highlighted).",
+    "contact_email": "Email is a mailto hyperlink; not exposed as a body run.",
+    "budget_cap_implementation": (
+        "€20.000 and €10.000 share one highlighted span captured as budget_cap_licenses."
+    ),
+}

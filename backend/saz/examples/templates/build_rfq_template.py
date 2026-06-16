@@ -4,6 +4,10 @@ formatting is preserved by reusing the first run of each span."""
 
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
+
+from docx import Document
 from docx.text.paragraph import Paragraph
 
 
@@ -60,3 +64,60 @@ def replace_highlighted_spans(doc, hints: list[tuple[str, str]]) -> int:
                 for paragraph in cell.paragraphs:
                     total += _replace_in_paragraph(paragraph, hints, counters)
     return total
+
+
+def build(source: Path, out_docx: Path, out_map: Path) -> dict[str, int]:
+    from saz.examples.templates.rfq_tokens import (
+        RFQ_TOKENS,
+        TOKEN_NOTES,
+        TOKEN_SOURCE_HINTS,
+    )
+
+    doc = Document(str(source))
+    replaced = replace_highlighted_spans(doc, TOKEN_SOURCE_HINTS)
+    out_docx.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(out_docx))
+
+    # Which canonical tokens actually landed in the template?
+    rendered = Document(str(out_docx))
+    body_text = "\n".join(p.text for p in rendered.paragraphs)
+    for table in rendered.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                body_text += "\n" + cell.text
+    present = [t for t in RFQ_TOKENS if f"{{{{{t}}}}}" in body_text]
+    missing = [t for t in RFQ_TOKENS if t not in present]
+
+    lines = ["# RFQ Placeholder Map", "", "| Token | In template | Notes |", "|---|---|---|"]
+    for t in RFQ_TOKENS:
+        note = TOKEN_NOTES.get(t, "")
+        lines.append(f"| `{{{{{t}}}}}` | {'yes' if t in present else 'NO'} | {note} |")
+    out_map.parent.mkdir(parents=True, exist_ok=True)
+    out_map.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    return {"replaced": replaced, "present": len(present), "missing": len(missing)}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build tokenized RFQ template.")
+    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument(
+        "--out-docx",
+        type=Path,
+        default=Path(__file__).parent / "rfq_template.docx",
+    )
+    parser.add_argument(
+        "--out-map",
+        type=Path,
+        default=Path(__file__).resolve().parents[4]
+        / "docs"
+        / "procurement"
+        / "rfq_placeholder_map.md",
+    )
+    args = parser.parse_args()
+    stats = build(args.source, args.out_docx, args.out_map)
+    print(f"replaced={stats['replaced']} present={stats['present']} missing={stats['missing']}")
+
+
+if __name__ == "__main__":
+    main()

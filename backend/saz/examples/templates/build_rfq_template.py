@@ -25,9 +25,18 @@ def _match_token(text: str, hints: list[tuple[str, str]]) -> str | None:
 
 
 def _replace_in_paragraph(
-    paragraph: Paragraph, hints: list[tuple[str, str]], counters: dict[str, int]
+    paragraph: Paragraph,
+    hints: list[tuple[str, str]],
+    counters: dict[str, int],
+    label_unmatched: bool,
 ) -> int:
-    """Collapse each contiguous highlighted run-span into one {{token}} run."""
+    """Collapse each contiguous highlighted run-span into one {{token}} run.
+
+    A span matching a hint becomes ``{{token}}``. An unmatched span becomes
+    ``{{extra_N}}`` when ``label_unmatched`` is set (inspection mode), otherwise
+    it is left untouched so the template keeps its original example text.
+    Returns the number of spans turned into tokens.
+    """
     runs = paragraph.runs
     replaced = 0
     i = 0
@@ -41,6 +50,9 @@ def _replace_in_paragraph(
         span_text = "".join(r.text for r in runs[i : j + 1])
         token = _match_token(span_text, hints)
         if token is None:
+            if not label_unmatched:
+                i = j + 1
+                continue
             counters["extra"] += 1
             token = f"extra_{counters['extra']}"
         runs[i].text = f"{{{{{token}}}}}"
@@ -51,18 +63,25 @@ def _replace_in_paragraph(
     return replaced
 
 
-def replace_highlighted_spans(doc, hints: list[tuple[str, str]]) -> int:
-    """Replace every highlighted span in the document body with a token.
-    Returns the number of spans replaced."""
+def replace_highlighted_spans(
+    doc, hints: list[tuple[str, str]], label_unmatched: bool = True
+) -> int:
+    """Replace highlighted spans in the document body with tokens.
+
+    When ``label_unmatched`` is True (default), spans with no matching hint
+    become ``{{extra_N}}`` markers, useful for discovering what the template
+    contains. When False, only hint-matched spans are tokenized and all other
+    highlighted text is left as-is. Returns the number of spans tokenized.
+    """
     counters = {"extra": 0}
     total = 0
     for paragraph in doc.paragraphs:
-        total += _replace_in_paragraph(paragraph, hints, counters)
+        total += _replace_in_paragraph(paragraph, hints, counters, label_unmatched)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
-                    total += _replace_in_paragraph(paragraph, hints, counters)
+                    total += _replace_in_paragraph(paragraph, hints, counters, label_unmatched)
     return total
 
 
@@ -74,7 +93,7 @@ def build(source: Path, out_docx: Path, out_map: Path) -> dict[str, int]:
     )
 
     doc = Document(str(source))
-    replaced = replace_highlighted_spans(doc, TOKEN_SOURCE_HINTS)
+    replaced = replace_highlighted_spans(doc, TOKEN_SOURCE_HINTS, label_unmatched=False)
     out_docx.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out_docx))
 

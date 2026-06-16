@@ -1,0 +1,58 @@
+"""Canonical token names for the GÉANT RFQ template and the ordered hints the
+build script uses to map highlighted source spans to those tokens."""
+
+RFQ_TOKENS: list[str] = [
+    "title_system_name",
+    "date_of_issue",
+    "version",
+    "reference_number",
+    "contact_name",
+    "contact_role",
+    "contact_phone",
+    "contact_email",
+    "background",
+    "objective",
+    "scope",
+    "plan_rfq_issued",
+    "plan_clarification_deadline",
+    "plan_response_deadline",
+    "plan_eval1_end",
+    "plan_eval2_end",
+    "plan_awarding",
+    "plan_commencement",
+    "minimum_requirements",
+    "weight_qualitative",
+    "q1_weight",
+    "q2_weight",
+    "q3_weight",
+    "weight_price",
+    "budget_cap_licenses",
+    "budget_cap_implementation",
+]
+
+# Ordered (case-insensitive substring of the highlighted span's text -> token).
+# First match wins; the build script applies these to assign semantic tokens.
+TOKEN_SOURCE_HINTS: list[tuple[str, str]] = [
+    ("badreddine", "contact_name"),
+    ("buyer", "contact_role"),
+    ("+31", "contact_phone"),
+    ("@", "contact_email"),
+    ("objective for this procurement", "objective"),
+    ("focus will be on securing", "scope"),
+    ("rfq issued", "plan_rfq_issued"),
+    ("clarification questions", "plan_clarification_deadline"),
+    ("quotation responses", "plan_response_deadline"),
+    ("end of evaluation phase 1", "plan_eval1_end"),
+    ("end of evaluation phase 2", "plan_eval2_end"),
+    ("awarding finalized", "plan_awarding"),
+    ("commencement date", "plan_commencement"),
+    ("system integrates with sso", "minimum_requirements"),
+    ("qualitative criteria will make up", "weight_qualitative"),
+    ("q1: user experience", "q1_weight"),
+    ("q2: technical support", "q2_weight"),
+    ("q3: data management", "q3_weight"),
+    ("price will make up", "weight_price"),
+    ("20.000", "budget_cap_licenses"),
+    ("10.000", "budget_cap_implementation"),
+    ("t88815", "reference_number"),
+]

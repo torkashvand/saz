@@ -21,20 +21,29 @@ procurement + project input → draft → procurement review → (optional) mark
 
 ```
 form (project + procurement intake)
-  → ai.extract     validate_inputs       structure inputs, flag missing/inconsistent
-  → condition      gate_budget           budget caps + required fields + weights sum to 100
-  → ai.evaluate    pont_check            PONT compliance (pass + issues[])
-  → ai.generate    draft_narrative       background / objective / scope (provided data only)
-  → human.approval procurement_review    officer reviews narrative + PONT findings
-  → tool.call      render_draft          DRAFT .docx (docx_render, require_all=false)
-  → condition      needs_consultation    branch if consultation_required
-       → webhook.wait supplier_feedback  suspend for supplier feedback (callback)
-       → ai.generate  incorporate_feedback
-  → human.approval procurement_signoff   final procurement approval
-  → human.approval project_signoff       final project-team approval
-  → tool.call      render_final          FINAL .docx (docx_render, require_all=true)
-  → artifact.store audit_record          full audit trail
+  → ai.extract     validate_inputs       structure inputs, flag missing/inconsistent (incl. weight sums)
+  → condition      gate_budget           deterministic money gate (caps + value)
+  → ai.evaluate    pont_check            PONT compliance (pass + issues[])          [when gate passed]
+  → ai.generate    draft_narrative       background / objective / scope             [when gate passed]
+  → human.approval procurement_review    officer reviews narrative + PONT findings  [when gate passed]
+  → tool.call      render_draft          DRAFT .docx (require_all=false)            [when gate passed]
+  → condition      needs_consultation    branch if consultation_required            [when gate passed]
+       → webhook.wait supplier_feedback  suspend for supplier feedback (callback)   [when gate passed & consultation]
+  → ai.generate    finalize_narrative    fold feedback if any; else pass through    [when gate passed]
+  → human.approval procurement_signoff   final procurement approval                 [when gate passed]
+  → human.approval project_signoff       final project-team approval                [when gate passed]
+  → tool.call      render_final          FINAL .docx from finalize_narrative        [when gate passed]
+  → artifact.store audit_record          full audit trail                           [when gate passed]
 ```
+
+Every step after `gate_budget` carries a `when: "{{ $step('gate_budget').result == true }}"`
+guard. A Saz `condition` does not halt the run by itself — the guard is what makes
+the gate actually block. If the gate fails, all downstream steps are **skipped** (no
+drafting, no approval, no render) and the run completes with those steps marked
+`skipped` in the timeline. `finalize_narrative` always runs when the gate passes: it
+folds supplier feedback into the narrative when market consultation occurred, and
+otherwise returns the draft unchanged — it is the single source the FINAL document
+renders from.
 
 ---
 
@@ -142,11 +151,16 @@ The template path is overridable via the `SAZ_RFQ_TEMPLATE` environment variable
 ## Compliance gates
 
 - **`gate_budget`** (deterministic): passes only when license budget ≤ €20,000,
-  implementation budget ≤ €10,000, estimated value < €100,000, and both weight sets sum
-  to 100. When it fails, downstream steps (including any rendering) do not run.
+  implementation budget ≤ €10,000, and estimated value < €100,000. When it fails, every
+  downstream step is skipped via its `when` guard, so no draft or document is produced.
+  (The condition grammar has no arithmetic operator, so the gate uses comparisons only.)
+- **Weight-sum (transparency)**: `validate_inputs` flags `qualitative + price` ≠ 100 and
+  `Q1 + Q2 + Q3` ≠ 100 in its `inconsistencies`, which surface in the procurement review
+  for the officer to act on.
 - **`pont_check`** (`ai.evaluate`): assesses the procurement inputs against PONT
   (Proportional, Objective, Non-discriminatory, Transparent) and returns `pass` plus a
-  list of `issues`, surfaced in the procurement review payload.
+  list of `issues`, surfaced in the procurement review payload (advisory — the officer
+  gates on it at `procurement_review`).
 
 ---
 
@@ -208,4 +222,12 @@ The example workflow is also exercised by the repo's auto-discovery suites
 - **Single combined form** rather than two sequential team handoffs.
 - **`minimum_requirements`** replaces the first requirement span; the original example's
   remaining requirement rows stay as fixed text.
+- **Rendered `.docx` is not a separate queryable artifact row.** The file is written to
+  the artifact storage directory and its `artifact_id`/path are recorded in the
+  `audit_record` (an `artifact.store` row), but the executor only persists first-class
+  `Artifact` rows for `artifact.store` steps, not for `docx_render`.
+- **A blocked run completes with skipped steps** (it does not fail). When `gate_budget`
+  fails, the downstream steps are marked `skipped`; the run status is `completed`.
+- **Weight-sum is validated by AI + human review**, not the deterministic gate (the
+  condition grammar has no arithmetic).
 - **RAG / retrieval-augmented Q&A is out of scope** (planned for a later phase).

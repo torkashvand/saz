@@ -168,10 +168,16 @@ emitted by `build_rfq_template.py` and reconciled by hand to semantic field name
 ## 7. PONT compliance & evaluation table
 
 - `ai.evaluate` enforces PONT on procurement inputs and returns `issues[]`, shown in
-  the procurement approval payload.
+  the procurement approval payload (advisory; the officer gates on it at review).
 - The evaluation table (criteria + weights) is assembled from form inputs and rendered
-  into the doc. Weight-sum-to-100 validation happens in `gate_budget`, so invalid /
-  non-transparent scoring schemes are caught before drafting.
+  into the doc. **Implementation note:** the Saz `condition` grammar has no arithmetic
+  operator, so `gate_budget` is a deterministic *money* gate (budget caps + estimated
+  value comparisons). Weight-sum-to-100 validation is performed by `validate_inputs`
+  (flagged in `inconsistencies`) and surfaced to the procurement reviewer.
+- **Gating mechanism:** a `condition` step does not halt the run on its own; every
+  post-gate step carries a `when: "{{ $step('gate_budget').result == true }}"` guard.
+  A failed gate skips all downstream steps (no draft/approval/render); the run completes
+  with those steps marked `skipped`.
 
 ---
 
@@ -197,9 +203,12 @@ emitted by `build_rfq_template.py` and reconciled by hand to semantic field name
 - **Example tests** (auto-discovered from `saz/examples/unified/`): compiles with
   **zero** template warnings; first step grounds against a form payload; AI steps
   carry strict `expect` schemas with `required`.
-- **Gate tests**: `gate_budget` blocks on over-cap budget, missing fields, and
-  weight-sum ≠ 100; `pont_check` failure path surfaces issues; assert forbidden side
-  effects (no render, no audit-complete) when blocked.
+- **Executor-level gate tests** (`test_rfq_workflow_execution.py`): run the real
+  deterministic executor over the committed workflow with fake AI tools. Over-cap budget
+  → run completes with all post-gate steps `skipped` and `docx_render` never called;
+  valid input → gate passes and the run suspends at `procurement_review`.
+- **Policy test**: `docx_render` render args are allowed under `pii.allow:false` via the
+  contact-path exception (else every render is blocked).
 - **Worked example**: run with HRIS test data → DRAFT and FINAL `.docx`; verify
   structure matches the original template (sections present, tokens all filled).
 
@@ -213,6 +222,11 @@ emitted by `build_rfq_template.py` and reconciled by hand to semantic field name
   rather than as two sequential team handoffs.
 - Output is `.docx` (the brief's "Word/PDF" — PDF conversion is not included).
 - `python-docx` is added as a backend dependency for the new tool.
+- The rendered `.docx` is referenced by `artifact_id`/path in the audit record but is
+  not persisted as a separate first-class `Artifact` row (the executor only does that
+  for `artifact.store` steps).
+- A blocked run (failed budget gate) completes with skipped steps rather than entering a
+  `failed` state.
 
 ---
 

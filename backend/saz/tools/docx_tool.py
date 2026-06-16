@@ -95,6 +95,16 @@ class DocxRenderTool:
         step_id: str = "",
     ) -> dict[str, Any]:
         template_path = Path(template)
+        if not template_path.is_absolute() and not template_path.exists():
+            # Bundled templates are referenced relative to the backend root
+            # (e.g. "saz/examples/templates/rfq_template.docx"); resolve against
+            # the package root so rendering does not depend on the process CWD.
+            import saz
+
+            backend_root = Path(saz.__file__).resolve().parent.parent
+            candidate = backend_root / template
+            if candidate.exists():
+                template_path = candidate
         if not template_path.exists():
             raise FileNotFoundError(f"Template not found: {template}")
 

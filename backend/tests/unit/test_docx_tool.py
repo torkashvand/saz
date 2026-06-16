@@ -133,6 +133,21 @@ async def test_output_name_path_separators_are_sanitized(tmp_path):
     assert out.name.endswith(".docx")
 
 
+@pytest.mark.asyncio
+async def test_relative_bundled_template_resolves_regardless_of_cwd(tmp_path, monkeypatch):
+    # The workflow references the template relative to the backend root; rendering
+    # must work even when the process CWD is elsewhere.
+    monkeypatch.chdir(tmp_path)
+    tool = DocxRenderTool(storage_path=str(tmp_path / "art"))
+    result = await tool.render(
+        template="saz/examples/templates/rfq_template.docx",
+        values={"reference_number": "T88815"},
+        output_name="rel",
+        require_all=False,
+    )
+    assert Path(result["path"]).exists()
+
+
 def test_docx_render_in_default_registry():
     from saz.tools.registry import create_default_registry
 

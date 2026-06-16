@@ -1,0 +1,418 @@
+schema_version: 1
+
+meta:
+  id: rfq_rfp_drafting
+  title: RFQ/RFP Drafting (GÉANT procurement)
+  description: Draft a GÉANT RFQ from project + procurement intake, gated by budget/PONT and dual sign-off.
+  tags: ["procurement", "rfq", "document-generation"]
+  complexity: advanced
+
+flow:
+  name: rfq_rfp_drafting
+  description: Generate a formatted GÉANT RFQ document from structured intake with compliance gates and approvals.
+
+form:
+  fields:
+    # --- Project team ---
+    - name: project_name
+      type: string
+      required: true
+    - name: objective_input
+      type: text
+      required: true
+      description: Raw objective summary from the project team.
+    - name: scope_input
+      type: text
+      required: true
+    - name: background_input
+      type: text
+      required: true
+    - name: technical_requirements
+      type: text
+      required: true
+    - name: criticality
+      type: string
+      required: true
+      enum: [low, medium, high]
+    - name: num_users
+      type: integer
+      required: true
+      minimum: 1
+    - name: data_sensitivity
+      type: string
+      required: true
+      enum: [none, internal, confidential, highly_confidential]
+    - name: estimated_value_eur
+      type: number
+      required: true
+      minimum: 0
+    - name: contract_duration
+      type: string
+      required: true
+    - name: vendor_constraints
+      type: text
+      required: false
+    # --- Procurement team ---
+    - name: pricing_model
+      type: string
+      required: true
+      enum: [per_user, fixed_fee, time_and_materials, subscription]
+    - name: budget_cap_licenses_eur
+      type: number
+      required: true
+      minimum: 0
+    - name: budget_cap_implementation_eur
+      type: number
+      required: true
+      minimum: 0
+    - name: sourcing_strategy
+      type: string
+      required: true
+    - name: gdpr_data_residency
+      type: text
+      required: true
+    - name: security_requirements
+      type: text
+      required: true
+    - name: minimum_requirements
+      type: text
+      required: true
+      description: One requirement per line.
+    - name: weight_qualitative_pct
+      type: integer
+      required: true
+      minimum: 0
+      maximum: 100
+    - name: weight_price_pct
+      type: integer
+      required: true
+      minimum: 0
+      maximum: 100
+    - name: q1_pct
+      type: integer
+      required: true
+      minimum: 0
+      maximum: 100
+    - name: q2_pct
+      type: integer
+      required: true
+      minimum: 0
+      maximum: 100
+    - name: q3_pct
+      type: integer
+      required: true
+      minimum: 0
+      maximum: 100
+    - name: reference_number
+      type: string
+      required: true
+    - name: date_of_issue
+      type: string
+      required: true
+    - name: deadline_clarification
+      type: string
+      required: true
+    - name: deadline_response
+      type: string
+      required: true
+    - name: eval1_end
+      type: string
+      required: true
+    - name: eval2_end
+      type: string
+      required: true
+    - name: awarding_date
+      type: string
+      required: true
+    - name: commencement_date
+      type: string
+      required: true
+    - name: contact_name
+      type: string
+      required: true
+    - name: contact_role
+      type: string
+      required: true
+    - name: contact_phone
+      type: string
+      required: true
+    - name: contact_email
+      type: string
+      required: true
+      format: email
+    - name: consultation_required
+      type: boolean
+      required: true
+      default: false
+
+workflow:
+  planner_mode: deterministic
+  steps:
+    - id: validate_inputs
+      type: ai.extract
+      description: Structure and validate the combined intake.
+      instruction: |
+        Review the procurement intake. Return:
+        - missing_fields: names of mandatory fields that are empty or placeholder-like.
+        - inconsistencies: short phrases describing contradictions (e.g. high criticality with near-zero budget).
+        - high_level_requirements: technical requirements that are high-level.
+        - detailed_requirements: technical requirements that are specific/testable.
+        Do not invent requirements; only classify what is provided.
+      params:
+        data:
+          project_name: "{{ $form.project_name }}"
+          objective: "{{ $form.objective_input }}"
+          scope: "{{ $form.scope_input }}"
+          technical_requirements: "{{ $form.technical_requirements }}"
+          criticality: "{{ $form.criticality }}"
+          estimated_value_eur: "{{ $form.estimated_value_eur }}"
+          minimum_requirements: "{{ $form.minimum_requirements }}"
+      expect:
+        type: object
+        additionalProperties: false
+        properties:
+          missing_fields:
+            type: array
+            items: { type: string }
+          inconsistencies:
+            type: array
+            items: { type: string }
+          high_level_requirements:
+            type: array
+            items: { type: string }
+          detailed_requirements:
+            type: array
+            items: { type: string }
+        required: [missing_fields, inconsistencies, high_level_requirements, detailed_requirements]
+      temperature: 0.1
+      max_tokens: 1024
+
+    - id: gate_budget
+      type: condition
+      description: Confirm budget caps, required fields, and that weights sum to 100.
+      if: |
+        {{ $form.budget_cap_licenses_eur <= 20000 && $form.budget_cap_implementation_eur <= 10000 && $form.estimated_value_eur < 100000 && (($form.weight_qualitative_pct + $form.weight_price_pct) == 100) && (($form.q1_pct + $form.q2_pct + $form.q3_pct) == 100) }}
+
+    - id: pont_check
+      type: ai.evaluate
+      description: Assess procurement inputs against PONT principles.
+      instruction: |
+        Evaluate the procurement inputs against PONT:
+        - Proportional: requirements proportionate to value/criticality.
+        - Objective: criteria measurable, not arbitrary.
+        - Non-discriminatory: no clauses that unfairly exclude EU suppliers.
+        - Transparent: scoring weights and thresholds clearly stated.
+        Return pass=false if any principle is materially violated; list concrete issues.
+      params:
+        data:
+          minimum_requirements: "{{ $form.minimum_requirements }}"
+          security_requirements: "{{ $form.security_requirements }}"
+          gdpr_data_residency: "{{ $form.gdpr_data_residency }}"
+          sourcing_strategy: "{{ $form.sourcing_strategy }}"
+          weight_qualitative: "{{ $form.weight_qualitative_pct }}"
+          weight_price: "{{ $form.weight_price_pct }}"
+      expect:
+        type: object
+        additionalProperties: false
+        properties:
+          pass: { type: boolean }
+          issues:
+            type: array
+            items: { type: string }
+        required: [pass, issues]
+      temperature: 0.1
+      max_tokens: 768
+
+    - id: draft_narrative
+      type: ai.generate
+      description: Draft formal background, objective, and scope prose.
+      instruction: |
+        Write formal procurement prose for a GÉANT RFQ using ONLY the provided inputs.
+        Do not invent facts, numbers, vendors, or requirements.
+        Produce three fields: background, objective, scope. Keep each concise and formal.
+      params:
+        data:
+          background: "{{ $form.background_input }}"
+          objective: "{{ $form.objective_input }}"
+          scope: "{{ $form.scope_input }}"
+          project_name: "{{ $form.project_name }}"
+      expect:
+        type: object
+        additionalProperties: false
+        properties:
+          background: { type: string }
+          objective: { type: string }
+          scope: { type: string }
+        required: [background, objective, scope]
+      temperature: 0.3
+      max_tokens: 2048
+
+    - id: procurement_review
+      type: human.approval
+      description: Procurement officer reviews narrative and PONT findings before drafting.
+      params:
+        title: "Review RFQ narrative: {{ $form.project_name }}"
+        message: |
+          Project: {{ $form.project_name }}
+          PONT pass: {{ $step('pont_check').pass }}
+          Validation issues: {{ $step('validate_inputs').inconsistencies }}
+        approvers:
+          - "{{ $form.contact_email }}"
+        payload:
+          narrative: "{{ $step('draft_narrative') }}"
+          pont: "{{ $step('pont_check') }}"
+          validation: "{{ $step('validate_inputs') }}"
+
+    - id: render_draft
+      type: tool.call
+      tool: docx_render
+      description: Render the DRAFT RFQ document from the tokenized template.
+      params:
+        template: "{{ $env('SAZ_RFQ_TEMPLATE', 'saz/examples/templates/rfq_template.docx') }}"
+        output_name: "rfq_draft_{{ $form.reference_number }}"
+        require_all: false
+        values:
+          title_system_name: "{{ $form.project_name }}"
+          date_of_issue: "{{ $form.date_of_issue }}"
+          version: "0.1 DRAFT"
+          reference_number: "{{ $form.reference_number }}"
+          contact_name: "{{ $form.contact_name }}"
+          contact_role: "{{ $form.contact_role }}"
+          contact_phone: "{{ $form.contact_phone }}"
+          contact_email: "{{ $form.contact_email }}"
+          background: "{{ $step('draft_narrative').background }}"
+          objective: "{{ $step('draft_narrative').objective }}"
+          scope: "{{ $step('draft_narrative').scope }}"
+          plan_rfq_issued: "{{ $form.date_of_issue }}"
+          plan_clarification_deadline: "{{ $form.deadline_clarification }}"
+          plan_response_deadline: "{{ $form.deadline_response }}"
+          plan_eval1_end: "{{ $form.eval1_end }}"
+          plan_eval2_end: "{{ $form.eval2_end }}"
+          plan_awarding: "{{ $form.awarding_date }}"
+          plan_commencement: "{{ $form.commencement_date }}"
+          minimum_requirements: "{{ $form.minimum_requirements }}"
+          weight_qualitative: "{{ $form.weight_qualitative_pct }}%"
+          q1_weight: "{{ $form.q1_pct }}%"
+          q2_weight: "{{ $form.q2_pct }}%"
+          q3_weight: "{{ $form.q3_pct }}%"
+          weight_price: "{{ $form.weight_price_pct }}%"
+          budget_cap_licenses: "{{ $form.budget_cap_licenses_eur }}"
+          budget_cap_implementation: "{{ $form.budget_cap_implementation_eur }}"
+
+    - id: needs_consultation
+      type: condition
+      description: Branch into market consultation when requested.
+      if: "{{ $form.consultation_required == true }}"
+
+    - id: supplier_feedback
+      type: webhook.wait
+      description: Suspend for supplier market-consultation feedback via callback.
+      when: "{{ $form.consultation_required == true }}"
+      params:
+        event_name: "rfq.supplier_feedback"
+        timeout_minutes: 4320
+
+    - id: incorporate_feedback
+      type: ai.generate
+      description: Fold supplier feedback into the narrative.
+      when: "{{ $form.consultation_required == true }}"
+      instruction: |
+        Revise the scope and objective to reflect supplier feedback.
+        Do not introduce requirements that were not raised by the project team or suppliers.
+      params:
+        data:
+          current: "{{ $step('draft_narrative') }}"
+          feedback: "{{ $step('supplier_feedback') }}"
+      expect:
+        type: object
+        additionalProperties: false
+        properties:
+          background: { type: string }
+          objective: { type: string }
+          scope: { type: string }
+        required: [background, objective, scope]
+      temperature: 0.3
+      max_tokens: 2048
+
+    - id: procurement_signoff
+      type: human.approval
+      description: Final procurement sign-off.
+      params:
+        title: "Procurement sign-off: {{ $form.project_name }}"
+        message: "Final procurement approval for {{ $form.reference_number }}."
+        approvers:
+          - "{{ $form.contact_email }}"
+
+    - id: project_signoff
+      type: human.approval
+      description: Final project-team sign-off.
+      params:
+        title: "Project sign-off: {{ $form.project_name }}"
+        message: "Final project-team approval for {{ $form.reference_number }}."
+        approvers:
+          - "{{ $form.contact_email }}"
+
+    - id: render_final
+      type: tool.call
+      tool: docx_render
+      description: Render the FINAL RFQ document.
+      params:
+        template: "{{ $env('SAZ_RFQ_TEMPLATE', 'saz/examples/templates/rfq_template.docx') }}"
+        output_name: "rfq_final_{{ $form.reference_number }}"
+        require_all: true
+        values:
+          title_system_name: "{{ $form.project_name }}"
+          date_of_issue: "{{ $form.date_of_issue }}"
+          version: "1.0"
+          reference_number: "{{ $form.reference_number }}"
+          contact_name: "{{ $form.contact_name }}"
+          contact_role: "{{ $form.contact_role }}"
+          contact_phone: "{{ $form.contact_phone }}"
+          contact_email: "{{ $form.contact_email }}"
+          background: "{{ $step('draft_narrative').background }}"
+          objective: "{{ $step('draft_narrative').objective }}"
+          scope: "{{ $step('draft_narrative').scope }}"
+          plan_rfq_issued: "{{ $form.date_of_issue }}"
+          plan_clarification_deadline: "{{ $form.deadline_clarification }}"
+          plan_response_deadline: "{{ $form.deadline_response }}"
+          plan_eval1_end: "{{ $form.eval1_end }}"
+          plan_eval2_end: "{{ $form.eval2_end }}"
+          plan_awarding: "{{ $form.awarding_date }}"
+          plan_commencement: "{{ $form.commencement_date }}"
+          minimum_requirements: "{{ $form.minimum_requirements }}"
+          weight_qualitative: "{{ $form.weight_qualitative_pct }}%"
+          q1_weight: "{{ $form.q1_pct }}%"
+          q2_weight: "{{ $form.q2_pct }}%"
+          q3_weight: "{{ $form.q3_pct }}%"
+          weight_price: "{{ $form.weight_price_pct }}%"
+          budget_cap_licenses: "{{ $form.budget_cap_licenses_eur }}"
+          budget_cap_implementation: "{{ $form.budget_cap_implementation_eur }}"
+
+    - id: audit_record
+      type: artifact.store
+      description: Store the full RFQ audit trail.
+      params:
+        name: "rfq_audit_{{ $form.reference_number }}"
+        content:
+          project_name: "{{ $form.project_name }}"
+          reference_number: "{{ $form.reference_number }}"
+          validation: "{{ $step('validate_inputs') }}"
+          pont: "{{ $step('pont_check') }}"
+          narrative: "{{ $step('draft_narrative') }}"
+          procurement_review: "{{ $step('procurement_review') }}"
+          procurement_signoff: "{{ $step('procurement_signoff') }}"
+          project_signoff: "{{ $step('project_signoff') }}"
+          draft_document: "{{ $step('render_draft').artifact_id }}"
+          final_document: "{{ $step('render_final').artifact_id }}"
+
+policies:
+  budget_usd: 0.50
+  pii:
+    allow: false
+    exceptions:
+      tools:
+        artifact.store:
+          allow:
+            - content.procurement_review
+            - content.procurement_signoff
+            - content.project_signoff

@@ -138,6 +138,34 @@ function NewRunPageContent() {
                       const numMax = field.maximum ?? field.max;
                       const numStep = field.type === 'integer' ? '1' : 'any';
 
+                      // Booleans render as a single checkbox row (checkbox + name on
+                      // one line, description once below) rather than the text-field
+                      // layout — a header label + a separate "Enable" label read as
+                      // two conflicting labels for one control. No required asterisk:
+                      // a yes/no toggle is always answered, so "*" wrongly implies it
+                      // must be checked. The payload carries a real boolean.
+                      if (field.type === 'boolean') {
+                        return (
+                          <div key={field.name} className="space-y-1">
+                            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                              <input
+                                id={field.name}
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={formData[field.name] ?? false}
+                                onChange={(e) =>
+                                  setFormData({ ...formData, [field.name]: e.target.checked })
+                                }
+                              />
+                              {field.name}
+                            </label>
+                            {field.description && (
+                              <p className="text-xs text-slate-500 ml-6">{field.description}</p>
+                            )}
+                          </div>
+                        );
+                      }
+
                       return (
                         <div key={field.name} className="space-y-2">
                           <Label htmlFor={field.name}>
@@ -180,21 +208,6 @@ function NewRunPageContent() {
                               required={isRequired}
                               placeholder={field.description}
                             />
-                          ) : field.type === 'boolean' ? (
-                            // Booleans render as a checkbox so the payload carries a
-                            // real boolean (true/false), not a free-text string.
-                            <label className="flex items-center gap-2 text-sm text-slate-600">
-                              <input
-                                id={field.name}
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-input"
-                                checked={formData[field.name] ?? false}
-                                onChange={(e) =>
-                                  setFormData({ ...formData, [field.name]: e.target.checked })
-                                }
-                              />
-                              {field.description || 'Enable'}
-                            </label>
                           ) : (
                             <Input
                               id={field.name}

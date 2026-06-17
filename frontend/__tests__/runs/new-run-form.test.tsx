@@ -1,6 +1,8 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+afterEach(cleanup);
 
 import NewRunPage from '@/app/runs/new/page';
 
@@ -79,8 +81,9 @@ describe('NewRunPage form rendering', () => {
   it('renders a boolean field as a checkbox and captures a real boolean', async () => {
     renderPage();
 
-    const checkbox = (await screen.findByLabelText(/consultation_required/)) as HTMLInputElement;
-    expect(checkbox.tagName).toBe('INPUT');
+    const checkbox = (await screen.findByRole('checkbox', {
+      name: /consultation_required/,
+    })) as HTMLInputElement;
     expect(checkbox.type).toBe('checkbox');
     expect(checkbox.checked).toBe(false);
 

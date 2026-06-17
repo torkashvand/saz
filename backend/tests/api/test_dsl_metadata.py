@@ -72,3 +72,6 @@ def test_dsl_metadata_form_field_types(app_client):
     aliases = data["form_fields"]["aliases"]
     assert "regex" in aliases["pattern"]
     assert "min" in aliases["minimum"]
+    # Multi-line textarea is advertised as a widget on string/text fields.
+    assert "textarea" in data["form_fields"]["widgets"]
+    assert "widget" in data["form_fields"]["constraints"]["text"]

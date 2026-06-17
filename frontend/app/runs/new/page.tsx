@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { Search, PlayCircle, ArrowLeft } from 'lucide-react';
@@ -130,6 +131,8 @@ function NewRunPageContent() {
                       const fieldType =
                         field.type === 'number' || field.type === 'integer' ? 'number' : 'text';
                       const enumValues: string[] = Array.isArray(field.enum) ? field.enum : [];
+                      const isTextarea =
+                        field.widget === 'textarea' || field['x-widget'] === 'textarea';
 
                       return (
                         <div key={field.name} className="space-y-2">
@@ -162,6 +165,17 @@ function NewRunPageContent() {
                                 </option>
                               ))}
                             </select>
+                          ) : isTextarea ? (
+                            <Textarea
+                              id={field.name}
+                              rows={4}
+                              value={formData[field.name] ?? ''}
+                              onChange={(e) =>
+                                setFormData({ ...formData, [field.name]: e.target.value })
+                              }
+                              required={isRequired}
+                              placeholder={field.description}
+                            />
                           ) : (
                             <Input
                               id={field.name}

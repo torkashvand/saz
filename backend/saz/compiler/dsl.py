@@ -310,6 +310,9 @@ _DSL_SCHEMA: dict[str, Any] | None = {
                 "default": {},
                 # Allow 'regex' as alias for 'pattern'
                 "regex": {"type": "string"},
+                # Presentation hint (string/text fields only); preserved into the
+                # emitted form schema as 'x-widget' for the frontend renderer.
+                "widget": {"enum": ["textarea"]},
             },
         },
         # Super-light step shape, so deep checks happen in compile_dsl()
@@ -648,6 +651,16 @@ def compile_form_model(form_def: dict[str, Any]) -> tuple[type[BaseModel], dict[
             field_kwargs.setdefault("json_schema_extra", {})
             field_kwargs["json_schema_extra"]["enum"] = fd["enum"]
 
+        # widget presentation hint — string/text fields only.
+        widget = fd.get("widget")
+        if widget:
+            if base_type is not str:
+                raise ValueError(
+                    f"Field '{name}': widget '{widget}' is only valid on string/text fields"
+                )
+            field_kwargs.setdefault("json_schema_extra", {})
+            field_kwargs["json_schema_extra"]["x-widget"] = widget
+
         if required:
             if explicit_default_present:
                 pyd_fields[name] = (base_type, Field(default=explicit_default, **field_kwargs))
@@ -659,11 +672,14 @@ def compile_form_model(form_def: dict[str, Any]) -> tuple[type[BaseModel], dict[
     model_cls = create_model("FormModel", **pyd_fields)  # type: ignore[call-overload]
     json_schema = cast(dict[str, Any], model_cls.model_json_schema())
 
-    # move our "enum" back into properties for consumers
+    # move our internal hints ("enum", "x-widget") back into properties for consumers
     for _, spec in json_schema.get("properties", {}).items():
         extra = spec.get("json_schema_extra")
-        if isinstance(extra, dict) and "enum" in extra:
-            spec["enum"] = extra["enum"]
+        if isinstance(extra, dict):
+            if "enum" in extra:
+                spec["enum"] = extra["enum"]
+            if "x-widget" in extra:
+                spec["x-widget"] = extra["x-widget"]
             spec.pop("json_schema_extra", None)
 
     return cast(type[BaseModel], model_cls), json_schema

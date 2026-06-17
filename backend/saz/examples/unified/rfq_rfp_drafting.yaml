@@ -19,16 +19,20 @@ form:
       required: true
     - name: objective_input
       type: text
+      widget: textarea
       required: true
       description: Raw objective summary from the project team.
     - name: scope_input
       type: text
+      widget: textarea
       required: true
     - name: background_input
       type: text
+      widget: textarea
       required: true
     - name: technical_requirements
       type: text
+      widget: textarea
       required: true
     - name: criticality
       type: string
@@ -51,6 +55,7 @@ form:
       required: true
     - name: vendor_constraints
       type: text
+      widget: textarea
       required: false
     # --- Procurement team ---
     - name: pricing_model
@@ -70,12 +75,15 @@ form:
       required: true
     - name: gdpr_data_residency
       type: text
+      widget: textarea
       required: true
     - name: security_requirements
       type: text
+      widget: textarea
       required: true
     - name: minimum_requirements
       type: text
+      widget: textarea
       required: true
       description: One requirement per line.
     - name: weight_qualitative_pct

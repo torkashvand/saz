@@ -150,6 +150,77 @@ describe('HumanApprovalPanel — server-generated brief', () => {
     );
   });
 
+  it('shows the readiness message once, inside the decision card (no duplicate banner)', () => {
+    renderPanel(makeRun());
+    const label = 'Review required — PONT findings';
+    // The readiness message is not repeated in a separate warning banner.
+    expect(screen.getAllByText(label)).toHaveLength(1);
+    // The single readiness element lives inside the decision card.
+    const decision = screen.getByTestId('decision-question');
+    expect(within(decision).getByTestId('readiness-state')).toHaveTextContent(label);
+  });
+
+  it('keeps key facts compact — long prose fields are hidden by default', () => {
+    const longObjective =
+      'Procure a cost-effective HR information system covering onboarding, payroll, ' +
+      'leave management, reporting, and two years of vendor support and training.';
+    const brief: ApprovalBrief = {
+      ...SERVER_BRIEF,
+      key_facts: [
+        { label: 'Project', value: 'HR Information System' },
+        { label: 'Objective', value: longObjective },
+      ],
+    };
+    renderPanel(makeRun({ brief }));
+    const facts = screen.getByTestId('key-facts');
+    expect(within(facts).getByText('HR Information System')).toBeInTheDocument();
+    // Long objective/scope/background prose stays out of the default view.
+    expect(screen.queryByText(longObjective)).not.toBeInTheDocument();
+  });
+
+  it('renders structured checks (passed and needs review) and does not duplicate passed_checks', () => {
+    const brief: ApprovalBrief = {
+      ...SERVER_BRIEF,
+      passed_checks: ['No missing fields'],
+      checks: [
+        { label: 'Budget', status: 'passed' },
+        { label: 'PONT', status: 'needs_review', detail: '2 concern(s)' },
+      ],
+    };
+    renderPanel(makeRun({ brief }));
+    const checks = screen.getByTestId('checks');
+    expect(checks).toHaveTextContent('Budget passed');
+    expect(checks).toHaveTextContent('PONT needs review');
+    expect(checks).toHaveTextContent('2 concern(s)');
+    // The legacy passed_checks list is not rendered alongside structured checks.
+    expect(screen.queryByText('No missing fields')).not.toBeInTheDocument();
+  });
+
+  it('falls back to passed_checks rows when no structured checks exist', () => {
+    const brief: ApprovalBrief = {
+      ...SERVER_BRIEF,
+      checks: undefined,
+      passed_checks: ['Budget passed'],
+    };
+    renderPanel(makeRun({ brief }));
+    expect(within(screen.getByTestId('checks')).getByText('Budget passed')).toBeInTheDocument();
+  });
+
+  it('formats key fact values for humans (raw 30000 → €30,000)', () => {
+    const brief: ApprovalBrief = {
+      ...SERVER_BRIEF,
+      key_facts: [
+        { label: 'Estimated value', value: '30000' },
+        { label: 'Data sensitivity', value: 'confidential' },
+      ],
+    };
+    renderPanel(makeRun({ brief }));
+    const facts = screen.getByTestId('key-facts');
+    expect(within(facts).getByText('€30,000')).toBeInTheDocument();
+    expect(screen.queryByText('30000')).not.toBeInTheDocument();
+    expect(within(facts).getByText('Confidential')).toBeInTheDocument();
+  });
+
   it('uses amber (not red) for review_required readiness', () => {
     renderPanel(makeRun());
     expect(screen.getByTestId('readiness-state').className).toContain('amber');
@@ -204,6 +275,13 @@ describe('HumanApprovalPanel — missing/malformed brief fallback', () => {
     ).toBeInTheDocument();
     // Raw payload still not primary.
     expect(screen.queryByText('budget_cap_licenses_eur')).not.toBeInTheDocument();
+  });
+
+  it('gives a specific approval consequence naming the planned next steps', () => {
+    renderPanel(makeRun({ brief: null }));
+    const after = screen.getByTestId('after-approval');
+    expect(after).toHaveTextContent(/Render draft/);
+    expect(after).not.toHaveTextContent(/continue to the next steps/i);
   });
 
   it('falls back when the brief is malformed', () => {

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 ApprovalReadiness = Literal["ready", "review_required", "blocked", "unknown"]
 ApprovalGenerationStatus = Literal["generated", "fallback", "failed"]
+ApprovalCheckStatus = Literal["passed", "needs_review", "blocked", "unknown"]
 
 # Bound LLM input so a very large run never sends unlimited history to the model.
 _MAX_PAYLOAD_CHARS = 2000
@@ -70,6 +71,17 @@ class ApprovalKeyFact(BaseModel):
     value: str
 
 
+class ApprovalCheck(BaseModel):
+    """A single named check the approver should weigh (e.g. Budget, PONT)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    status: ApprovalCheckStatus
+    detail: str | None = None
+    source_step_id: str | None = None
+
+
 class ApprovalBrief(BaseModel):
     """The structured brief stored on the suspended approval step."""
 
@@ -81,6 +93,7 @@ class ApprovalBrief(BaseModel):
     main_reason: str
     critical_issues: list[str] = Field(default_factory=list)
     passed_checks: list[str] = Field(default_factory=list)
+    checks: list[ApprovalCheck] = Field(default_factory=list)
     key_facts: list[ApprovalKeyFact] = Field(default_factory=list)
     approval_consequence: str
     source_step_ids: list[str] = Field(default_factory=list)
@@ -153,21 +166,39 @@ _LLM_BRIEF_SCHEMA: dict[str, Any] = {
 }
 
 _BRIEF_INSTRUCTION = (
-    "You are writing a concise approval brief for a human approver who must "
-    "decide whether to let a workflow continue. Use ONLY the supplied run "
-    "payload and step outputs. Do not invent facts, numbers, vendors, or "
-    "outcomes. Do NOT approve or reject — only summarize. Never hide a failed "
-    "check or convert uncertainty into confidence.\n\n"
-    "Produce a decision_title phrased as a plain-language question about the "
-    "business decision (e.g. 'Approve moving this RFQ package to draft "
-    "generation?'), never describing implementation details. Set readiness to "
-    "one of ready, review_required, blocked, unknown. If a check failed (for "
-    "example a PONT/compliance evaluation returned pass=false) or required "
-    "information is missing, readiness must be review_required or blocked, "
-    "never ready. List only decision-relevant critical_issues and short "
-    "positive passed_checks. key_facts must be the most important business "
-    "facts as short label/value pairs. approval_consequence is one sentence on "
-    "what happens after approval. Keep everything concise. Return only JSON "
+    "You are writing a sharp, decision-oriented approval brief for a human "
+    "approver deciding whether to let a workflow continue. Use ONLY the supplied "
+    "run payload and step outputs. Do not invent facts, numbers, or outcomes. Do "
+    "NOT approve or reject — only summarize. Never hide a failed check or turn "
+    "uncertainty into confidence. Set readiness to one of ready, review_required, "
+    "blocked, unknown; if a check failed or required information is missing it "
+    "must be review_required or blocked, never ready.\n\n"
+    "decision_title: a plain-language question about the BUSINESS decision (e.g. "
+    "'Approve final procurement sign-off for the HR Information System?'). Never "
+    "use implementation language (no 'render template', 'store artifact', step "
+    "ids).\n"
+    "readiness_label: one short phrase summarizing the decision STATE and why it "
+    "matters — not merely that a check failed. Prefer wording like 'Review "
+    "required — procurement principles may not be satisfied.', 'Blocked — "
+    "required approval evidence is missing.', or 'Ready for approval.'\n"
+    "main_reason: one sentence explaining the RISK the approver would accept, "
+    "e.g. 'The RFQ can continue only if the approver accepts the PONT concerns "
+    "around proportionality, objective criteria, non-discrimination, and "
+    "transparency.' Do not merely restate that a check failed.\n"
+    "critical_issues: only concrete, actionable issues — each a specific concern. "
+    "Do NOT include summary lines like 'PONT check failed' or 'review required'; "
+    "those belong in readiness_label, not here.\n"
+    "passed_checks: short positive checks only.\n"
+    "key_facts: the few most important business facts as short label/value "
+    "pairs; never long prose (objective/scope/background belong elsewhere).\n"
+    "approval_consequence: one plain-language sentence on what Saz will do after "
+    "approval, described in user terms derived from the planned next steps (e.g. "
+    "'If approved, Saz will generate the final RFQ document and store the RFQ "
+    "artifact.'). If the next steps are unknown, say 'If approved, Saz will "
+    "continue the workflow after this sign-off.' Never say 'continue to the next "
+    "steps'.\n"
+    "Do not repeat the same failed-check wording across readiness_label, "
+    "main_reason, and critical_issues. Keep everything concise. Return only JSON "
     "matching the schema."
 )
 
@@ -236,6 +267,78 @@ def _deterministic_signals(
     return floor, issues, passed
 
 
+def _gate_check_label(step_id: str | None) -> str:
+    name = (step_id or "check").removeprefix("gate_").replace("_", " ").strip()
+    return (name[:1].upper() + name[1:]) if name else "Check"
+
+
+def _derive_checks(completed_steps: list[dict[str, Any]]) -> list[ApprovalCheck]:
+    """Build a compact, reliable pass/needs-review/blocked check list.
+
+    Derived deterministically from step outputs (not model-generated) so the
+    statuses are trustworthy. Recognizes the common procurement/validation
+    vocabulary; emits nothing for steps with no clear pass/fail signal.
+    """
+    checks: list[ApprovalCheck] = []
+    for step in completed_steps:
+        out = step.get("output")
+        sid = step.get("id")
+        if not isinstance(out, dict):
+            continue
+
+        # PONT / compliance evaluation: {pass: bool, issues: [...]}
+        if isinstance(out.get("pass"), bool):
+            issues = out.get("issues") if isinstance(out.get("issues"), list) else []
+            passed = out["pass"]
+            checks.append(
+                ApprovalCheck(
+                    label="PONT",
+                    status="passed" if passed else "needs_review",
+                    detail=(f"{len(issues)} concern(s)" if (not passed and issues) else None),
+                    source_step_id=sid,
+                )
+            )
+
+        # Deterministic gate condition: {result: bool, condition: "..."}
+        if (
+            isinstance(out.get("result"), bool)
+            and "condition" in out
+            and (sid or "").startswith("gate_")
+        ):
+            checks.append(
+                ApprovalCheck(
+                    label=_gate_check_label(sid),
+                    status="passed" if out["result"] else "needs_review",
+                    source_step_id=sid,
+                )
+            )
+
+        # Required information: missing_fields list (blocking when non-empty)
+        if isinstance(out.get("missing_fields"), list):
+            mf = out["missing_fields"]
+            checks.append(
+                ApprovalCheck(
+                    label="Required information",
+                    status="passed" if not mf else "blocked",
+                    detail=(f"{len(mf)} missing" if mf else None),
+                    source_step_id=sid,
+                )
+            )
+
+        # Consistency: inconsistencies list (review when non-empty)
+        if isinstance(out.get("inconsistencies"), list):
+            inc = out["inconsistencies"]
+            checks.append(
+                ApprovalCheck(
+                    label="Consistency",
+                    status="passed" if not inc else "needs_review",
+                    detail=(f"{len(inc)} issue(s)" if inc else None),
+                    source_step_id=sid,
+                )
+            )
+    return checks
+
+
 def _extract_key_facts(payload: dict[str, Any]) -> list[ApprovalKeyFact]:
     """Pull a small set of safe scalar business facts from the run payload."""
     facts: list[ApprovalKeyFact] = []
@@ -286,6 +389,7 @@ def build_fallback_brief(
         main_reason=main_reason,
         critical_issues=issues[:8],
         passed_checks=passed,
+        checks=_derive_checks(evidence.completed_steps),
         key_facts=_extract_key_facts(evidence.payload),
         approval_consequence=_consequence_from_next_steps(evidence.next_steps),
         source_step_ids=evidence.source_step_ids,
@@ -316,6 +420,9 @@ class ApprovalBriefService:
 
         brief.source_step_ids = evidence.source_step_ids
         brief.generation_status = "generated"
+        # Structured checks are derived deterministically from evidence, not the
+        # model — reliable statuses for the UI's compact Checks row.
+        brief.checks = _derive_checks(evidence.completed_steps)
         self._apply_conservative_floor(brief, evidence.completed_steps)
         return brief
 

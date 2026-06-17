@@ -83,6 +83,51 @@ async def test_generate_returns_structured_brief_with_source_ids():
 
 
 @pytest.mark.asyncio
+async def test_generate_includes_structured_checks():
+    ev = _evidence(
+        completed_steps=[
+            {
+                "id": "gate_budget",
+                "step_type": "condition",
+                "output": {"result": True, "condition": "x <= 20000"},
+            },
+            {
+                "id": "pont_check",
+                "step_type": "ai.evaluate",
+                "output": {"pass": False, "issues": ["criteria not measurable"]},
+            },
+        ]
+    )
+    service = ApprovalBriefService(runner=_runner(VALID_BRIEF))
+    brief = await service.generate(ev)
+
+    by_label = {c.label: c for c in brief.checks}
+    assert by_label["Budget"].status == "passed"
+    assert by_label["PONT"].status == "needs_review"
+    # The structured shape survives serialization for the frontend.
+    stored = brief.to_storage()["checks"]
+    assert {"label": "PONT", "status": "needs_review", "detail": "1 concern(s)"} in [
+        {k: v for k, v in c.items() if k != "source_step_id"} for c in stored
+    ]
+
+
+def test_fallback_brief_includes_checks():
+    ev = _evidence(
+        completed_steps=[
+            {
+                "id": "validate_inputs",
+                "step_type": "ai.extract",
+                "output": {"missing_fields": ["security_requirements"], "inconsistencies": []},
+            },
+        ]
+    )
+    brief = build_fallback_brief(ev)
+    by_label = {c.label: c for c in brief.checks}
+    assert by_label["Required information"].status == "blocked"
+    assert by_label["Consistency"].status == "passed"
+
+
+@pytest.mark.asyncio
 async def test_conservative_floor_blocks_ready_when_pont_failed():
     """A failed PONT check must not be summarized as 'ready'."""
     ev = _evidence(

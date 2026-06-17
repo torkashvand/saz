@@ -24,6 +24,8 @@ import {
 import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
 import type {
   ApprovalBrief,
+  ApprovalCheck,
+  ApprovalCheckStatus,
   ApprovalReadiness,
   HumanApprovalError,
   RunDetailResponse,
@@ -59,6 +61,22 @@ function formatEuro(value: unknown): string {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return String(value);
   return `€${n.toLocaleString('en-US')}`;
+}
+
+/**
+ * Humanize a key-fact value regardless of how the brief produced it: a bare
+ * monetary integer becomes `€30,000`, an enum-ish token becomes `Confidential`.
+ * Idempotent on already-formatted values.
+ */
+function formatFactValue(label: string, value: string): string {
+  const v = value.trim();
+  if (/value|amount|cost|budget|price|eur/i.test(label) && /^\d{3,}$/.test(v)) {
+    return formatEuro(v);
+  }
+  if (/^[a-z][a-z_]*$/.test(v)) {
+    return humanizeEnum(v);
+  }
+  return value;
 }
 
 function stepTypeLabel(stepType: string | null): string {
@@ -97,33 +115,47 @@ const READINESS_LABELS: Record<ApprovalReadiness, string> = {
   unknown: 'Approval required',
 };
 
-const READINESS_STYLES: Record<
-  ApprovalReadiness,
-  { box: string; dot: string; Icon: typeof CheckCircle2 }
-> = {
-  ready: {
-    box: 'border-green-200 bg-green-50 text-green-900',
-    dot: 'text-green-600',
-    Icon: CheckCircle2,
-  },
-  review_required: {
-    box: 'border-amber-200 bg-amber-50 text-amber-900',
-    dot: 'text-amber-600',
-    Icon: AlertTriangle,
-  },
-  blocked: {
-    box: 'border-red-200 bg-red-50 text-red-900',
-    dot: 'text-red-600',
-    Icon: AlertTriangle,
-  },
-  unknown: {
-    box: 'border-slate-200 bg-slate-50 text-slate-700',
-    dot: 'text-slate-400',
-    Icon: HelpCircle,
-  },
+// Readiness is the single warning-colored element, rendered inline inside the
+// decision card (not as a separate banner) to avoid duplicating the message.
+const READINESS_STYLES: Record<ApprovalReadiness, { text: string; Icon: typeof CheckCircle2 }> = {
+  ready: { text: 'text-green-700', Icon: CheckCircle2 },
+  review_required: { text: 'text-amber-700', Icon: AlertTriangle },
+  blocked: { text: 'text-red-700', Icon: AlertTriangle },
+  unknown: { text: 'text-slate-500', Icon: HelpCircle },
 };
 
 const READINESS_VALUES: ApprovalReadiness[] = ['ready', 'review_required', 'blocked', 'unknown'];
+
+const CHECK_STATUS_VALUES: ApprovalCheckStatus[] = ['passed', 'needs_review', 'blocked', 'unknown'];
+
+const CHECK_STYLES: Record<ApprovalCheckStatus, { text: string; Icon: typeof CheckCircle2 }> = {
+  passed: { text: 'text-green-700', Icon: CheckCircle2 },
+  needs_review: { text: 'text-amber-700', Icon: AlertTriangle },
+  blocked: { text: 'text-red-700', Icon: AlertTriangle },
+  unknown: { text: 'text-slate-500', Icon: HelpCircle },
+};
+
+const CHECK_STATUS_SUFFIX: Record<ApprovalCheckStatus, string> = {
+  passed: 'passed',
+  needs_review: 'needs review',
+  blocked: 'blocked',
+  unknown: '',
+};
+
+function CheckRow({ check }: { check: ApprovalCheck }) {
+  const style = CHECK_STYLES[check.status];
+  const suffix = CHECK_STATUS_SUFFIX[check.status];
+  return (
+    <li className={`flex items-center gap-1.5 ${style.text}`}>
+      <style.Icon className="h-3.5 w-3.5 flex-shrink-0" />
+      <span>
+        {check.label}
+        {suffix ? ` ${suffix}` : ''}
+        {check.detail ? <span className="text-slate-400"> · {check.detail}</span> : null}
+      </span>
+    </li>
+  );
+}
 
 /** Validate and normalize the server-provided brief; null when absent/malformed. */
 function readServerBrief(step: RunStep | undefined): ApprovalBrief | null {
@@ -146,6 +178,21 @@ function readServerBrief(step: RunStep | undefined): ApprovalBrief | null {
         .map((f) => ({ label: String(f.label), value: String(f.value) }))
     : [];
   const readiness = brief.readiness as ApprovalReadiness;
+  const checks = Array.isArray(brief.checks)
+    ? brief.checks
+        .filter((c): c is Record<string, unknown> => isRecord(c))
+        .filter(
+          (c) =>
+            typeof c.label === 'string' &&
+            CHECK_STATUS_VALUES.includes(c.status as ApprovalCheckStatus),
+        )
+        .map((c) => ({
+          label: String(c.label),
+          status: c.status as ApprovalCheckStatus,
+          detail: typeof c.detail === 'string' ? c.detail : undefined,
+          source_step_id: typeof c.source_step_id === 'string' ? c.source_step_id : undefined,
+        }))
+    : undefined;
   return {
     decision_title: brief.decision_title,
     readiness,
@@ -156,6 +203,7 @@ function readServerBrief(step: RunStep | undefined): ApprovalBrief | null {
     main_reason: brief.main_reason,
     critical_issues: arr(brief.critical_issues),
     passed_checks: arr(brief.passed_checks),
+    checks,
     key_facts: facts,
     approval_consequence:
       typeof brief.approval_consequence === 'string' ? brief.approval_consequence : '',
@@ -238,8 +286,10 @@ function buildClientFallbackBrief(
   );
 
   const nextName = nextSteps.length > 0 ? humanize(nextSteps[0].name) : null;
-  const consequence = nextName
-    ? `If approved, Saz will continue with ${nextName}.`
+  // Name the actual planned next steps rather than a generic "continue".
+  const nextNames = nextSteps.slice(0, 3).map((s) => humanize(s.name));
+  const consequence = nextNames.length
+    ? `If approved, Saz will continue with ${nextNames.join(', ')}.`
     : 'If approved, the workflow will complete.';
 
   return {
@@ -309,6 +359,10 @@ export function HumanApprovalPanel({
   const nextStepName = nextSteps.length > 0 ? humanize(nextSteps[0].name) : null;
   const readinessStyle = READINESS_STYLES[brief.readiness];
 
+  // Keep key facts compact: long prose (objective/scope/background) belongs in
+  // advanced details, not the default scannable view.
+  const compactFacts = brief.key_facts.filter((f) => f.value.length <= 80);
+
   const handleApprove = () => onApprove({ approved: true, comments: comments.trim() || undefined });
   const handleReject = () =>
     onReject({ approved: false, reason: reason.trim() || 'Rejected by user' });
@@ -344,34 +398,63 @@ export function HumanApprovalPanel({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        {/* Decision question — the most prominent content */}
+      <CardContent className="space-y-3">
+        {/* One decision card: question + readiness + reason, no duplicate banner */}
         <div
           data-testid="decision-question"
-          className="rounded-lg border border-slate-200 bg-white p-4"
+          className="space-y-2 rounded-lg border border-slate-200 bg-white p-4"
         >
-          <p className="text-base font-medium text-slate-900">{brief.decision_title}</p>
+          <p className="text-base font-semibold text-slate-900">{brief.decision_title}</p>
+          <div
+            data-testid="readiness-state"
+            className={`flex items-center gap-1.5 text-sm font-medium ${readinessStyle.text}`}
+          >
+            <readinessStyle.Icon className="h-4 w-4 flex-shrink-0" />
+            <span>{brief.readiness_label}</span>
+          </div>
           {brief.main_reason && (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{brief.main_reason}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-600">{brief.main_reason}</p>
           )}
         </div>
 
-        {/* Readiness */}
-        <div
-          data-testid="readiness-state"
-          className={`flex items-start gap-2.5 rounded-lg border p-3 ${readinessStyle.box}`}
-        >
-          <readinessStyle.Icon className={`mt-0.5 h-4 w-4 flex-shrink-0 ${readinessStyle.dot}`} />
-          <p className="text-sm font-semibold">{brief.readiness_label}</p>
-        </div>
+        {/* Checks — structured (passed / needs review / blocked) when available,
+            otherwise the legacy passed-only list. Compact rows, not chips. */}
+        {brief.checks && brief.checks.length > 0 ? (
+          <section data-testid="checks">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Checks
+            </h4>
+            <ul className="space-y-0.5 text-sm">
+              {brief.checks.map((check, i) => (
+                <CheckRow key={i} check={check} />
+              ))}
+            </ul>
+          </section>
+        ) : (
+          brief.passed_checks.length > 0 && (
+            <section data-testid="checks">
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                Checks
+              </h4>
+              <ul className="space-y-0.5 text-sm text-slate-700">
+                {brief.passed_checks.map((check, i) => (
+                  <li key={i} className="flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-green-600" />
+                    <span>{check}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        )}
 
-        {/* Critical issues — only when present */}
+        {/* Critical issues — compact list, no heavy nested warning box */}
         {brief.critical_issues.length > 0 && (
           <section data-testid="critical-issues">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
               Critical issues
             </h4>
-            <ul className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <ul className="space-y-1 text-sm text-slate-700">
               {brief.critical_issues.map((issue, i) => (
                 <li key={i} className="flex gap-2">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
@@ -382,37 +465,19 @@ export function HumanApprovalPanel({
           </section>
         )}
 
-        {/* Passed checks — compact */}
-        {brief.passed_checks.length > 0 && (
-          <section data-testid="passed-checks">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
-              Passed checks
-            </h4>
-            <div className="flex flex-wrap gap-1.5">
-              {brief.passed_checks.map((check, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-800"
-                >
-                  <CheckCircle2 className="h-3 w-3" />
-                  {check}
-                </span>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Key facts */}
-        {brief.key_facts.length > 0 && (
+        {/* Key facts — compact two-column grid with human formatting */}
+        {compactFacts.length > 0 && (
           <section data-testid="key-facts">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
               Key facts
             </h4>
-            <dl className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-4">
-              {brief.key_facts.map((fact, i) => (
-                <div key={i} className="grid grid-cols-[minmax(0,9rem)_1fr] gap-x-3">
-                  <dt className="text-xs font-medium text-slate-500">{fact.label}</dt>
-                  <dd className="min-w-0 text-sm text-slate-800">{fact.value}</dd>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:grid-cols-2">
+              {compactFacts.map((fact, i) => (
+                <div key={i} className="flex gap-1.5">
+                  <dt className="font-medium text-slate-500 after:content-[':']">{fact.label}</dt>
+                  <dd className="min-w-0 text-slate-800">
+                    {formatFactValue(fact.label, fact.value)}
+                  </dd>
                 </div>
               ))}
             </dl>

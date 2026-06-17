@@ -254,10 +254,18 @@ export interface ResumeRunResponse {
 
 export type ApprovalReadiness = 'ready' | 'review_required' | 'blocked' | 'unknown';
 export type ApprovalGenerationStatus = 'generated' | 'fallback' | 'failed';
+export type ApprovalCheckStatus = 'passed' | 'needs_review' | 'blocked' | 'unknown';
 
 export interface ApprovalBriefKeyFact {
   label: string;
   value: string;
+}
+
+export interface ApprovalCheck {
+  label: string;
+  status: ApprovalCheckStatus;
+  detail?: string;
+  source_step_id?: string;
 }
 
 /**
@@ -272,6 +280,7 @@ export interface ApprovalBrief {
   main_reason: string;
   critical_issues: string[];
   passed_checks: string[];
+  checks?: ApprovalCheck[];
   key_facts: ApprovalBriefKeyFact[];
   approval_consequence: string;
   source_step_ids: string[];

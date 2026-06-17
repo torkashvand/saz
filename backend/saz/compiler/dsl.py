@@ -421,6 +421,13 @@ _STR_FORMAT_PATTERNS: dict[str, str] = {
     "uri": r"^[a-zA-Z][a-zA-Z0-9+.\-]*://.+$",
 }
 
+# AI ops that return a single string under ``output`` (output_format="text" in
+# saz/agents/ai_ops.py). Their structured fields are NOT addressable via
+# ``$step(id).field`` — only ``$step(id).output`` — so an expect schema that
+# requires other fields is a silent bug (the fields render empty). Use a JSON
+# op (ai.extract/assess/…) for structured output instead.
+_TEXT_OUTPUT_OPS: frozenset[str] = frozenset({"ai.generate", "ai.summarize", "ai.translate"})
+
 # -------------------------------------------------------------------------------------- #
 # Result wrapper                                                                         #
 # -------------------------------------------------------------------------------------- #
@@ -773,6 +780,18 @@ def _validate_and_normalize_steps(
                     f"Without it, output validation is weak and the model may "
                     f"return wrong field names."
                 )
+            # Text ops return a single string under 'output'. They cannot promise
+            # structured fields — referencing $step(id).<field> would resolve empty
+            # at render time. Require a JSON op (ai.extract/…) for structured output.
+            if stype in _TEXT_OUTPUT_OPS and isinstance(step["expect"], dict):
+                required = step["expect"].get("required") or []
+                extra = [r for r in required if r != "output"]
+                if extra:
+                    raise ValueError(
+                        f"step '{sid}' (type: {stype}) is a text operation that returns a "
+                        f"single string under 'output'; its expect schema cannot require "
+                        f"structured fields {extra}. Use ai.extract for structured output."
+                    )
         elif stype == "condition":
             _require_keys(step, ["if"])
             if "description" not in step or not step["description"]:

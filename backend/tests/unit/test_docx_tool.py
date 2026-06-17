@@ -134,6 +134,28 @@ async def test_output_name_path_separators_are_sanitized(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_empty_value_for_mandatory_token_fails(tmp_path):
+    # A token present in the template but given an empty/whitespace value must
+    # fail under require_all — never silently emit a blank section.
+    tpl = _make_template(tmp_path, "Objective: {{objective}}")
+    tool = DocxRenderTool(storage_path=str(tmp_path / "art"))
+    with pytest.raises(ValueError, match="objective"):
+        await tool.render(
+            template=tpl, values={"objective": "   "}, output_name="x", require_all=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_value_reported_when_not_require_all(tmp_path):
+    tpl = _make_template(tmp_path, "Objective: {{objective}}")
+    tool = DocxRenderTool(storage_path=str(tmp_path / "art"))
+    result = await tool.render(
+        template=tpl, values={"objective": ""}, output_name="x", require_all=False
+    )
+    assert result["unfilled"] == ["objective"]
+
+
+@pytest.mark.asyncio
 async def test_relative_bundled_template_resolves_regardless_of_cwd(tmp_path, monkeypatch):
     # The workflow references the template relative to the backend root; rendering
     # must work even when the process CWD is elsewhere.

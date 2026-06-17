@@ -244,13 +244,14 @@ workflow:
       max_tokens: 768
 
     - id: draft_narrative
-      type: ai.generate
+      type: ai.extract
       description: Draft formal background, objective, and scope prose.
       when: "{{ $step('gate_budget').result == true }}"
       instruction: |
         Write formal procurement prose for a GÉANT RFQ using ONLY the provided inputs.
         Do not invent facts, numbers, vendors, or requirements.
-        Produce three fields: background, objective, scope. Keep each concise and formal.
+        Return a JSON object with exactly three string fields: background, objective,
+        scope. Keep each concise and formal.
       params:
         data:
           background: "{{ $form.background_input }}"
@@ -337,14 +338,15 @@ workflow:
         timeout_minutes: 4320
 
     - id: finalize_narrative
-      type: ai.generate
+      type: ai.extract
       description: >
         Produce the final narrative. When market consultation ran, fold the
         supplier feedback into the draft; otherwise return the draft unchanged.
         This is the single narrative source the FINAL document renders from.
       when: "{{ $step('gate_budget').result == true }}"
       instruction: |
-        Produce the final background, objective, and scope.
+        Produce the final narrative as a JSON object with exactly three string
+        fields: background, objective, scope.
         The 'feedback' field holds supplier market-consultation input, or a
         skip marker ({"skipped": true}) when no consultation occurred — in that
         case return the current narrative unchanged.

@@ -33,8 +33,8 @@ workflow:
       instruction: "Generate summary"
       expect:
         properties:
-          summary: { type: string }
-        required: [summary]
+          output: { type: string }
+        required: [output]
 
 policies:
   budget_usd: 0.25
@@ -68,8 +68,8 @@ workflow:
       instruction: "Generate result"
       expect:
         properties:
-          result: { type: string }
-        required: [result]
+          output: { type: string }
+        required: [output]
 
 policies:
   budget_usd: 0.10
@@ -112,8 +112,8 @@ workflow:
       instruction: "Generate response"
       expect:
         properties:
-          response: { type: string }
-        required: [response]
+          output: { type: string }
+        required: [output]
 
 policies:
   budget_usd: 0.10

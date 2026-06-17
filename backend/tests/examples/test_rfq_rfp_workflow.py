@@ -50,6 +50,15 @@ def test_ai_steps_have_strict_expect():
         assert expect["required"], f"{sid} must declare required fields"
 
 
+def test_narrative_steps_are_structured_json_ops():
+    # Must be ai.extract (JSON op), not ai.generate (text op) — otherwise the
+    # background/objective/scope fields resolve empty into the document.
+    steps = _steps()
+    for sid in ("draft_narrative", "finalize_narrative"):
+        assert steps[sid]["type"] == "ai.extract", f"{sid} must be ai.extract for structured fields"
+        assert set(steps[sid]["expect"]["required"]) == {"background", "objective", "scope"}
+
+
 def test_budget_gate_actually_blocks_downstream_via_when_guards():
     # A `condition` step does not halt the workflow on its own; downstream steps
     # must carry a `when:` guard referencing the gate result to be blocked.

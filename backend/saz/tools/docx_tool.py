@@ -111,6 +111,12 @@ class DocxRenderTool:
         str_values = {k: ("" if v is None else str(v)) for k, v in values.items()}
         doc = Document(str(template_path))
 
+        # Tokens present in the template before substitution, and which of them
+        # received an empty/whitespace (or missing) value. An empty fill of a
+        # mandatory token is a failure — never silently emit a blank section.
+        present_tokens = self._remaining_tokens(doc)
+        empty_tokens = [t for t in present_tokens if not str_values.get(t, "").strip()]
+
         filled = 0
         for p in doc.paragraphs:
             filled += self._fill_paragraph(p, str_values)
@@ -120,9 +126,11 @@ class DocxRenderTool:
                     for p in cell.paragraphs:
                         filled += self._fill_paragraph(p, str_values)
 
-        unfilled = self._remaining_tokens(doc)
+        # Unfilled = literal {{token}} still in the doc (missing value, or a token
+        # split across runs) PLUS tokens that were filled with an empty value.
+        unfilled = sorted(set(self._remaining_tokens(doc)) | set(empty_tokens))
         if require_all and unfilled:
-            raise ValueError(f"Unfilled mandatory tokens: {', '.join(unfilled)}")
+            raise ValueError(f"Unfilled or empty mandatory tokens: {', '.join(unfilled)}")
 
         artifact_id = str(uuid4())
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", output_name) or "document"

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { CollapsibleJson } from '@/components/common/json-view';
+import { StepInspectionPanel } from '@/components/common/json-view';
 import type { RunStep, PlannedStep } from '@/lib/types';
 import type { DisplayStep } from '@/lib/runs/display-steps';
 import { getStepHelpText } from '@/lib/runs/display-steps';
@@ -354,21 +354,8 @@ export function CompactStepCard({
             </div>
           )}
 
-          {/* Input (only for executed steps) */}
-          {step?.input && Object.keys(step.input).length > 0 && (
-            <div>
-              <h4 className="text-xs font-medium text-slate-700 mb-1.5">Input</h4>
-              <CollapsibleJson label="View input" data={step.input} />
-            </div>
-          )}
-
-          {/* Output (only for executed steps) */}
-          {step?.output && Object.keys(step.output).length > 0 && (
-            <div>
-              <h4 className="text-xs font-medium text-slate-700 mb-1.5">Output</h4>
-              <CollapsibleJson label="View output" data={step.output} />
-            </div>
-          )}
+          {/* Step input/output inspection (only for executed steps) */}
+          {step && <StepInspectionPanel input={step.input} output={step.output} />}
 
           {/* Error details (only for executed steps) */}
           {step?.error && (

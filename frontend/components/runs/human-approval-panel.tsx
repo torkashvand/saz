@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { CollapsibleJson } from '@/components/common/json-view';
+import { CollapsibleSection, ReadableValue } from '@/components/common/json-view';
 import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
 import type { HumanApprovalError, RunDetailResponse, RunStep, PlannedStep } from '@/lib/types';
 
@@ -261,7 +261,9 @@ export function HumanApprovalPanel({
                   <h5 className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
                     Run Input
                   </h5>
-                  <CollapsibleJson label="View run payload" data={run.payload} />
+                  <CollapsibleSection title="View run payload">
+                    <ReadableValue value={run.payload} />
+                  </CollapsibleSection>
                 </div>
               )}
             </div>

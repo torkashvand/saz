@@ -133,6 +133,10 @@ function NewRunPageContent() {
                       const enumValues: string[] = Array.isArray(field.enum) ? field.enum : [];
                       const isTextarea =
                         field.widget === 'textarea' || field['x-widget'] === 'textarea';
+                      // Numeric constraints (accept canonical + min/max aliases).
+                      const numMin = field.minimum ?? field.min;
+                      const numMax = field.maximum ?? field.max;
+                      const numStep = field.type === 'integer' ? '1' : 'any';
 
                       return (
                         <div key={field.name} className="space-y-2">
@@ -195,6 +199,9 @@ function NewRunPageContent() {
                             <Input
                               id={field.name}
                               type={fieldType}
+                              min={fieldType === 'number' ? numMin : undefined}
+                              max={fieldType === 'number' ? numMax : undefined}
+                              step={fieldType === 'number' ? numStep : undefined}
                               value={formData[field.name] ?? ''}
                               onChange={(e) => {
                                 const value =

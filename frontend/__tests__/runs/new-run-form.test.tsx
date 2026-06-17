@@ -47,6 +47,8 @@ describe('NewRunPage form rendering', () => {
             { name: 'reference', type: 'string', required: true },
             { name: 'scope', type: 'text', widget: 'textarea', required: true },
             { name: 'consultation_required', type: 'boolean', required: true },
+            { name: 'headcount', type: 'integer', minimum: 1, maximum: 100, required: true },
+            { name: 'amount', type: 'number', minimum: 0, required: true },
           ],
         },
       },
@@ -86,5 +88,20 @@ describe('NewRunPage form rendering', () => {
     await waitFor(() => {
       expect(checkbox.checked).toBe(true);
     });
+  });
+
+  it('applies numeric min/max/step constraints to number inputs', async () => {
+    renderPage();
+
+    const headcount = (await screen.findByLabelText(/headcount/)) as HTMLInputElement;
+    expect(headcount.type).toBe('number');
+    expect(headcount.min).toBe('1');
+    expect(headcount.max).toBe('100');
+    expect(headcount.step).toBe('1'); // integer
+
+    const amount = screen.getByLabelText(/amount/) as HTMLInputElement;
+    expect(amount.min).toBe('0');
+    expect(amount.max).toBe(''); // no maximum declared
+    expect(amount.step).toBe('any'); // number allows decimals
   });
 });

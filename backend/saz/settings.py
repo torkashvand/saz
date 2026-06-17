@@ -19,6 +19,13 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite:///./saz.db"
     """The database connection URL."""
+    ARTIFACT_STORAGE_PATH: str = "./data/artifacts"
+    """Directory where run artifacts (rendered documents, audit records) are stored.
+
+    Defaults to a persistent, app-relative ``./data/artifacts`` rather than an
+    ephemeral ``/tmp`` location so downloads survive restarts. Override via the
+    ``ARTIFACT_STORAGE_PATH`` env var (e.g. an absolute path or a mounted volume).
+    """
     OPENAI_API_KEY: str = ""
     """The API key for accessing OpenAI services."""
     CREDENTIALS_ENCRYPTION_KEY: str = ""

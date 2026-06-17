@@ -18,6 +18,7 @@ from saz.agents.executor import ExecutorAgent
 from saz.agents.planner_protocol import Planner
 from saz.domain.literals import PlannerMode
 from saz.policies.policy_engine import PolicyEngine, create_default_policy_engine
+from saz.settings import settings
 from saz.tools.registry import ToolRegistry, create_default_registry
 
 # Shared, read-only singleton. Tool specs are immutable at execution time, so
@@ -49,7 +50,10 @@ def initialize_globals(
     """
     global _TOOL_REGISTRY, _PLANNER_MODEL, _CRITIC_MODEL, _POLICY_ENGINE_FACTORY, _INITIALIZED
 
-    _TOOL_REGISTRY = create_default_registry(enable_ai_ops=True)
+    _TOOL_REGISTRY = create_default_registry(
+        enable_ai_ops=True,
+        artifact_storage_path=settings.ARTIFACT_STORAGE_PATH,
+    )
     _PLANNER_MODEL = planner_model
     _CRITIC_MODEL = critic_model
     _POLICY_ENGINE_FACTORY = policy_engine_factory or create_default_policy_engine

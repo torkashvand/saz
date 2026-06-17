@@ -176,6 +176,21 @@ function NewRunPageContent() {
                               required={isRequired}
                               placeholder={field.description}
                             />
+                          ) : field.type === 'boolean' ? (
+                            // Booleans render as a checkbox so the payload carries a
+                            // real boolean (true/false), not a free-text string.
+                            <label className="flex items-center gap-2 text-sm text-slate-600">
+                              <input
+                                id={field.name}
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={formData[field.name] ?? false}
+                                onChange={(e) =>
+                                  setFormData({ ...formData, [field.name]: e.target.checked })
+                                }
+                              />
+                              {field.description || 'Enable'}
+                            </label>
                           ) : (
                             <Input
                               id={field.name}

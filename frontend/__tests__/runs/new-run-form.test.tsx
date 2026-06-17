@@ -46,6 +46,7 @@ describe('NewRunPage form rendering', () => {
           fields: [
             { name: 'reference', type: 'string', required: true },
             { name: 'scope', type: 'text', widget: 'textarea', required: true },
+            { name: 'consultation_required', type: 'boolean', required: true },
           ],
         },
       },
@@ -70,6 +71,20 @@ describe('NewRunPage form rendering', () => {
 
     await waitFor(() => {
       expect(scope.value).toBe('A multi-line\nscope description');
+    });
+  });
+
+  it('renders a boolean field as a checkbox and captures a real boolean', async () => {
+    renderPage();
+
+    const checkbox = (await screen.findByLabelText(/consultation_required/)) as HTMLInputElement;
+    expect(checkbox.tagName).toBe('INPUT');
+    expect(checkbox.type).toBe('checkbox');
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    await waitFor(() => {
+      expect(checkbox.checked).toBe(true);
     });
   });
 });

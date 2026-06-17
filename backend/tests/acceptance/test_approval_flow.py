@@ -160,3 +160,48 @@ def test_approval_gate_suspends_then_resume_continues_execution(
         assert (
             execute_step is not None and execute_step.status == "completed"
         ), f"execute step status={(execute_step.status if execute_step else None)!r}"
+
+
+def test_approval_gate_reject_stops_execution(approval_flow, db_engine, app_client):
+    """Rejecting an approval gate fails the run; the post-gate tool never runs."""
+    run_id = approval_flow
+
+    fake_http = RecordingTool("http_request", response={"ok": True}, spec=HTTP_SPEC)
+    registry = ToolRegistry()
+    registry.register_custom_tool("http_request", fake_http.spec, fake_http.execute)
+    critic = FakeCritic()
+
+    # First execution: suspend at the approval gate.
+    with Session(db_engine) as session:
+        with UnitOfWork(session) as uow:
+            executor = WorkflowExecutor(
+                uow=uow,
+                tool_registry=registry,
+                planner=DeterministicPlanner(),
+                executor_agent=ExecutorAgent(),
+                critic=critic,  # type: ignore[arg-type]
+                policy_engine=PolicyEngine(),
+            )
+            asyncio.run(executor.execute_run(run_id))
+
+    # Reject via the authenticated resume endpoint (what the UI's Reject does).
+    resp = app_client.post(
+        f"/api/v1/runs/{run_id}/resume",
+        json={"resume_data": {"approved": False, "reason": "Not acceptable"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "rejected"
+
+    # The run is failed, the gate is failed (not completed), and the post-gate
+    # tool never executed.
+    assert fake_http.call_count == 0
+    with Session(db_engine) as session:
+        run = session.get(Run, run_id)
+        assert run.status == "failed", f"rejected run must fail, got {run.status!r}"
+        steps = session.query(Step).filter(Step.run_id == run_id).all()
+        approve_step = next(s for s in steps if s.name == "approve")
+        assert approve_step.status == "failed"
+        assert approve_step.output and approve_step.output.get("approved") is False
+        # The downstream tool step must not exist / not have run.
+        execute_step = next((s for s in steps if s.name == "execute"), None)
+        assert execute_step is None or execute_step.status != "completed"

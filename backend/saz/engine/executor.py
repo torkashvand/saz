@@ -43,10 +43,12 @@ from saz.agents.schemas import (
 from saz.audit.event_emitter import EventEmitter
 from saz.db.models import Step
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import SuspensionErrorType
 from saz.engine.expressions import ConditionError, evaluate_condition, render_condition
 from saz.engine.templating import TemplateContext
 from saz.policies.policy_engine import PolicyEngine
 from saz.security.redaction import redact_secret_values, redact_sensitive
+from saz.services.approval_brief import ApprovalBriefService, ApprovalEvidence
 from saz.settings import settings
 from saz.tools.registry import ToolRegistry
 
@@ -279,6 +281,7 @@ class WorkflowExecutor:
         executor_agent: ExecutorAgent,
         critic: CriticAgent,
         policy_engine: PolicyEngine,
+        approval_brief_service: ApprovalBriefService | None = None,
     ):
         """
         Initialize workflow executor.
@@ -290,6 +293,9 @@ class WorkflowExecutor:
             executor_agent: Executor agent for grounding
             critic: Critic agent for validation
             policy_engine: Policy engine for enforcement
+            approval_brief_service: Generates the AI brief shown on human
+                approval gates. Defaults to a service backed by the global LLM
+                port; inject a fake in tests.
         """
         self.uow = uow
         self.tool_registry = tool_registry
@@ -297,6 +303,7 @@ class WorkflowExecutor:
         self.executor_agent = executor_agent
         self.critic = critic
         self.policy_engine = policy_engine
+        self.approval_brief_service = approval_brief_service or ApprovalBriefService()
 
         # Plaintext secret values resolved during this run, tracked so they can
         # be scrubbed from anything persisted, returned, or emitted.
@@ -461,6 +468,10 @@ class WorkflowExecutor:
             plan = await self._generate_plan(
                 workflow_spec=workflow_spec, run_id=run_id, context=context
             )
+
+            # Expose the plan so steps can reason about siblings (e.g. the
+            # approval brief needs the planned steps after the gate).
+            context["plan"] = plan
 
             logger.info(
                 f"Generated plan with {len(plan.steps)} steps for run {run_id} "
@@ -1748,6 +1759,65 @@ class WorkflowExecutor:
             ) from exc
         return bool(result), rendered
 
+    async def _maybe_attach_approval_brief(
+        self, plan_step: PlanStep, context: dict, current_step: Step | None
+    ) -> None:
+        """Generate and store an approval brief on the suspended approval step.
+
+        Stored under ``step.input['approval_brief']`` (already exposed in run
+        detail). No-op when disabled, opted out, already present, or when there
+        is no step row to attach to. Never raises — the gate must still suspend.
+        """
+        if current_step is None or not settings.AUTO_APPROVAL_BRIEFS_ENABLED:
+            return
+        params = plan_step.input_template or {}
+        if params.get("approval_brief") is False:  # step-level opt-out
+            return
+        if isinstance(current_step.input, dict) and "approval_brief" in current_step.input:
+            return  # already generated for this suspended step
+
+        try:
+            evidence = self._collect_approval_evidence(plan_step, context)
+            brief = await self.approval_brief_service.generate(evidence)
+            merged = dict(current_step.input or {})
+            merged["approval_brief"] = brief.to_storage()
+            current_step.input = merged
+        except Exception as exc:  # enrichment must never block suspension
+            logger.warning(f"Approval brief generation failed, suspending anyway: {exc}")
+
+    def _collect_approval_evidence(self, plan_step: PlanStep, context: dict) -> ApprovalEvidence:
+        """Gather run payload, prior completed step outputs, and planned next steps."""
+        plan = context.get("plan")
+        steps = list(plan.steps) if plan is not None else []
+        type_by_id = {s.step_id: s.step_type for s in steps}
+        approval_idx = next((i for i, s in enumerate(steps) if s.step_id == plan_step.step_id), -1)
+
+        step_results = context.get("step_results", {})
+        completed: list[dict[str, Any]] = []
+        for name in context.get("completed_steps", []):
+            result = step_results.get(name)
+            output = result.get("output") if isinstance(result, dict) else None
+            completed.append(
+                {"id": name, "step_type": type_by_id.get(name, "unknown"), "output": output}
+            )
+
+        next_steps = (
+            [{"id": s.step_id, "step_type": s.step_type} for s in steps[approval_idx + 1 :]]
+            if approval_idx >= 0
+            else []
+        )
+
+        params = plan_step.input_template or {}
+        description = params.get("message") or params.get("title")
+        return ApprovalEvidence(
+            approval_step_id=plan_step.step_id,
+            approval_description=description,
+            reasoning=plan_step.reasoning,
+            payload=context.get("payload") or {},
+            completed_steps=completed,
+            next_steps=next_steps,
+        )
+
     async def _execute_human_approval(self, plan_step: PlanStep, context: dict, run_id: str) -> Any:
         """
         Suspend run for human approval.
@@ -1782,6 +1852,12 @@ class WorkflowExecutor:
         # authorizes resume regardless of approvers.
         approval_meta = _extract_approval_metadata(plan_step.input_template)
 
+        # Enrich the gate with an AI approval brief before suspending. This is
+        # an enrichment of the approval step, NOT a workflow step: it does not
+        # alter the plan, step numbering, or run/resume semantics, and it never
+        # blocks the gate (failures fall back to a deterministic brief).
+        await self._maybe_attach_approval_brief(plan_step, context, current_step)
+
         # Emit approval requested event (payload is sanitized by the emitter).
         emitter.approval_requested(
             step_id=step_db_id,
@@ -1806,7 +1882,7 @@ class WorkflowExecutor:
         assert self.uow.runs is not None
         error_payload: dict[str, Any] = {
             "message": f"Human approval required for step {plan_step.step_id}",
-            "type": "HumanApprovalRequired",
+            "type": SuspensionErrorType.HUMAN_APPROVAL_REQUIRED,
             "step_id": plan_step.step_id,
             "reasoning": plan_step.reasoning,
             "callback_id": callback_id,
@@ -1869,7 +1945,7 @@ class WorkflowExecutor:
         assert self.uow.runs is not None
         error_payload: dict[str, Any] = {
             "message": f"Webhook wait for step {plan_step.step_id}",
-            "type": "WebhookWait",
+            "type": SuspensionErrorType.WEBHOOK_WAIT,
             "step_id": plan_step.step_id,
             "callback_id": callback_id,
         }

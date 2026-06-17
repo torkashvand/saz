@@ -94,10 +94,30 @@ class Actor(StrEnum):
     LLM = "llm"
 
 
+class SuspensionErrorType(StrEnum):
+    """``error["type"]`` for the human-approval / webhook-wait gate lifecycle.
+
+    Set by the executor when a run suspends and by the resume/callback routes
+    when a gate is rejected; read back by the suspension sweeper (which branches
+    on ``HumanApprovalRequired`` to apply approval-specific timeout handling) and
+    the frontend (which shows the approval panel on ``HumanApprovalRequired``).
+    Reused across the executor, API routes, and sweeper, so it lives here rather
+    than as scattered string literals.
+    """
+
+    # Suspended, awaiting resolution.
+    HUMAN_APPROVAL_REQUIRED = "HumanApprovalRequired"
+    WEBHOOK_WAIT = "WebhookWait"
+    # Terminal: a gate was explicitly rejected.
+    HUMAN_APPROVAL_REJECTED = "HumanApprovalRejected"
+    WEBHOOK_REJECTION = "WebhookRejection"
+
+
 __all__ = [
     "Actor",
     "PlannerMode",
     "RunStatus",
     "Severity",
     "StepStatus",
+    "SuspensionErrorType",
 ]

@@ -250,6 +250,37 @@ export interface ResumeRunResponse {
   status: string;
 }
 
+// --- Approval briefs ---
+
+export type ApprovalReadiness = 'ready' | 'review_required' | 'blocked' | 'unknown';
+export type ApprovalGenerationStatus = 'generated' | 'fallback' | 'failed';
+
+export interface ApprovalBriefKeyFact {
+  label: string;
+  value: string;
+}
+
+/**
+ * Structured decision brief auto-generated when a run reaches a human.approval
+ * gate. Stored by the backend on the suspended approval step's `input` under
+ * the `approval_brief` key and surfaced through the run detail API.
+ */
+export interface ApprovalBrief {
+  decision_title: string;
+  readiness: ApprovalReadiness;
+  readiness_label: string;
+  main_reason: string;
+  critical_issues: string[];
+  passed_checks: string[];
+  key_facts: ApprovalBriefKeyFact[];
+  approval_consequence: string;
+  source_step_ids: string[];
+  generation_status: ApprovalGenerationStatus;
+  confidence?: number;
+  warnings?: string[];
+  debug_reason?: string;
+}
+
 /** Shape of run.error when type === 'HumanApprovalRequired' */
 export interface HumanApprovalError {
   message: string;

@@ -315,6 +315,29 @@ class MockLLMPort(LLMPort):
         )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_llm_port():
+    """Guarantee no test ever calls a real LLM.
+
+    The human.approval path generates an approval brief via the global LLM
+    port, so a default LiteLLM port would make a network call when a run hits
+    an approval gate. Install a deterministic mock for every test and reset the
+    cached AI runner. Tests needing specific LLM behavior override the port in
+    the test body via ``set_llm_port(...)``.
+    """
+    from saz.agents import ai_ops, llm_port as llm_port_module
+
+    previous_port = llm_port_module._default_port
+    previous_runner = ai_ops._ai_runner
+    llm_port_module.set_llm_port(MockLLMPort())
+    ai_ops._ai_runner = None
+    try:
+        yield
+    finally:
+        llm_port_module._default_port = previous_port
+        ai_ops._ai_runner = previous_runner
+
+
 @pytest.fixture
 def mock_llm_port():
     """Create mock LLM port."""

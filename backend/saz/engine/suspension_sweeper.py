@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from saz.audit.event_emitter import EventEmitter
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import SuspensionErrorType
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,7 @@ class SuspensionSweeper:
             planner_mode=run.planner_mode or "deterministic",
             pii_policy="redact",
         )
-        if suspension_type == "HumanApprovalRequired":
+        if suspension_type == SuspensionErrorType.HUMAN_APPROVAL_REQUIRED:
             emitter.approval_denied(
                 step_id=suspended_step_db_id,
                 step_name=step_id,

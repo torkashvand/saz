@@ -181,10 +181,18 @@ def test_approval_workflow_denial(app_client, approval_workflow, db_engine):
     )
 
     assert response.status_code == 200
+    # Rejection must NOT resume the run — it stops it.
+    assert response.json()["status"] == "rejected"
 
-    # Verify denial stored
+    # The run is failed and the approval step is failed (never completed), so
+    # no later step can run.
     with Session(db_engine) as session:
+        run = session.get(Run, run_id)
+        assert run.status == "failed", f"rejected run must fail, got {run.status!r}"
+
         step = session.get(Step, f"{run_id}_approval")
+        assert step.status == "failed", f"rejected gate must fail, got {step.status!r}"
+        # The denial reason is preserved for the operator.
         assert step.output["approved"] is False
         assert "Budget constraints" in step.output["reason"]
 

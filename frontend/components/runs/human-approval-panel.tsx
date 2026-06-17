@@ -7,16 +7,29 @@ import {
   Loader2,
   PauseCircle,
   CheckCircle2,
+  AlertTriangle,
   ArrowRight,
   ChevronDown,
   ChevronRight,
+  HelpCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { CollapsibleSection, ReadableValue } from '@/components/common/json-view';
+import {
+  CollapsibleSection,
+  ReadableValue,
+  isRecord,
+  isEmptyValue,
+} from '@/components/common/json-view';
 import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
-import type { HumanApprovalError, RunDetailResponse, RunStep, PlannedStep } from '@/lib/types';
+import type {
+  ApprovalBrief,
+  ApprovalReadiness,
+  HumanApprovalError,
+  RunDetailResponse,
+  RunStep,
+  PlannedStep,
+} from '@/lib/types';
 
 interface HumanApprovalPanelProps {
   approvalError: HumanApprovalError;
@@ -26,26 +39,34 @@ interface HumanApprovalPanelProps {
   isPending: boolean;
 }
 
-/** Find the index of the approval step in planned_steps by step_id */
-function findApprovalStepIndex(plannedSteps: PlannedStep[], approvalStepId: string): number {
-  return plannedSteps.findIndex((s) => s.id === approvalStepId);
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+function humanize(value: string): string {
+  const stripped = value.replace(/_(input|eur|pct)$/i, '');
+  const spaced = stripped.replace(/_/g, ' ').trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** Get steps that come after the approval step */
-function getNextSteps(plannedSteps: PlannedStep[], approvalStepIndex: number): PlannedStep[] {
-  if (approvalStepIndex < 0) return [];
-  return plannedSteps.slice(approvalStepIndex + 1);
+function humanizeEnum(value: unknown): string {
+  return String(value)
+    .replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase());
 }
 
-/** Human-readable step type label */
+function formatEuro(value: unknown): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return `€${n.toLocaleString('en-US')}`;
+}
+
 function stepTypeLabel(stepType: string | null): string {
   if (!stepType) return 'Step';
   const labels: Record<string, string> = {
     'ai.extract': 'AI Extraction',
+    'ai.evaluate': 'AI Evaluation',
     'ai.generate': 'AI Generation',
-    'ai.route': 'AI Routing',
-    'ai.score': 'AI Scoring',
-    'ai.assess': 'AI Assessment',
     'tool.call': 'Tool Call',
     'http.request': 'HTTP Request',
     'webhook.wait': 'Webhook Wait',
@@ -53,7 +74,6 @@ function stepTypeLabel(stepType: string | null): string {
     'artifact.store': 'Artifact Storage',
     condition: 'Condition',
   };
-  // Try exact match first, then prefix match
   if (labels[stepType]) return labels[stepType];
   const prefix = stepType.split('.')[0];
   if (prefix === 'ai') return 'AI Operation';
@@ -61,23 +81,190 @@ function stepTypeLabel(stepType: string | null): string {
   return stepType;
 }
 
-/** Check if a value has meaningful content to display */
-function hasContent(value: unknown): boolean {
-  if (value === null || value === undefined) return false;
-  if (typeof value === 'object' && Object.keys(value as object).length === 0) return false;
-  return true;
-}
-
-/**
- * Build the absolute URL operators can POST to in order to resolve the
- * approval gate via the webhook callback path. Mirrors the construction
- * used on the run detail page for the webhook.wait variant so the curl
- * recipe in the docs works for both suspension types.
- */
 function buildApprovalCallbackUrl(callbackId: string): string {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
   return `${base}/api/v1/webhooks/callback/${callbackId}`;
 }
+
+// ---------------------------------------------------------------------------
+// Approval brief: read the server-generated brief, or derive one client-side
+// ---------------------------------------------------------------------------
+
+const READINESS_LABELS: Record<ApprovalReadiness, string> = {
+  ready: 'Ready for approval',
+  review_required: 'Review required',
+  blocked: 'Blocked — review required',
+  unknown: 'Approval required',
+};
+
+const READINESS_STYLES: Record<
+  ApprovalReadiness,
+  { box: string; dot: string; Icon: typeof CheckCircle2 }
+> = {
+  ready: {
+    box: 'border-green-200 bg-green-50 text-green-900',
+    dot: 'text-green-600',
+    Icon: CheckCircle2,
+  },
+  review_required: {
+    box: 'border-amber-200 bg-amber-50 text-amber-900',
+    dot: 'text-amber-600',
+    Icon: AlertTriangle,
+  },
+  blocked: {
+    box: 'border-red-200 bg-red-50 text-red-900',
+    dot: 'text-red-600',
+    Icon: AlertTriangle,
+  },
+  unknown: {
+    box: 'border-slate-200 bg-slate-50 text-slate-700',
+    dot: 'text-slate-400',
+    Icon: HelpCircle,
+  },
+};
+
+const READINESS_VALUES: ApprovalReadiness[] = ['ready', 'review_required', 'blocked', 'unknown'];
+
+/** Validate and normalize the server-provided brief; null when absent/malformed. */
+function readServerBrief(step: RunStep | undefined): ApprovalBrief | null {
+  const raw = step?.input;
+  if (!isRecord(raw)) return null;
+  const brief = raw.approval_brief;
+  if (!isRecord(brief)) return null;
+  if (
+    typeof brief.decision_title !== 'string' ||
+    typeof brief.main_reason !== 'string' ||
+    !READINESS_VALUES.includes(brief.readiness as ApprovalReadiness)
+  ) {
+    return null;
+  }
+  const arr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  const facts = Array.isArray(brief.key_facts)
+    ? brief.key_facts
+        .filter((f): f is { label: string; value: string } => isRecord(f))
+        .map((f) => ({ label: String(f.label), value: String(f.value) }))
+    : [];
+  const readiness = brief.readiness as ApprovalReadiness;
+  return {
+    decision_title: brief.decision_title,
+    readiness,
+    readiness_label:
+      typeof brief.readiness_label === 'string'
+        ? brief.readiness_label
+        : READINESS_LABELS[readiness],
+    main_reason: brief.main_reason,
+    critical_issues: arr(brief.critical_issues),
+    passed_checks: arr(brief.passed_checks),
+    key_facts: facts,
+    approval_consequence:
+      typeof brief.approval_consequence === 'string' ? brief.approval_consequence : '',
+    source_step_ids: arr(brief.source_step_ids),
+    generation_status:
+      brief.generation_status === 'generated' || brief.generation_status === 'failed'
+        ? brief.generation_status
+        : 'fallback',
+    confidence: typeof brief.confidence === 'number' ? brief.confidence : undefined,
+    warnings: arr(brief.warnings),
+    debug_reason: typeof brief.debug_reason === 'string' ? brief.debug_reason : undefined,
+  };
+}
+
+// Evidence keys recognized when deriving a client-side fallback brief.
+const FACT_FIELDS: { key: string; label: string; format?: (v: unknown) => string }[] = [
+  { key: 'project_name', label: 'Project' },
+  { key: 'criticality', label: 'Criticality', format: humanizeEnum },
+  { key: 'estimated_value_eur', label: 'Estimated value', format: formatEuro },
+  { key: 'data_sensitivity', label: 'Data sensitivity', format: humanizeEnum },
+  { key: 'num_users', label: 'Users' },
+  { key: 'contract_duration', label: 'Contract duration' },
+  { key: 'pricing_model', label: 'Pricing model', format: humanizeEnum },
+];
+
+/** Best-effort brief built from run data when no server brief is available. */
+function buildClientFallbackBrief(
+  run: RunDetailResponse,
+  approvalError: HumanApprovalError,
+  completedSteps: RunStep[],
+  nextSteps: PlannedStep[],
+): ApprovalBrief {
+  const payload = (run.payload ?? {}) as Record<string, unknown>;
+  const issues: string[] = [];
+  const passed: string[] = [];
+  let blocking = false;
+  let concern = false;
+
+  for (const step of completedSteps) {
+    const out = step.output;
+    if (!isRecord(out)) continue;
+    if (Array.isArray(out.missing_fields)) {
+      if (out.missing_fields.length) {
+        blocking = true;
+        issues.push(...out.missing_fields.slice(0, 5).map((f) => `Missing: ${String(f)}`));
+      } else {
+        passed.push('No missing fields');
+      }
+    }
+    if (typeof out.pass === 'boolean') {
+      if (out.pass === false) {
+        concern = true;
+        issues.push('PONT/compliance check did not pass');
+      } else {
+        passed.push('PONT/compliance check passed');
+      }
+    }
+    for (const key of ['inconsistencies', 'issues', 'risks']) {
+      const v = out[key];
+      if (Array.isArray(v) && v.length) {
+        concern = true;
+        issues.push(...v.slice(0, 5).map((x) => String(x)));
+      } else if (key === 'inconsistencies' && Array.isArray(v)) {
+        passed.push('No inconsistencies');
+      }
+    }
+  }
+
+  const readiness: ApprovalReadiness = blocking
+    ? 'blocked'
+    : concern
+      ? 'review_required'
+      : 'unknown';
+
+  const keyFacts = FACT_FIELDS.filter((f) => f.key in payload && !isEmptyValue(payload[f.key])).map(
+    (f) => ({
+      label: f.label,
+      value: f.format ? f.format(payload[f.key]) : String(payload[f.key]),
+    }),
+  );
+
+  const nextName = nextSteps.length > 0 ? humanize(nextSteps[0].name) : null;
+  const consequence = nextName
+    ? `If approved, Saz will continue with ${nextName}.`
+    : 'If approved, the workflow will complete.';
+
+  return {
+    decision_title: nextName
+      ? `Approve continuing to ${nextName}?`
+      : 'Approve completing this workflow?',
+    readiness,
+    readiness_label: READINESS_LABELS[readiness],
+    main_reason:
+      approvalError.message ||
+      approvalError.reasoning ||
+      'Human approval is required before this workflow can continue.',
+    critical_issues: issues.slice(0, 8),
+    passed_checks: passed,
+    key_facts: keyFacts,
+    approval_consequence: consequence,
+    source_step_ids: completedSteps.map((s) => s.name),
+    generation_status: 'fallback',
+    warnings: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function HumanApprovalPanel({
   approvalError,
@@ -89,46 +276,42 @@ export function HumanApprovalPanel({
   const [mode, setMode] = useState<'review' | 'approve' | 'reject'>('review');
   const [comments, setComments] = useState('');
   const [reason, setReason] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const completedSteps = useMemo(
     () => run.steps.filter((s) => s.status === 'completed'),
     [run.steps],
   );
-
   const suspendedStep = useMemo(() => run.steps.find((s) => s.status === 'suspended'), [run.steps]);
 
   const approvalStepIndex = useMemo(
-    () => findApprovalStepIndex(run.planned_steps || [], approvalError.step_id),
+    () => (run.planned_steps || []).findIndex((s) => s.id === approvalError.step_id),
     [run.planned_steps, approvalError.step_id],
   );
-
   const nextSteps = useMemo(
-    () => getNextSteps(run.planned_steps || [], approvalStepIndex),
+    () => (approvalStepIndex < 0 ? [] : (run.planned_steps || []).slice(approvalStepIndex + 1)),
     [run.planned_steps, approvalStepIndex],
   );
 
-  // Steps that have output worth reviewing
+  const brief = useMemo(
+    () =>
+      readServerBrief(suspendedStep) ??
+      buildClientFallbackBrief(run, approvalError, completedSteps, nextSteps),
+    [suspendedStep, run, approvalError, completedSteps, nextSteps],
+  );
+
   const stepsWithOutput = useMemo(
-    () => completedSteps.filter((s) => hasContent(s.output)),
+    () => completedSteps.filter((s) => !isEmptyValue(s.output)),
     [completedSteps],
   );
 
-  const hasReviewableContent = stepsWithOutput.length > 0;
+  const approvalTitle = suspendedStep ? humanize(suspendedStep.name) : 'this step';
+  const nextStepName = nextSteps.length > 0 ? humanize(nextSteps[0].name) : null;
+  const readinessStyle = READINESS_STYLES[brief.readiness];
 
-  const handleApprove = () => {
-    onApprove({
-      approved: true,
-      comments: comments.trim() || undefined,
-    });
-  };
-
-  const handleReject = () => {
-    onReject({
-      approved: false,
-      reason: reason.trim() || 'Rejected by user',
-    });
-  };
-
+  const handleApprove = () => onApprove({ approved: true, comments: comments.trim() || undefined });
+  const handleReject = () =>
+    onReject({ approved: false, reason: reason.trim() || 'Rejected by user' });
   const handleCancel = () => {
     setMode('review');
     setComments('');
@@ -136,200 +319,128 @@ export function HumanApprovalPanel({
   };
 
   return (
-    <Card className="border-amber-300 bg-amber-50/50 shadow-md">
+    <Card className="border-amber-300 bg-amber-50/50 shadow-md" data-testid="approval-packet">
       <CardHeader className="pb-4">
-        {/* Status header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-100">
               <PauseCircle className="h-5 w-5 text-amber-600" />
             </div>
             <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+                Workflow paused — approval required
+              </p>
               <h3 className="text-lg font-semibold text-slate-900">
-                Workflow Paused &mdash; Approval Required
+                Approval needed: {approvalTitle}
               </h3>
-              <p className="text-sm text-slate-600">
-                {run.flow_name} &middot; Step {approvalStepIndex + 1} of{' '}
-                {run.planned_steps?.length ?? '?'}
+              <p className="mt-1 text-xs text-slate-500">
+                {run.flow_name} · Step {approvalStepIndex + 1} of {run.planned_steps?.length ?? '?'}
               </p>
             </div>
           </div>
-          <span className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
-            Awaiting Decision
+          <span className="flex-shrink-0 rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+            Awaiting decision
           </span>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-5">
-        {/* Approval context */}
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <h4 className="text-sm font-semibold text-slate-900">What needs approval</h4>
-          <p className="text-sm text-slate-700">{approvalError.message}</p>
-          {approvalError.reasoning && (
-            <p className="text-sm text-slate-600 italic">{approvalError.reasoning}</p>
-          )}
-          <div className="text-xs text-slate-500 font-mono">Step: {approvalError.step_id}</div>
-          {approvalError.callback_id && (
-            <details className="border-t border-slate-100 pt-3">
-              <summary className="cursor-pointer select-none text-xs font-medium uppercase tracking-wide text-slate-600">
-                Advanced: approve via webhook callback (curl)
-              </summary>
-              <div className="mt-3">
-                <CallbackUrlBlock
-                  url={buildApprovalCallbackUrl(approvalError.callback_id)}
-                  label="Callback URL"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  Approving via the buttons below calls <code>POST /runs/{run.id}/resume</code>.
-                  External systems can resolve this gate by POSTing to the callback URL above
-                  instead — the audit trail records both paths.
-                </p>
-              </div>
-            </details>
+      <CardContent className="space-y-4">
+        {/* Decision question — the most prominent content */}
+        <div
+          data-testid="decision-question"
+          className="rounded-lg border border-slate-200 bg-white p-4"
+        >
+          <p className="text-base font-medium text-slate-900">{brief.decision_title}</p>
+          {brief.main_reason && (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{brief.main_reason}</p>
           )}
         </div>
 
-        {/* Tabbed review area */}
-        <Tabs defaultValue="summary" className="w-full">
-          <TabsList className="bg-white border border-slate-200">
-            <TabsTrigger value="summary" className="text-xs">
-              Summary
-            </TabsTrigger>
-            {hasReviewableContent && (
-              <TabsTrigger value="outputs" className="text-xs">
-                Step Outputs ({stepsWithOutput.length})
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="next" className="text-xs">
-              After Approval
-            </TabsTrigger>
-          </TabsList>
+        {/* Readiness */}
+        <div
+          data-testid="readiness-state"
+          className={`flex items-start gap-2.5 rounded-lg border p-3 ${readinessStyle.box}`}
+        >
+          <readinessStyle.Icon className={`mt-0.5 h-4 w-4 flex-shrink-0 ${readinessStyle.dot}`} />
+          <p className="text-sm font-semibold">{brief.readiness_label}</p>
+        </div>
 
-          {/* Summary tab */}
-          <TabsContent value="summary">
-            <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
-              {/* Completed steps */}
-              <div>
-                <h5 className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
-                  Completed Steps
-                </h5>
-                {completedSteps.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {completedSteps.map((step) => (
-                      <div key={step.id} className="flex items-center gap-2 text-sm">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                        <span className="text-slate-800 font-medium">{step.name}</span>
-                        <span className="text-slate-400 text-xs">
-                          {stepTypeLabel(step.step_type)}
-                        </span>
-                        {step.duration_ms != null && (
-                          <span className="text-slate-400 text-xs ml-auto">
-                            {step.duration_ms < 1000
-                              ? `${step.duration_ms}ms`
-                              : `${(step.duration_ms / 1000).toFixed(1)}s`}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    No steps completed before this approval point.
-                  </p>
-                )}
-              </div>
+        {/* Critical issues — only when present */}
+        {brief.critical_issues.length > 0 && (
+          <section data-testid="critical-issues">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Critical issues
+            </h4>
+            <ul className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              {brief.critical_issues.map((issue, i) => (
+                <li key={i} className="flex gap-2">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                  <span className="whitespace-pre-wrap break-words">{issue}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-              {/* Suspended step */}
-              {suspendedStep && (
-                <div>
-                  <h5 className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
-                    Pending Approval Step
-                  </h5>
-                  <div className="flex items-center gap-2 text-sm">
-                    <PauseCircle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-                    <span className="text-slate-800 font-medium">{suspendedStep.name}</span>
-                    <span className="text-slate-400 text-xs">
-                      {stepTypeLabel(suspendedStep.step_type)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Run payload context */}
-              {hasContent(run.payload) && (
-                <div>
-                  <h5 className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
-                    Run Input
-                  </h5>
-                  <CollapsibleSection title="View run payload">
-                    <ReadableValue value={run.payload} />
-                  </CollapsibleSection>
-                </div>
-              )}
+        {/* Passed checks — compact */}
+        {brief.passed_checks.length > 0 && (
+          <section data-testid="passed-checks">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Passed checks
+            </h4>
+            <div className="flex flex-wrap gap-1.5">
+              {brief.passed_checks.map((check, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-800"
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  {check}
+                </span>
+              ))}
             </div>
-          </TabsContent>
+          </section>
+        )}
 
-          {/* Step outputs tab */}
-          {hasReviewableContent && (
-            <TabsContent value="outputs">
-              <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-                <p className="text-xs text-slate-500 mb-2">
-                  Review the results from completed steps before making your decision.
-                </p>
-                {stepsWithOutput.map((step) => (
-                  <StepOutputSection key={step.id} step={step} />
-                ))}
-              </div>
-            </TabsContent>
-          )}
-
-          {/* After approval tab */}
-          <TabsContent value="next">
-            <div className="bg-white border border-slate-200 rounded-lg p-4">
-              <h5 className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-3">
-                What happens after approval
-              </h5>
-              {nextSteps.length > 0 ? (
-                <div className="space-y-2">
-                  {nextSteps.map((step, i) => (
-                    <div key={step.id} className="flex items-center gap-2 text-sm">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <ArrowRight className="h-3.5 w-3.5" />
-                        <span className="text-xs font-mono w-5 text-right">
-                          {approvalStepIndex + 2 + i}
-                        </span>
-                      </div>
-                      <span className="text-slate-800 font-medium">{step.name}</span>
-                      <span className="text-slate-400 text-xs">
-                        {stepTypeLabel(step.step_type)}
-                      </span>
-                    </div>
-                  ))}
-                  <p className="text-xs text-slate-500 mt-3 pt-2 border-t border-slate-100">
-                    The workflow will continue with{' '}
-                    <span className="font-medium text-slate-700">{nextSteps[0].name}</span>{' '}
-                    immediately after approval.
-                  </p>
+        {/* Key facts */}
+        {brief.key_facts.length > 0 && (
+          <section data-testid="key-facts">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Key facts
+            </h4>
+            <dl className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-4">
+              {brief.key_facts.map((fact, i) => (
+                <div key={i} className="grid grid-cols-[minmax(0,9rem)_1fr] gap-x-3">
+                  <dt className="text-xs font-medium text-slate-500">{fact.label}</dt>
+                  <dd className="min-w-0 text-sm text-slate-800">{fact.value}</dd>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">
-                  This is the last step. Approving will complete the workflow.
-                </p>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+              ))}
+            </dl>
+          </section>
+        )}
+
+        {/* What happens after approval */}
+        {brief.approval_consequence && (
+          <section data-testid="after-approval">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              What happens after approval
+            </h4>
+            <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+              {brief.approval_consequence}
+            </p>
+          </section>
+        )}
 
         {/* Decision actions */}
         {mode === 'review' && (
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex items-center gap-3 pt-1">
             <Button
               onClick={() => setMode('approve')}
               disabled={isPending}
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-green-600 text-white hover:bg-green-700"
             >
-              <ShieldCheck className="h-4 w-4 mr-2" />
-              Approve and Continue
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              Approve and continue
             </Button>
             <Button
               onClick={() => setMode('reject')}
@@ -337,31 +448,28 @@ export function HumanApprovalPanel({
               variant="outline"
               className="border-red-300 text-red-700 hover:bg-red-50"
             >
-              <ShieldX className="h-4 w-4 mr-2" />
-              Reject
+              <ShieldX className="mr-2 h-4 w-4" />
+              Reject and stop
             </Button>
           </div>
         )}
 
-        {/* Approve confirmation */}
         {mode === 'approve' && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
+          <div className="space-y-3 rounded-lg border border-green-200 bg-green-50 p-4">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-green-600" />
-              <span className="text-sm font-semibold text-green-900">Confirm Approval</span>
+              <span className="text-sm font-semibold text-green-900">Confirm approval</span>
             </div>
             <p className="text-sm text-green-800">
               The workflow will resume and continue with{' '}
-              <span className="font-medium">
-                {nextSteps.length > 0 ? nextSteps[0].name : 'completion'}
-              </span>
-              .
+              <span className="font-medium">{nextStepName ?? 'completion'}</span>.
             </p>
             <textarea
               value={comments}
               onChange={(e) => setComments(e.target.value)}
               placeholder="Optional comments..."
-              className="w-full px-3 py-2 text-sm border border-green-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
+              aria-label="Approval comments"
+              className="w-full resize-none rounded-md border border-green-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
               rows={2}
               disabled={isPending}
             />
@@ -369,18 +477,18 @@ export function HumanApprovalPanel({
               <Button
                 onClick={handleApprove}
                 disabled={isPending}
-                className="bg-green-600 hover:bg-green-700 text-white"
                 size="sm"
+                className="bg-green-600 text-white hover:bg-green-700"
               >
                 {isPending ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Resuming...
                   </>
                 ) : (
                   <>
-                    <ShieldCheck className="h-4 w-4 mr-2" />
-                    Approve and Continue
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Approve and continue
                   </>
                 )}
               </Button>
@@ -391,12 +499,11 @@ export function HumanApprovalPanel({
           </div>
         )}
 
-        {/* Reject confirmation */}
         {mode === 'reject' && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+          <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
             <div className="flex items-center gap-2">
               <ShieldX className="h-5 w-5 text-red-600" />
-              <span className="text-sm font-semibold text-red-900">Confirm Rejection</span>
+              <span className="text-sm font-semibold text-red-900">Confirm rejection</span>
             </div>
             <p className="text-sm text-red-800">
               The workflow will be marked as failed and will not continue.
@@ -405,7 +512,8 @@ export function HumanApprovalPanel({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Reason for rejection (required)..."
-              className="w-full px-3 py-2 text-sm border border-red-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+              aria-label="Rejection reason"
+              className="w-full resize-none rounded-md border border-red-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
               rows={2}
               disabled={isPending}
             />
@@ -419,13 +527,13 @@ export function HumanApprovalPanel({
               >
                 {isPending ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Rejecting...
                   </>
                 ) : (
                   <>
-                    <ShieldX className="h-4 w-4 mr-2" />
-                    Reject
+                    <ShieldX className="mr-2 h-4 w-4" />
+                    Reject and stop
                   </>
                 )}
               </Button>
@@ -435,54 +543,137 @@ export function HumanApprovalPanel({
             </div>
           </div>
         )}
+
+        {/* Advanced / debug — collapsed by default, conditionally mounted */}
+        <div data-testid="advanced-details" className="border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+          >
+            {showAdvanced ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            Advanced details
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-3 space-y-4">
+              <div>
+                <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Approval brief ({brief.generation_status})
+                </h5>
+                {brief.warnings && brief.warnings.length > 0 && (
+                  <ul className="mb-2 list-disc pl-5 text-xs text-slate-500">
+                    {brief.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+                {brief.debug_reason && (
+                  <p className="mb-2 text-xs text-slate-400">Reason: {brief.debug_reason}</p>
+                )}
+                <CollapsibleSection title="View raw brief">
+                  <ReadableValue value={brief} />
+                </CollapsibleSection>
+              </div>
+
+              {nextSteps.length > 0 && (
+                <div>
+                  <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Planned next steps
+                  </h5>
+                  <div className="space-y-1.5">
+                    {nextSteps.map((step, i) => (
+                      <div key={step.id} className="flex items-center gap-2 text-sm">
+                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                        <span className="w-5 text-right font-mono text-xs text-slate-400">
+                          {approvalStepIndex + 2 + i}
+                        </span>
+                        <span className="font-medium text-slate-800">{humanize(step.name)}</span>
+                        <span className="text-xs text-slate-400">
+                          {stepTypeLabel(step.step_type)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {stepsWithOutput.length > 0 && (
+                <div>
+                  <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Full step outputs
+                  </h5>
+                  <div className="space-y-2">
+                    {stepsWithOutput.map((step) => (
+                      <StepOutputSection key={step.id} step={step} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!isEmptyValue(run.payload) && (
+                <div>
+                  <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Raw run input
+                  </h5>
+                  <CollapsibleSection title="View full run payload">
+                    <ReadableValue value={run.payload} />
+                  </CollapsibleSection>
+                </div>
+              )}
+
+              {approvalError.callback_id && (
+                <div>
+                  <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Approve via webhook callback (curl)
+                  </h5>
+                  <CallbackUrlBlock
+                    url={buildApprovalCallbackUrl(approvalError.callback_id)}
+                    label="Callback URL"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Approving via the buttons above calls <code>POST /runs/{run.id}/resume</code>.
+                    External systems can resolve this gate by POSTing to the callback URL instead —
+                    the audit trail records both paths.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-/** Expandable section for a single step's output */
+/** Expandable raw JSON for a single completed step (advanced view). */
 function StepOutputSection({ step }: { step: RunStep }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Try to extract a short summary from the output
-  const outputSummary = useMemo(() => {
-    if (!step.output) return null;
-    if (typeof step.output === 'string') return step.output.slice(0, 120);
-    // For objects, try to find a summary-like field
-    const summaryKeys = ['summary', 'result', 'message', 'description', 'text', 'content'];
-    for (const key of summaryKeys) {
-      if (key in step.output && typeof step.output[key] === 'string') {
-        return step.output[key].slice(0, 200);
-      }
-    }
-    return null;
-  }, [step.output]);
-
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-slate-200">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+        className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2.5 text-left transition-colors hover:bg-slate-100"
       >
         {isOpen ? (
-          <ChevronDown className="h-4 w-4 text-slate-500 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 flex-shrink-0 text-slate-500" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />
+          <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-500" />
         )}
-        <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+        <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-green-500" />
         <span className="text-sm font-medium text-slate-800">{step.name}</span>
-        <span className="text-xs text-slate-400 ml-auto flex-shrink-0">
+        <span className="ml-auto flex-shrink-0 text-xs text-slate-400">
           {stepTypeLabel(step.step_type)}
         </span>
       </button>
-      {!isOpen && outputSummary && (
-        <div className="px-3 py-2 text-xs text-slate-600 border-t border-slate-100 bg-white truncate">
-          {outputSummary}
-        </div>
-      )}
       {isOpen && (
-        <div className="p-3 border-t border-slate-200 bg-white">
-          <pre className="text-xs bg-slate-50 p-3 rounded overflow-auto max-h-64 font-mono text-slate-700">
+        <div className="border-t border-slate-200 bg-white p-3">
+          <pre className="max-h-64 overflow-auto rounded bg-slate-50 p-3 font-mono text-xs text-slate-700">
             {JSON.stringify(step.output, null, 2)}
           </pre>
         </div>

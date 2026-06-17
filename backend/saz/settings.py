@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     SUSPENSION_SWEEP_ENABLED: bool = True
     """Disable the sweeper entirely (e.g. for in-process tests where the
     background thread would race with synchronous assertions)."""
+    AUTO_APPROVAL_BRIEFS_ENABLED: bool = True
+    """Auto-generate an AI approval brief when a human.approval gate is reached.
+
+    Enabled by default so every approval screen is understandable without a
+    manual summary step. A workflow can opt a step out via the approval params
+    (``approval_brief: false``). Generation never blocks the gate: on LLM
+    failure a deterministic fallback brief is stored instead."""
 
     # --- Authentication ---
     JWT_SECRET_KEY: str = ""

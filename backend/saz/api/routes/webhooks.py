@@ -14,6 +14,7 @@ from saz.api.schemas.webhook_schemas import (
 )
 from saz.audit.event_emitter import EventEmitter
 from saz.domain.event_schema import EventType
+from saz.domain.literals import SuspensionErrorType
 from saz.engine.scheduler import get_scheduler
 
 router = APIRouter(prefix="/api/v1", tags=["webhooks"])
@@ -96,6 +97,48 @@ async def resume_run(
         pii_policy="redact",
         actor_user_id=user.id,
     )
+    resume_data = req.resume_data or {}
+    is_rejection = resume_data.get("approved") is False
+    suspended_step = next((s for s in run.steps if s.status == "suspended"), None)
+
+    if is_rejection:
+        # A rejected approval gate STOPS the run: it must not resume or run any
+        # later step. Mirror the webhook-callback reject path — fail the
+        # suspended step and the run atomically, preserving the operator's
+        # reason. (Previously a rejection fell through to resume_run, which
+        # completed the gate and re-queued the run, so it kept executing.)
+        assert service.uow.runs is not None
+        assert service.uow.steps is not None
+        reason = resume_data.get("reason") or "Rejected by approver"
+        error = {
+            "type": SuspensionErrorType.HUMAN_APPROVAL_REJECTED,
+            "message": f"Approval rejected: {reason}",
+            "reason": reason,
+        }
+        if not service.uow.runs.mark_failed_if_suspended(run_id, error):
+            current = service.uow.runs.get(run_id)
+            raise ValidationError(
+                f"Run {run_id} is not suspended "
+                f"(status: {current.status if current else 'missing'})"
+            )
+        if suspended_step is not None:
+            step_entity = service.uow.steps.get(suspended_step.id)
+            if step_entity is not None:
+                # Keep the denial payload (approver/reason) visible to operators.
+                step_entity.output = resume_data
+            service.uow.steps.mark_failed(suspended_step.id, error)
+        emitter.approval_denied(
+            step_id=suspended_step.id if suspended_step else None,
+            step_name=(
+                suspended_step.name if suspended_step else (run.error or {}).get("step_id", "")
+            ),
+            reason=reason,
+        )
+        emitter.run_failed(error=reason, error_type=SuspensionErrorType.HUMAN_APPROVAL_REJECTED)
+        await emitter.commit_and_broadcast()
+        return ResumeRunResponse(run_id=run_id, status="rejected")
+
+    # Approval / resume path.
     emitter.emit(
         EventType.RUN_RESUMED,
         f"Run resumed by {user.username}",
@@ -105,7 +148,6 @@ async def resume_run(
 
     # Emit a step-level resume event for the suspended step so the timeline
     # records which step was advanced (mirrors the webhook-callback path).
-    suspended_step = next((s for s in run.steps if s.status == "suspended"), None)
     if suspended_step is not None:
         emitter.step_resumed(
             step_id=suspended_step.id,
@@ -240,7 +282,7 @@ async def handle_webhook_callback(
             run.id,
             {
                 "message": f"Rejected via webhook: {reason}",
-                "type": "WebhookRejection",
+                "type": SuspensionErrorType.WEBHOOK_REJECTION,
                 "callback_id": callback_id,
             },
         ):
@@ -267,14 +309,14 @@ async def handle_webhook_callback(
             uow.steps.mark_failed(
                 suspended_step_db_id,
                 {
-                    "type": "WebhookRejection",
+                    "type": SuspensionErrorType.WEBHOOK_REJECTION,
                     "message": f"Rejected via webhook: {reason}",
                     "reason": reason,
                     "callback_id": callback_id,
                 },
             )
 
-        emitter.run_failed(error=reason, error_type="WebhookRejection")
+        emitter.run_failed(error=reason, error_type=SuspensionErrorType.WEBHOOK_REJECTION)
         await emitter.commit_and_broadcast()
 
         return WebhookCallbackResponse(

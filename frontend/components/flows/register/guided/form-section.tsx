@@ -108,8 +108,8 @@ function FormFieldRow({ field, onChange, onRemove }: FormFieldRowProps) {
           </select>
         </div>
 
-        <div className="col-span-1 flex items-end">
-          <label className="flex items-center gap-1.5 cursor-pointer">
+        <div className="col-span-2 flex items-end pb-1.5">
+          <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
             <input
               type="checkbox"
               checked={field.required === true}
@@ -120,7 +120,7 @@ function FormFieldRow({ field, onChange, onRemove }: FormFieldRowProps) {
           </label>
         </div>
 
-        <div className="col-span-5">
+        <div className="col-span-4">
           <label className="block text-xs font-medium text-slate-600 mb-1">Description</label>
           <input
             type="text"

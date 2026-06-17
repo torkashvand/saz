@@ -386,6 +386,28 @@ export const api = {
     return fetchApi<ArtifactListResponse>(`/api/v1/runs/${id}/artifacts${query}`);
   },
 
+  /**
+   * Download an artifact's file. The endpoint requires the Bearer token, so a
+   * plain <a download> won't work — fetch with auth, then trigger a Blob save.
+   */
+  downloadArtifact: async (runId: string, artifactId: string, filename: string) => {
+    const token = getAccessToken();
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/runs/${runId}/artifacts/${artifactId}/download`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   // ========== Templates ==========
 
   /**

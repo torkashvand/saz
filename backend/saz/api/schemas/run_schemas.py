@@ -239,3 +239,21 @@ class ComplianceReportResponse(BaseModel):
 
     run_id: str
     report: dict[str, Any]
+
+
+class ArtifactItem(BaseModel):
+    """A downloadable artifact produced by a run."""
+
+    id: str
+    step_id: str | None
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+
+
+class ArtifactListResponse(BaseModel):
+    """Artifacts produced by a run (matches the frontend ArtifactListResponse)."""
+
+    run_id: str
+    artifacts: list[ArtifactItem]

@@ -2,14 +2,18 @@
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
+from fastapi.responses import FileResponse
 
 from saz.api.dependencies import CurrentUserDep, RunServiceDep
 from saz.api.errors import AuthorizationError, NotFoundError
 from saz.api.schemas.event_schemas import EventListResponse, EventResponse
 from saz.api.schemas.run_schemas import (
+    ArtifactItem,
+    ArtifactListResponse,
     ComplianceReportResponse,
     CreateRunRequest,
     CreateRunResponse,
@@ -222,6 +226,67 @@ async def get_run_summary(
         total_tokens=run.total_tokens or 0,
         step_count=len(run.steps) if run.steps else 0,
         error=sanitize_error(run.error, include_sensitive=False),
+    )
+
+
+@router.get("/{run_id}/artifacts", response_model=ArtifactListResponse)
+async def list_run_artifacts(
+    run_id: str,
+    service: RunServiceDep,
+    user: CurrentUserDep,
+) -> ArtifactListResponse:
+    """List the downloadable artifacts a run produced (rendered docs, audit records)."""
+    assert service.uow.runs is not None
+    run = service.uow.runs.get(run_id)
+    if not run:
+        raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
+
+    items = []
+    for a in run.artifacts or []:
+        meta = a.meta or {}
+        items.append(
+            ArtifactItem(
+                id=a.id,
+                step_id=a.step_id,
+                filename=meta.get("filename") or a.name,
+                content_type=meta.get("content_type") or "application/octet-stream",
+                size_bytes=int(meta.get("size_bytes") or 0),
+                created_at=a.created_at,
+            )
+        )
+    return ArtifactListResponse(run_id=run_id, artifacts=items)
+
+
+@router.get("/{run_id}/artifacts/{artifact_id}/download")
+async def download_run_artifact(
+    run_id: str,
+    artifact_id: str,
+    service: RunServiceDep,
+    user: CurrentUserDep,
+) -> FileResponse:
+    """Stream an artifact's file as a download (Content-Disposition: attachment)."""
+    assert service.uow.runs is not None
+    run = service.uow.runs.get(run_id)
+    if not run:
+        raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
+
+    # Look the artifact up via the run relationship so a caller can only reach
+    # artifacts that belong to a run they are authorized for.
+    artifact = next((a for a in (run.artifacts or []) if a.id == artifact_id), None)
+    if not artifact:
+        raise NotFoundError(f"Artifact not found: {artifact_id}")
+
+    meta = artifact.meta or {}
+    path = Path(artifact.blob_ref or "")
+    if not artifact.blob_ref or not path.is_file():
+        raise NotFoundError(f"Artifact file is no longer available: {artifact_id}")
+
+    return FileResponse(
+        path=str(path),
+        media_type=meta.get("content_type") or "application/octet-stream",
+        filename=meta.get("filename") or artifact.name,
     )
 
 

@@ -21,6 +21,7 @@ import { EnhancedConsolePanel } from '@/components/runs/console-panel';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { HumanApprovalPanel } from '@/components/runs/human-approval-panel';
 import { WebhookCallbackPanel } from '@/components/runs/webhook-callback-panel';
+import { ArtifactsPanel } from '@/components/runs/artifacts-panel';
 import { buildDisplaySteps, resolveCanonicalStepIndex } from '@/lib/runs/display-steps';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
@@ -374,6 +375,11 @@ export default function RunDetailPageRedesign() {
           onConfigureCredential={() => router.push('/credentials')}
           isRetrying={retryMutation.isPending}
         />
+      </div>
+
+      {/* Downloadable artifacts (rendered documents, audit records) */}
+      <div className="mb-6">
+        <ArtifactsPanel runId={run.id} />
       </div>
 
       {/* Human Approval Panel */}

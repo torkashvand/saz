@@ -24,6 +24,7 @@ import asyncio
 import logging
 import traceback
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -137,6 +138,47 @@ _DEFAULT_SUSPENSION_TIMEOUT_MINUTES = 1440  # 24h
 # the human/external system even saw it. The floor matches the sweeper's
 # default polling interval (60s), so anything below it is unenforceable.
 _MIN_SUSPENSION_TIMEOUT_MINUTES = 1.0
+
+
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_ARTIFACT_STORE_TYPES: dict[str, tuple[str, str]] = {
+    "json": ("application/json", "json"),
+    "text": ("text/plain", "txt"),
+}
+
+
+def _build_artifact_meta(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Derive download metadata for a stored artifact.
+
+    Returns the on-disk ``blob_ref`` plus the ``content_type`` / ``filename`` /
+    ``size_bytes`` the download API and UI need. Supports the two tools that
+    produce downloadable files today: ``docx_render`` (binary .docx) and
+    ``artifact.store`` (JSON/text).
+    """
+    name = result.get("name") or "artifact"
+    if tool_name == "docx_render":
+        return {
+            "blob_ref": result.get("path") or "",
+            "content_type": _DOCX_MIME,
+            "filename": f"{name}.docx",
+            "size_bytes": int(result.get("byte_size") or 0),
+        }
+    blob_ref = result.get("storage_path") or ""
+    mime, ext = _ARTIFACT_STORE_TYPES.get(
+        result.get("content_type", "json"), ("application/octet-stream", "bin")
+    )
+    size = 0
+    if blob_ref:
+        try:
+            size = Path(blob_ref).stat().st_size
+        except OSError:
+            size = 0
+    return {
+        "blob_ref": blob_ref,
+        "content_type": mime,
+        "filename": f"{name}.{ext}",
+        "size_bytes": size,
+    }
 
 
 def _unwrap_ai_output(tool_name: str, result: Any) -> Any:
@@ -1227,31 +1269,34 @@ class WorkflowExecutor:
             # database stays empty and any consumer of run.artifacts (read
             # repository, UI) sees nothing.
             if (
-                tool_call.tool == "artifact.store"
+                tool_call.tool in ("artifact.store", "docx_render")
                 and isinstance(result, dict)
+                and result.get("artifact_id")
                 and self.uow.artifacts is not None
             ):
-                artifact_id = result.get("artifact_id")
-                if artifact_id:
-                    artifact_name = result.get("name") or "artifact"
-                    self.uow.artifacts.create(
-                        run_id=run_id,
-                        name=artifact_name,
-                        blob_ref=result.get("storage_path") or "",
-                        meta={
-                            "artifact_id": artifact_id,
-                            "content_type": result.get("content_type", "json"),
-                        },
-                        step_id=current_step.id,
-                    )
-                    self.uow.commit()
-                    emitter.artifact_created(
-                        step_id=current_step.id,
-                        artifact_id=str(artifact_id),
-                        name=artifact_name,
-                        content_type=str(result.get("content_type", "json")),
-                    )
-                    await emitter.commit_and_broadcast()
+                artifact_id = result["artifact_id"]
+                artifact_name = result.get("name") or "artifact"
+                art_meta = _build_artifact_meta(tool_call.tool, result)
+                self.uow.artifacts.create(
+                    run_id=run_id,
+                    name=artifact_name,
+                    blob_ref=art_meta["blob_ref"],
+                    meta={
+                        "artifact_id": artifact_id,
+                        "content_type": art_meta["content_type"],
+                        "filename": art_meta["filename"],
+                        "size_bytes": art_meta["size_bytes"],
+                    },
+                    step_id=current_step.id,
+                )
+                self.uow.commit()
+                emitter.artifact_created(
+                    step_id=current_step.id,
+                    artifact_id=str(artifact_id),
+                    name=artifact_name,
+                    content_type=art_meta["content_type"],
+                )
+                await emitter.commit_and_broadcast()
 
         except Exception as tool_error:
             tool_duration_ms = int((datetime.now() - tool_start_time).total_seconds() * 1000)

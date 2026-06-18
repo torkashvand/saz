@@ -7,7 +7,7 @@
 import type { WorkflowStepDraft } from '../types';
 import type { DomainPack } from './types';
 
-export const STANDARD_RFQ_TEMPLATE =
+const STANDARD_RFQ_TEMPLATE =
   "{{ $env('SAZ_RFQ_TEMPLATE', 'saz/examples/templates/rfq_template.docx') }}";
 
 function documentPurpose(step: WorkflowStepDraft): 'draft' | 'final' {

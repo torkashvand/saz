@@ -124,7 +124,6 @@ export function resolveStepMetadata(
     friendlyLabel: override.friendlyLabel ?? base.friendlyLabel,
     description: override.description ?? base.description,
     icon: override.icon ?? base.icon,
-    presets: override.presets ?? base.presets,
   };
 }
 
@@ -336,15 +335,6 @@ export function createBusinessStep(
       seed = { id, type: 'ai.extract' };
   }
   return seed;
-}
-
-export function businessStepOptions(
-  pack: DomainPack,
-): Array<{ pattern: BusinessStepPattern; label: string }> {
-  return PICKER_PATTERNS.map((pattern) => ({
-    pattern,
-    label: resolveStepMetadata(pattern, pack).friendlyLabel,
-  }));
 }
 
 /** Seed a step of a concrete technical type (used by the Advanced menu group). */

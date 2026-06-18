@@ -23,10 +23,6 @@ const PACKS: Record<string, DomainPack> = {
 // wording. A domain pack (procurement, …) is opt-in via setActiveDomainPack.
 let activePackId = GENERIC_PACK.id;
 
-export function listDomainPacks(): DomainPack[] {
-  return Object.values(PACKS);
-}
-
 export function getActiveDomainPack(): DomainPack {
   return PACKS[activePackId] ?? GENERIC_PACK;
 }

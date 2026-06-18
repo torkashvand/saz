@@ -5,7 +5,7 @@ import {
   resolvePresentation,
   computeStepStatus,
   createBusinessStep,
-  businessStepOptions,
+  addStepMenu,
   getFieldLabel,
   getFieldOptions,
 } from '@/lib/flows/business-step-metadata';
@@ -126,16 +126,16 @@ describe('resolvePresentation summary + reviewer', () => {
   });
 });
 
-describe('createBusinessStep + businessStepOptions consume the pack', () => {
+describe('createBusinessStep + addStepMenu consume the pack', () => {
   it('seeds a document step with the active pack template preset', () => {
     const s = createBusinessStep('document_generation', [], procurementPack);
     expect(classifyPattern(s)).toBe('document_generation');
     expect((s.params as any).template).toBe(procurementPack.templatePresets?.[0].value);
   });
 
-  it('offers an ordered option list with pack-resolved labels', () => {
-    const generic = businessStepOptions(GENERIC_PACK).map((o) => o.label);
-    const proc = businessStepOptions(procurementPack).map((o) => o.label);
+  it('offers a business group with pack-resolved labels', () => {
+    const generic = addStepMenu(GENERIC_PACK)[0].options.map((o) => o.label);
+    const proc = addStepMenu(procurementPack)[0].options.map((o) => o.label);
     expect(generic.some((l) => /RFQ/i.test(l))).toBe(false);
     expect(proc.some((l) => /RFQ/i.test(l))).toBe(true);
   });

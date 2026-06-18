@@ -52,14 +52,6 @@ export interface BusinessFieldGroup {
   fields: BusinessFieldMetadata[];
 }
 
-export interface BusinessStepPreset {
-  id: string;
-  label: string;
-  description?: string;
-  /** Partial step merged onto the seed when the preset is chosen. */
-  patch: Partial<WorkflowStepDraft>;
-}
-
 export interface BusinessStepMetadata {
   pattern: BusinessStepPattern;
   friendlyLabel: string;
@@ -68,7 +60,6 @@ export interface BusinessStepMetadata {
   category: string;
   icon: string;
   groups?: BusinessFieldGroup[];
-  presets?: BusinessStepPreset[];
 }
 
 export type StepStatusKind =
@@ -103,7 +94,6 @@ export interface DomainStepOverride {
   labelFor?: (step: WorkflowStepDraft) => string | undefined;
   /** Override field labels by path. */
   fieldLabels?: Record<string, string>;
-  presets?: BusinessStepPreset[];
 }
 
 export interface DomainPack {
@@ -112,13 +102,4 @@ export interface DomainPack {
   stepOverrides: Partial<Record<BusinessStepPattern, DomainStepOverride>>;
   /** Document templates this domain offers (template-picker control). */
   templatePresets?: ReadonlyArray<{ label: string; value: string }>;
-}
-
-import type { BindingContext } from '../bindings';
-
-export interface BusinessStepEditorContext {
-  draft: import('../types').FlowDraft;
-  priorStepIds: string[];
-  bindingContext: BindingContext;
-  pack: DomainPack;
 }

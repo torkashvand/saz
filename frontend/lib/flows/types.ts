@@ -8,6 +8,7 @@ export type PlannerMode = 'deterministic' | 'agentic';
 
 export type FormFieldType = 'string' | 'integer' | 'number' | 'boolean' | 'text';
 export type FormFieldFormat = 'email' | 'uri';
+export type FormFieldWidget = 'textarea';
 
 export interface FlowFormField {
   name: string;
@@ -23,6 +24,8 @@ export interface FlowFormField {
   minimum?: number;
   maximum?: number;
   format?: FormFieldFormat;
+  /** Rendering hint for the intake form (e.g. multi-line text). */
+  widget?: FormFieldWidget;
 }
 
 export interface FlowSection {

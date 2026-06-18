@@ -220,6 +220,7 @@ function parseFormFields(value: unknown): FlowFormField[] {
           : undefined;
     if (maximum !== undefined) field.maximum = maximum;
     if (raw.format === 'email' || raw.format === 'uri') field.format = raw.format;
+    if (raw.widget === 'textarea') field.widget = raw.widget;
     out.push(field);
   }
   return out;

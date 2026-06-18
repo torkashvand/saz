@@ -71,6 +71,7 @@ function serializeFormField(field: FlowFormField): Record<string, unknown> {
   if (field.maxLength !== undefined) out.maxLength = field.maxLength;
   if (field.minimum !== undefined) out.minimum = field.minimum;
   if (field.maximum !== undefined) out.maximum = field.maximum;
+  if (field.widget) out.widget = field.widget;
   return out;
 }
 

@@ -1,9 +1,21 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import type { FlowDraft, FlowFormField, FormFieldType } from '@/lib/flows/types';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FIELD_TYPES } from '@/lib/flows/types';
+import {
+  FRIENDLY_FIELD_TYPES,
+  applyFriendlyFieldType,
+  deriveFieldKey,
+  keyTracksLabel,
+  toFriendlyFieldType,
+  type FriendlyFieldType,
+} from '@/lib/flows/intake-fields';
+import { resolveStepMetadata } from '@/lib/flows/business-step-metadata';
+import { GENERIC_PACK, getActiveDomainPack } from '@/lib/flows/domain-packs/registry';
+import { ExpertModeToggle } from './expert-mode-toggle';
 
 interface FormSectionProps {
   draft: FlowDraft;
@@ -18,6 +30,28 @@ const FORMAT_OPTIONS: ReadonlyArray<{ value: '' | 'email' | 'uri'; label: string
 
 export function FormSection({ draft, onChange }: FormSectionProps) {
   const fields = draft.form?.fields ?? [];
+  const [expertMode, setExpertMode] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollToNewField, setScrollToNewField] = useState(false);
+
+  // Bring a newly added field into view and focus its first control.
+  useEffect(() => {
+    if (!scrollToNewField) return;
+    const row = listRef.current?.lastElementChild;
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (row.querySelector('input, select, textarea') as HTMLElement | null)?.focus({
+        preventScroll: true,
+      });
+    }
+    setScrollToNewField(false);
+  }, [scrollToNewField]);
+
+  // Generic flows keep the neutral "Form Fields" title. Only an opted-in domain
+  // pack relabels the section (e.g. procurement → "Collect RFQ/RFP request…").
+  const pack = getActiveDomainPack();
+  const isDomainPack = pack.id !== GENERIC_PACK.id;
+  const intakeMeta = resolveStepMetadata('intake_form', pack);
 
   const setFields = (next: FlowFormField[]) =>
     onChange({ form: next.length > 0 ? { fields: next } : undefined });
@@ -29,6 +63,7 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
       required: false,
     };
     setFields([...fields, newField]);
+    setScrollToNewField(true);
   };
 
   const updateField = (index: number, updates: Partial<FlowFormField>) => {
@@ -37,16 +72,32 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
     setFields(updated);
   };
 
+  const replaceField = (index: number, next: FlowFormField) => {
+    const updated = [...fields];
+    updated[index] = next;
+    setFields(updated);
+  };
+
   const removeField = (index: number) => setFields(fields.filter((_, i) => i !== index));
 
   return (
     <div id="form" className="bg-white border border-slate-200 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-slate-900">Form Fields</h2>
-        <Button size="sm" onClick={addField}>
-          <Plus className="h-4 w-4 mr-1" />
-          Add Field
-        </Button>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            {!expertMode && isDomainPack ? intakeMeta.friendlyLabel : 'Form Fields'}
+          </h2>
+          {!expertMode && isDomainPack && (
+            <p className="mt-0.5 text-xs text-slate-500">{intakeMeta.description}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <ExpertModeToggle expert={expertMode} onChange={setExpertMode} />
+          <Button size="sm" onClick={addField}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add Field
+          </Button>
+        </div>
       </div>
 
       {fields.length === 0 ? (
@@ -54,17 +105,158 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
           No form fields defined. Click &quot;Add Field&quot; to create one.
         </p>
       ) : (
-        <div className="space-y-3">
-          {fields.map((field, idx) => (
-            <FormFieldRow
-              key={idx}
-              field={field}
-              onChange={(updates) => updateField(idx, updates)}
-              onRemove={() => removeField(idx)}
-            />
-          ))}
+        <div ref={listRef} className="space-y-3">
+          {fields.map((field, idx) =>
+            expertMode ? (
+              <FormFieldRow
+                key={idx}
+                field={field}
+                onChange={(updates) => updateField(idx, updates)}
+                onRemove={() => removeField(idx)}
+              />
+            ) : (
+              <BusinessFieldRow
+                key={idx}
+                field={field}
+                onChange={(next) => replaceField(idx, next)}
+                onRemove={() => removeField(idx)}
+              />
+            ),
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+interface BusinessFieldRowProps {
+  field: FlowFormField;
+  onChange: (next: FlowFormField) => void;
+  onRemove: () => void;
+}
+
+/**
+ * Friendly intake-field editor. Presents a plain-language label, an
+ * auto-generated key, a friendly type, required toggle and help text — never
+ * raw JSON schema. Edits map onto FlowFormField via the intake-fields helpers
+ * so the generated YAML stays valid.
+ */
+function BusinessFieldRow({ field, onChange, onRemove }: BusinessFieldRowProps) {
+  const label = field.title ?? '';
+  const friendlyType = toFriendlyFieldType(field);
+  const choices = (field.enum ?? []).map((v) => String(v)).join(', ');
+
+  const onLabelChange = (nextLabel: string) => {
+    const next: FlowFormField = { ...field, title: nextLabel };
+    // Keep the key in sync with the label until the user customises the key.
+    if (keyTracksLabel(field)) {
+      next.name = deriveFieldKey(nextLabel) || field.name;
+    }
+    onChange(next);
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-md p-4 space-y-3">
+      <div className="grid grid-cols-12 gap-3">
+        <div className="col-span-4">
+          <label className="block text-xs font-medium text-slate-600 mb-1">Label</label>
+          <input
+            type="text"
+            aria-label="Field label"
+            value={label}
+            onChange={(e) => onLabelChange(e.target.value)}
+            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="What are you asking for?"
+          />
+        </div>
+
+        <div className="col-span-3">
+          <label className="block text-xs font-medium text-slate-600 mb-1">Field key</label>
+          <input
+            type="text"
+            aria-label="Field key"
+            value={field.name}
+            onChange={(e) => onChange({ ...field, name: e.target.value })}
+            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="col-span-3">
+          <label className="block text-xs font-medium text-slate-600 mb-1">Type</label>
+          <select
+            aria-label="Field type"
+            value={friendlyType}
+            onChange={(e) =>
+              onChange(applyFriendlyFieldType(field, e.target.value as FriendlyFieldType))
+            }
+            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {FRIENDLY_FIELD_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="col-span-1 flex items-end pb-1.5">
+          <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={field.required === true}
+              onChange={(e) => onChange({ ...field, required: e.target.checked })}
+              className="rounded"
+            />
+            <span className="text-xs text-slate-600">Required</span>
+          </label>
+        </div>
+
+        <div className="col-span-1 flex items-end justify-end">
+          <button
+            onClick={onRemove}
+            aria-label={`Remove field ${field.title || field.name}`}
+            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-3">
+        <div className={friendlyType === 'choice' ? 'col-span-6' : 'col-span-12'}>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Help text</label>
+          <input
+            type="text"
+            aria-label="Help text"
+            value={field.description || ''}
+            onChange={(e) => onChange({ ...field, description: e.target.value || undefined })}
+            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Shown to the requester (optional)"
+          />
+        </div>
+
+        {friendlyType === 'choice' && (
+          <div className="col-span-6">
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              Choices (comma-separated)
+            </label>
+            <input
+              type="text"
+              aria-label="Choices"
+              value={choices}
+              onChange={(e) => {
+                const items = e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                onChange({ ...field, enum: items });
+              }}
+              className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="low, medium, high"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

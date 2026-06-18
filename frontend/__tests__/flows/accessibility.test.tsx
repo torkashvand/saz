@@ -4,9 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SectionNav } from '@/components/flows/register/guided/section-nav';
 import { WorkflowStepsSection } from '@/components/flows/register/guided/workflow-steps-section';
 import { ExpressionPicker } from '@/components/flows/register/guided/expression-picker';
+import { BindingPicker } from '@/components/flows/register/guided/binding-picker';
+import { DocumentGenerationEditor } from '@/components/flows/register/guided/business-step-editors/document-generation-editor';
 import { useRef, useState } from 'react';
-import type { FlowDraft } from '@/lib/flows/types';
+import type { FlowDraft, WorkflowStepDraft } from '@/lib/flows/types';
 import { emptyDraft } from '@/lib/flows/types';
+import type { BindingContext, FriendlyBinding } from '@/lib/flows/bindings';
 
 vi.mock('@/lib/hooks', async () => {
   const actual = await vi.importActual<typeof import('@/lib/hooks')>('@/lib/hooks');
@@ -93,5 +96,84 @@ describe('Accessibility — expression picker', () => {
     expect(dialog).toBeInTheDocument();
     // The $env helper is always present so the dialog has at least one option.
     expect(within(dialog).getByText('$env(VAR)')).toBeInTheDocument();
+  });
+});
+
+describe('Accessibility — binding picker', () => {
+  const context: BindingContext = {
+    formFields: [{ name: 'project_name', type: 'string', title: 'Project name' }],
+    steps: [{ id: 'draft_narrative', name: 'Draft narrative' }],
+  };
+
+  function Harness() {
+    const [binding, setBinding] = useState<FriendlyBinding | null>(null);
+    return (
+      <BindingPicker
+        label="output value"
+        binding={binding}
+        context={context}
+        onChange={setBinding}
+      />
+    );
+  }
+
+  it('names the source picker and the active value control', () => {
+    render(<Harness />);
+    expect(screen.getByLabelText('Source for output value')).toBeInTheDocument();
+    expect(screen.getByLabelText('Form field for output value')).toBeInTheDocument();
+  });
+
+  it('selects a previous-step value through accessible controls and shows a readable chip', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByLabelText('Source for output value'), {
+      target: { value: 'previous_step' },
+    });
+    fireEvent.change(screen.getByLabelText('Step for output value'), {
+      target: { value: 'draft_narrative' },
+    });
+    fireEvent.change(screen.getByLabelText('Output field for output value'), {
+      target: { value: 'background' },
+    });
+    expect(screen.getByText(/Draft narrative → background/)).toBeInTheDocument();
+    expect(screen.queryByText(/\{\{/)).not.toBeInTheDocument();
+  });
+
+  it('names the system value and fallback controls', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByLabelText('Source for output value'), {
+      target: { value: 'system' },
+    });
+    expect(screen.getByLabelText('System value for output value')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fallback for output value')).toBeInTheDocument();
+  });
+});
+
+describe('Accessibility — advanced disclosure', () => {
+  function DocHarness() {
+    const [step, setStep] = useState<WorkflowStepDraft>({
+      id: 'render_draft',
+      type: 'tool.call',
+      tool: 'docx_render',
+      params: { require_all: false, values: {} },
+    });
+    const draft: FlowDraft = {
+      ...emptyDraft(),
+      workflow: { planner_mode: 'deterministic', steps: [step] },
+    };
+    return (
+      <DocumentGenerationEditor
+        step={step}
+        draft={draft}
+        priorStepIds={[]}
+        onChange={(u) => setStep((s) => ({ ...s, ...u }))}
+      />
+    );
+  }
+
+  it('controls the advanced section through a button whose accessible name reflects state', () => {
+    render(<DocHarness />);
+    const toggle = screen.getByRole('button', { name: /advanced \(technical settings\)/i });
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: /hide advanced/i })).toBeInTheDocument();
   });
 });

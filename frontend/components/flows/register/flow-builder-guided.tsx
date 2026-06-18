@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { FlowDraft, ValidationError } from '@/lib/flows/types';
+import type { FlowDraft, ValidationError, WorkflowStepDraft } from '@/lib/flows/types';
+import { toFriendlyError } from '@/lib/flows/friendly-validation';
 import { SectionNav } from './guided/section-nav';
 import { BasicsSection } from './guided/basics-section';
 import { FormSection } from './guided/form-section';
@@ -19,15 +20,17 @@ export function FlowBuilderGuided({ draft, onChange, errors = [] }: FlowBuilderG
   const [activeSection, setActiveSection] = useState<string>('basics');
 
   const stepErrors = useMemo(() => {
+    const stepsById: Record<string, WorkflowStepDraft> = {};
+    for (const step of draft.workflow.steps) stepsById[step.id] = step;
     const map: Record<string, string[]> = {};
     for (const err of errors) {
       const sid = err.step_id;
       if (!sid) continue;
       if (!map[sid]) map[sid] = [];
-      map[sid].push(err.message);
+      map[sid].push(toFriendlyError(err, stepsById[sid]).message);
     }
     return map;
-  }, [errors]);
+  }, [errors, draft.workflow.steps]);
 
   const handleSectionClick = (sectionId: string) => {
     setActiveSection(sectionId);

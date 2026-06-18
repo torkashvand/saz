@@ -29,6 +29,7 @@ form:
   fields:
     - name: message_text
       type: string
+      widget: textarea
       required: true
       description: Raw message content from user (may contain PII)
     - name: channel

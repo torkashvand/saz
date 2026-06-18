@@ -41,6 +41,7 @@ form:
         web*:edge — webservers:&prod.
     - name: requested_action
       type: text
+      widget: textarea
       required: true
       description: Plain-English description of what the change does
     - name: maintenance_window
@@ -49,6 +50,7 @@ form:
       description: Maintenance window (e.g. "2026-05-20 02:00–04:00 UTC")
     - name: rollback_plan
       type: text
+      widget: textarea
       required: true
       description: How to roll back if the change misbehaves
     - name: risk_hint

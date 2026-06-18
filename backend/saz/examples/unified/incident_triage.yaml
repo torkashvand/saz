@@ -27,6 +27,7 @@ form:
       description: Short alert title (e.g. "P1 — checkout 5xx spike")
     - name: alert_description
       type: text
+      widget: textarea
       required: true
       description: Full alert body, ticket text, or pager message
     - name: affected_service
@@ -50,6 +51,7 @@ form:
       description: Reporter's initial severity guess; the AI may revise it
     - name: customer_impact
       type: text
+      widget: textarea
       required: false
       description: Known or suspected customer impact, if any
     - name: on_call_team

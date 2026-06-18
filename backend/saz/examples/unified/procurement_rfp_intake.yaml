@@ -38,6 +38,7 @@ form:
 
     - name: business_need
       type: string
+      widget: textarea
       required: true
       description: "Describe what you want to buy and why (free text)."
 

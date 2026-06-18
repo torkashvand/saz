@@ -35,6 +35,7 @@ form:
   fields:
     - name: question
       type: string
+      widget: textarea
       required: true
       description: "Ask anything about vendors, contracts, spend or risk."
 

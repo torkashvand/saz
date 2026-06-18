@@ -17,6 +17,7 @@ form:
   fields:
     - name: input_text
       type: string
+      widget: textarea
       required: true
       description: Text to analyze
 

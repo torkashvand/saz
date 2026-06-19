@@ -44,3 +44,4 @@ docker-data/
 
 output.xml
 backend/*.db
+docs/superpowers/

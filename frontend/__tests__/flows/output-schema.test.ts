@@ -90,6 +90,33 @@ describe('schemaToFriendly', () => {
     expect(parsed.supported).toBe(false);
   });
 
+  it('marks a numeric field with a non-numeric enum value as unsupported (no silent drop)', () => {
+    expect(
+      schemaToFriendly({
+        type: 'object',
+        properties: { n: { type: 'number', enum: ['abc', 1] } },
+      }).supported,
+    ).toBe(false);
+  });
+
+  it('marks an integer-array with a non-numeric enum value as unsupported', () => {
+    expect(
+      schemaToFriendly({
+        type: 'object',
+        properties: { ns: { type: 'array', items: { type: 'integer', enum: ['x'] } } },
+      }).supported,
+    ).toBe(false);
+  });
+
+  it('still accepts a numeric enum whose values are numbers', () => {
+    const parsed = schemaToFriendly({
+      type: 'object',
+      properties: { n: { type: 'number', enum: [1, 2.5] } },
+    });
+    expect(parsed.supported).toBe(true);
+    expect(parsed.schema.fields[0].enumValues).toEqual(['1', '2.5']);
+  });
+
   it('marks nested object properties as unsupported', () => {
     const parsed = schemaToFriendly({
       type: 'object',

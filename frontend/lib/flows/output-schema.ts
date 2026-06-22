@@ -52,6 +52,12 @@ function coerceEnum(type: OutputFieldType | OutputScalarType, values: string[]):
   return values;
 }
 
+/** True only if every enum value is a finite number — guards against the
+ * coerceEnum drop that would silently lose a non-numeric value on recompile. */
+function numericEnumOk(values: string[]): boolean {
+  return values.every((v) => v.trim() !== '' && Number.isFinite(Number(v)));
+}
+
 /** Compile a friendly schema to the exact JSON-Schema shape the backend validates. */
 export function friendlyToSchema(friendly: FriendlyOutputSchema): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
@@ -148,6 +154,9 @@ export function schemaToFriendly(expect: unknown): SchemaParseResult {
       if (items.enum !== undefined) {
         const e = enumToStrings(items.enum);
         if (e === null) return UNSUPPORTED;
+        if ((items.type === 'number' || items.type === 'integer') && !numericEnumOk(e)) {
+          return UNSUPPORTED;
+        }
         field.enumValues = e;
       }
       if (rawProp.minItems !== undefined) {
@@ -176,6 +185,9 @@ export function schemaToFriendly(expect: unknown): SchemaParseResult {
     if (rawProp.enum !== undefined) {
       const e = enumToStrings(rawProp.enum);
       if (e === null) return UNSUPPORTED;
+      if ((type === 'number' || type === 'integer') && !numericEnumOk(e)) {
+        return UNSUPPORTED;
+      }
       field.enumValues = e;
     }
     if (rawProp.minimum !== undefined) {

@@ -2,7 +2,8 @@
 
 import type { StepEditorProps } from './step-editor-shell';
 import { ExpressionInput } from './step-editor-shell';
-import { JsonObjectEditor } from '../json-object-editor';
+import { InputDataMapping } from './ai-fields/input-data-mapping';
+import { OutputSchemaEditor } from './ai-fields/output-schema-editor';
 
 const LOCALE_FRIENDLY_TYPES = new Set([
   'ai.extract',
@@ -55,24 +56,12 @@ export function AiStepEditor({ step, draft, priorStepIds, onChange }: StepEditor
         placeholder="What the model should do."
       />
 
-      <JsonObjectEditor
-        label="Input data (params.data)"
-        value={step.params}
-        onChange={(next) =>
-          onChange({
-            params: next === undefined ? undefined : (next as Record<string, unknown>),
-          })
-        }
-        placeholder='{ "data": { "x": "{{ $form.x }}" } }'
-        testId={`step-${step.id}-params`}
-      />
+      <InputDataMapping step={step} draft={draft} priorStepIds={priorStepIds} onChange={onChange} />
 
-      <JsonObjectEditor
-        label="Expected output schema"
+      <OutputSchemaEditor
         value={step.expect}
+        stepId={step.id}
         onChange={(next) => onChange({ expect: next })}
-        placeholder='{ "type": "object", "properties": { "ok": { "type": "boolean" } }, "required": ["ok"] }'
-        testId={`step-${step.id}-expect`}
       />
 
       {step.type === 'ai.route' && (

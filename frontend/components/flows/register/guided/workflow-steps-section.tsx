@@ -274,7 +274,7 @@ function StepCard({
             />
           ) : (
             <>
-              {!expertMode && (
+              {!expertMode && !isAi && (
                 <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
                   Expert step — this step is configured with technical settings.
                 </div>

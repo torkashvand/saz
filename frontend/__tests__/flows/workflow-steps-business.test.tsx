@@ -130,9 +130,10 @@ describe('WorkflowStepsSection — Add business step picker', () => {
     render(wrapped(<StatefulHarness />));
     fireEvent.click(screen.getByRole('button', { name: /add step/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /AI · AI Extract/i }));
-    // Rendered as a generic technical step — no expert switch needed.
+    // Rendered with the friendly AI editor — no expert switch, no expert banner.
     expect(screen.getByText('Advanced step')).toBeInTheDocument();
-    expect(screen.getByText(/Expert step/)).toBeInTheDocument();
+    expect(screen.queryByText(/Expert step/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Expected output fields/)).toBeInTheDocument();
     // Still business mode: the internal Step ID stays hidden.
     expect(screen.queryByText('Step ID')).not.toBeInTheDocument();
   });
@@ -180,7 +181,7 @@ describe('WorkflowStepsSection — step presentation', () => {
   });
 
   it('marks an unsupported technical step with the Advanced step status and expert fallback', () => {
-    const draft = draftWith([{ id: 'classify', type: 'ai.extract' }]);
+    const draft = draftWith([{ id: 'fetch', type: 'artifact.retrieve', params: {} }]);
     render(wrapped(<WorkflowStepsSection draft={draft} onChange={() => {}} />));
     expect(screen.getByText('Advanced step')).toBeInTheDocument();
     expect(screen.getByText(/Expert step/)).toBeInTheDocument();

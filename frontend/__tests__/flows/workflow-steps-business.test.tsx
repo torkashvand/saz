@@ -130,8 +130,8 @@ describe('WorkflowStepsSection — Add business step picker', () => {
     render(wrapped(<StatefulHarness />));
     fireEvent.click(screen.getByRole('button', { name: /add step/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /AI · AI Extract/i }));
-    // Rendered with the friendly AI editor — no expert switch, no expert banner.
-    expect(screen.getByText('Advanced step')).toBeInTheDocument();
+    // Rendered with the friendly AI card + editor — no expert switch, no expert banner.
+    expect(screen.getByRole('heading', { name: 'AI Extract' })).toBeInTheDocument();
     expect(screen.queryByText(/Expert step/)).not.toBeInTheDocument();
     expect(screen.getByText(/Expected output fields/)).toBeInTheDocument();
     // Still business mode: the internal Step ID stays hidden.

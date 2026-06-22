@@ -92,8 +92,15 @@ describe('computeStepStatus', () => {
     expect(computeStepStatus(s).kind).toBe('ready');
   });
 
-  it('marks technical steps as advanced', () => {
-    expect(computeStepStatus(step({ type: 'ai.extract' })).kind).toBe('advanced');
+  it('marks non-AI technical steps as advanced', () => {
+    expect(computeStepStatus(step({ type: 'artifact.retrieve' })).kind).toBe('advanced');
+  });
+
+  it('marks an AI step ready once it has an instruction, else needs setup', () => {
+    expect(computeStepStatus(step({ type: 'ai.extract' })).kind).toBe('needs_setup');
+    expect(
+      computeStepStatus(step({ type: 'ai.extract', instruction: 'Extract fields' })).kind,
+    ).toBe('ready');
   });
 });
 
@@ -105,6 +112,14 @@ describe('resolvePresentation summary + reviewer', () => {
       params: { values: { a: '{{ $form.x }}', b: '0.1 DRAFT' } },
     });
     expect(resolvePresentation(s, GENERIC_PACK).summary).toMatch(/2/);
+  });
+
+  it('presents an AI step with a friendly label, icon, category and summary', () => {
+    const p = resolvePresentation(step({ type: 'ai.extract' }), GENERIC_PACK);
+    expect(p.label).toBe('AI Extract');
+    expect(p.icon).toBe('🤖');
+    expect(p.category).toBe('AI');
+    expect(p.summary).not.toMatch(/expert/i);
   });
 
   it('falls back to the step description for non-document steps', () => {

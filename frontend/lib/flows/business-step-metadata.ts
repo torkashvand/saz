@@ -6,7 +6,7 @@
 // components call these resolvers; the domain pack only supplies overrides.
 
 import type { FlowFormField, WorkflowStepDraft } from './types';
-import { STEP_TYPES, type StepType } from './types';
+import { AI_STEP_TYPES, STEP_TYPES, type StepType } from './types';
 import type { BindingContext } from './bindings';
 import { expressionToBinding, renderBindingLabel } from './bindings';
 import type {
@@ -93,6 +93,17 @@ export const GENERIC_STEP_METADATA: Record<BusinessStepPattern, BusinessStepMeta
   },
 };
 
+/** AI-op steps now have a friendly editor, so they get a friendly card
+ * presentation (AI label/icon/summary) instead of the opaque-technical chrome,
+ * even though they still classify as the `technical` pattern. */
+function isAiStep(step: WorkflowStepDraft): boolean {
+  return AI_STEP_TYPES.has(step.type);
+}
+
+function aiStepLabel(step: WorkflowStepDraft): string {
+  return STEP_TYPES.find((t) => t.value === step.type)?.label ?? 'AI step';
+}
+
 export function classifyPattern(step: WorkflowStepDraft): BusinessStepPattern {
   if (step.type === 'tool.call' && step.tool && DOCUMENT_TOOLS.has(step.tool)) {
     return 'document_generation';
@@ -174,6 +185,10 @@ function status(kind: StepStatus['kind']): StepStatus {
 }
 
 export function computeStepStatus(step: WorkflowStepDraft): StepStatus {
+  if (isAiStep(step)) {
+    const ready = !!step.instruction && step.instruction.trim().length > 0;
+    return status(ready ? 'ready' : 'needs_setup');
+  }
   const pattern = classifyPattern(step);
   const params = paramsOf(step);
   switch (pattern) {
@@ -241,6 +256,7 @@ function defaultSummary(step: WorkflowStepDraft, pattern: BusinessStepPattern): 
     return `Generates a document using ${count} ${count === 1 ? 'field mapping' : 'field mappings'}.`;
   }
   if (step.description) return firstLine(step.description);
+  if (isAiStep(step)) return 'Uses AI to produce the expected output from the input data.';
   return GENERIC_STEP_METADATA[pattern].description;
 }
 
@@ -249,6 +265,7 @@ export function resolveStepLabel(step: WorkflowStepDraft, pack: DomainPack): str
   const override = pack.stepOverrides[pattern];
   const fromPack = override?.labelFor?.(step);
   if (fromPack) return fromPack;
+  if (isAiStep(step)) return aiStepLabel(step);
   return resolveStepMetadata(pattern, pack).friendlyLabel;
 }
 
@@ -259,11 +276,12 @@ export function resolvePresentation(
 ): StepPresentationMetadata {
   const pattern = classifyPattern(step);
   const md = resolveStepMetadata(pattern, pack);
+  const ai = isAiStep(step);
   return {
     pattern,
     label: resolveStepLabel(step, pack),
-    icon: md.icon,
-    category: md.category,
+    icon: ai ? '🤖' : md.icon,
+    category: ai ? 'AI' : md.category,
     summary: defaultSummary(step, pattern),
     status: computeStepStatus(step),
     reviewer: stepReviewer(step, context),

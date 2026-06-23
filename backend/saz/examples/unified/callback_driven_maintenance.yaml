@@ -90,7 +90,8 @@ workflow:
           preconditions:
             type: array
             items: { type: string }
-            minItems: 1
+            minItems: 3
+            maxItems: 6
           ready_to_proceed:
             type: boolean
           notes:

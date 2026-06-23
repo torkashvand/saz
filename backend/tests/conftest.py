@@ -326,16 +326,22 @@ def _isolate_llm_port():
     the test body via ``set_llm_port(...)``.
     """
     from saz.agents import ai_ops, llm_port as llm_port_module
+    from saz.settings import settings
 
     previous_port = llm_port_module._default_port
     previous_runner = ai_ops._ai_runner
+    previous_lint_llm = settings.LINT_LLM_ENABLED
     llm_port_module.set_llm_port(MockLLMPort())
     ai_ops._ai_runner = None
+    # Flow-lint LLM rule off by default in tests (deterministic rules still run);
+    # tests exercising it opt in explicitly and inject a fake port.
+    settings.LINT_LLM_ENABLED = False
     try:
         yield
     finally:
         llm_port_module._default_port = previous_port
         ai_ops._ai_runner = previous_runner
+        settings.LINT_LLM_ENABLED = previous_lint_llm
 
 
 @pytest.fixture

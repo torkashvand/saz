@@ -21,6 +21,7 @@ workflow:
       description: Call a stub HTTP endpoint
       tool: http_request
       params:
+        method: GET
         url: https://example.com
 """
 

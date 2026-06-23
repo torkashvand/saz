@@ -218,6 +218,23 @@ class _Parser:
         raise ConditionError(f"Unexpected token {text!r} in condition")
 
 
+def validate_condition_syntax(expr: Any) -> None:
+    """Validate a condition's grammar without resolving any variables.
+
+    Reuses the tokenizer + parser with a no-op resolver, so structural errors
+    (bad characters, unbalanced parens, trailing tokens) raise
+    :class:`ConditionError` while undefined variables are ignored. Used by the
+    flow linter to check conditions at authoring time.
+    """
+    evaluate_condition(expr, lambda _ref: None)
+
+
+def extract_condition_refs(expr: str) -> list[str]:
+    """Return the ``$form``/``$step``/``$env``/``$secret`` reference tokens in a
+    condition expression (no validation)."""
+    return _REF_RE.findall(_strip_braces(expr))
+
+
 def evaluate_condition(expr: Any, resolve_ref: Callable[[str], Any]) -> bool:
     """Evaluate a boolean condition expression to a strict ``bool``.
 

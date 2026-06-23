@@ -75,13 +75,16 @@ workflow:
         conforming exactly to the expected schema.
 
         Rules:
-        - "blast_radius" must be a short factual phrase ("single localhost"
-          for the demo, or e.g. "12 prod web hosts").
-        - "risk_level" should be "high" whenever target_environment is "prod",
-          unless the requested change is read-only.
-        - "pre_checks" is a short ordered list (3-6 items) of things the
-          operator should verify before approval (e.g. "confirm backup
-          completed in last 24h", "verify maintenance window approved").
+        - "blast_radius" must be a short factual phrase describing how many or
+          which hosts are affected, based ONLY on target_hosts (e.g. "single
+          localhost host" or "12 prod web hosts"). Do not invent numbers.
+        - "risk_level" must be at least as high as the requester's "risk_hint"
+          (you may raise it, never lower it). Also use "high" whenever
+          target_environment is "prod", unless the requested change is read-only.
+        - "pre_checks" must be an ordered list of EXACTLY 3 to 6 distinct items
+          the operator should verify before approval (e.g. "confirm backup
+          completed in last 24h", "verify maintenance window approved",
+          "run the playbook in --check mode and review the diff").
         - "approval_recommendation" is your honest call: "approve" only if
           the change appears low-risk, dry-run-checkable, and within the
           stated window; otherwise "review_required" or "reject".
@@ -114,7 +117,8 @@ workflow:
           pre_checks:
             type: array
             items: { type: string }
-            minItems: 1
+            minItems: 3
+            maxItems: 6
           rollback_summary:
             type: string
           approval_recommendation:

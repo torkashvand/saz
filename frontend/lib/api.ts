@@ -5,6 +5,7 @@ import type {
   RegisterFlowResponse,
   CompileFlowRequest,
   CompileFlowResponse,
+  FlowLintResponse,
   FlowDetailResponse,
   UpdateFlowRequest,
   DslMetadata,
@@ -229,6 +230,15 @@ export const api = {
    */
   compileFlow: (data: CompileFlowRequest) =>
     fetchApi<CompileFlowResponse>('/api/v1/flows/compile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Lint YAML DSL for prose↔contract consistency without registering
+   */
+  lintFlow: (data: { yaml: string }) =>
+    fetchApi<FlowLintResponse>('/api/v1/flows/lint', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

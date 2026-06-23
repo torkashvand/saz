@@ -86,6 +86,15 @@ class AuthorizationError(ServiceError):
         super().__init__(message, "forbidden", 403)
 
 
+class FlowLintError(ServiceError):
+    """Flow failed consistency linting; carries structured findings (422)."""
+
+    def __init__(self, message: str, findings: list[dict], llm_ran: bool):
+        super().__init__(message, "flow_lint_error", 422)
+        self.findings = findings
+        self.llm_ran = llm_ran
+
+
 async def service_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle service errors."""
     assert isinstance(exc, ServiceError)
@@ -95,6 +104,11 @@ async def service_error_handler(request: Request, exc: Exception) -> JSONRespons
     # Include 'detail' for FastAPI compatibility
     response_data = envelope.model_dump()
     response_data["detail"] = exc.message
+    # FlowLintError carries structured findings for the builder/API consumers.
+    findings = getattr(exc, "findings", None)
+    if findings is not None:
+        response_data["findings"] = findings
+        response_data["llm_ran"] = getattr(exc, "llm_ran", False)
     return JSONResponse(
         status_code=exc.status_code,
         content=response_data,

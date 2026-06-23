@@ -63,6 +63,28 @@ export interface UpdateFlowRequest {
   yaml: string;
 }
 
+export type LintSeverity = 'error' | 'warning';
+
+export interface LintFinding {
+  code: string;
+  severity: LintSeverity;
+  step_id: string | null;
+  field: string | null;
+  message: string;
+  suggested_fix: string | null;
+  source: 'deterministic' | 'llm';
+  confidence: number;
+  suppressed: boolean;
+  suppress_reason: string | null;
+}
+
+export interface FlowLintResponse {
+  valid: boolean;
+  findings: LintFinding[];
+  llm_ran: boolean;
+  compile_error: string | null;
+}
+
 export interface DslMetadataStepType {
   name: string;
   label: string;

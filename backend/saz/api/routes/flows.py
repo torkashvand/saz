@@ -13,6 +13,8 @@ from saz.api.schemas.flow_schemas import (
     CompileFlowResponse,
     FlowDetail,
     FlowGraphResponse,
+    FlowLintRequest,
+    FlowLintResponse,
     FlowListItem,
     FlowListResponse,
     RegisterFlowRequest,
@@ -114,6 +116,30 @@ async def compile_flow(
         workflow_summary=workflow_summary,
         warnings=compiled.warnings,
         normalized_dsl=normalized,
+    )
+
+
+@router.post("/lint", response_model=FlowLintResponse)
+async def lint_flow_endpoint(
+    req: FlowLintRequest,
+    service: FlowServiceDep,
+    _user: CurrentUserDep,
+) -> FlowLintResponse:
+    """Lint a flow YAML without persisting (powers live builder feedback).
+
+    Compile errors are returned distinctly (``compile_error``) from lint
+    findings. The save gate re-runs the same linter, so this preview cannot be
+    bypassed.
+    """
+    try:
+        report = service.lint(req.yaml)
+    except ValueError as exc:
+        return FlowLintResponse(valid=False, compile_error=str(exc))
+
+    return FlowLintResponse(
+        valid=not report.blocking,
+        findings=report.findings,
+        llm_ran=report.llm_ran,
     )
 
 

@@ -2,9 +2,12 @@
 
 import yaml
 
+from saz.api.errors import FlowLintError
 from saz.compiler import compile_dsl
 from saz.db.unit_of_work import UnitOfWork
+from saz.linter import LintReport, lint_flow
 from saz.repositories.read.dtos import FlowDetailDTO, FlowListItemDTO
+from saz.settings import settings
 
 
 def _validate_tool_references(dsl: dict) -> None:
@@ -36,11 +39,41 @@ def _validate_tool_references(dsl: dict) -> None:
         )
 
 
+def _lint_and_raise(dsl: dict) -> None:
+    """Run the consistency linter and block the write on any blocking finding.
+
+    All findings (including warnings and suppressed ones) are attached to the
+    error so consumers can render the full picture, but only ``report.blocking``
+    determines whether the write is rejected.
+    """
+    report = lint_flow(dsl, run_llm=settings.LINT_LLM_ENABLED)
+    if report.blocking:
+        raise FlowLintError(
+            f"Flow has {len(report.blocking)} consistency error(s)",
+            findings=[f.model_dump(mode="json") for f in report.findings],
+            llm_ran=report.llm_ran,
+        )
+
+
 class FlowService:
     """Service for flow operations."""
 
     def __init__(self, uow: UnitOfWork):
         self.uow = uow
+
+    def lint(self, yaml_content: str) -> LintReport:
+        """Compile + lint a flow without persisting (powers POST /flows/lint).
+
+        Raises ValueError on a structurally invalid DSL (compile failure) so the
+        route can surface compile errors distinctly from lint findings.
+        """
+        try:
+            dsl = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML: {e}") from None
+        compile_dsl(yaml_content)
+        _validate_tool_references(dsl)
+        return lint_flow(dsl, run_llm=settings.LINT_LLM_ENABLED)
 
     def register(self, yaml_content: str, created_by_user_id: str) -> str:
         """Register a new flow from YAML DSL.
@@ -71,6 +104,7 @@ class FlowService:
         # schemas, credential refs, etc. Raises ValueError on any failure.
         compile_dsl(yaml_content)
         _validate_tool_references(dsl)
+        _lint_and_raise(dsl)
 
         # Extract metadata
         flow_meta = dsl.get("flow", {})
@@ -118,6 +152,7 @@ class FlowService:
 
         compile_dsl(yaml_content)
         _validate_tool_references(dsl)
+        _lint_and_raise(dsl)
 
         flow_meta = dsl.get("flow", {})
         name = flow_meta.get("name")

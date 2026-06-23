@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     """The model used for planning tasks."""
     CRITIC_MODEL: str = "gpt-4o"
     """The model used for critiquing plans."""
+    LINT_MODEL: str = ""
+    """Model for the flow consistency-lint LLM rule. Falls back to CRITIC_MODEL when empty."""
+    LINT_LLM_ENABLED: bool = True
+    """Whether the flow linter runs its LLM consistency rule. Disabled in tests to
+    keep them hermetic; deterministic rules always run regardless."""
     ALLOW_SENSITIVE_DATA: bool = False
     """Whether to allow exposing sensitive data (stack traces) via API.
 

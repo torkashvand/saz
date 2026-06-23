@@ -18,9 +18,25 @@ import { FlowBuilderGuided } from './flow-builder-guided';
 import { FlowBuilderYaml } from './flow-builder-yaml';
 import { FlowPreviewPanel } from './flow-preview-panel';
 import { api } from '@/lib/api';
+import type { FlowLintResponse, LintFinding } from '@/lib/types';
 import { AlertCircle } from 'lucide-react';
 
 type LastUpdatedBy = 'builder' | 'yaml' | null;
+
+// A blocking lint finding renders through the same per-step/preview error path
+// as compile errors.
+function lintToValidationError(f: LintFinding): ValidationError {
+  return {
+    section: 'consistency',
+    step_id: f.step_id ?? undefined,
+    code: f.code,
+    message: f.suggested_fix ? `${f.message} (${f.suggested_fix})` : f.message,
+  };
+}
+
+function lintWarningText(f: LintFinding): string {
+  return f.step_id ? `${f.step_id}: ${f.message}` : f.message;
+}
 
 interface FlowBuilderProps {
   initialYaml?: string;
@@ -52,9 +68,11 @@ export function FlowBuilder({
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [lintResult, setLintResult] = useState<FlowLintResponse | null>(null);
 
   const autoValidateTimer = useRef<NodeJS.Timeout | null>(null);
   const directCompileTimer = useRef<NodeJS.Timeout | null>(null);
+  const lintTimer = useRef<NodeJS.Timeout | null>(null);
   const isUpdating = useRef(false);
   const initialLoadComplete = useRef(!!initialYaml);
   const initialParseRan = useRef(false);
@@ -136,6 +154,26 @@ export function FlowBuilder({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yaml, mode, lastUpdatedBy]);
+
+  // Debounced consistency lint on whatever YAML is current (both modes). Lint
+  // is best-effort: a failure never blocks the editor, it just clears findings.
+  useEffect(() => {
+    if (!yaml.trim()) {
+      setLintResult(null);
+      return;
+    }
+    if (lintTimer.current) clearTimeout(lintTimer.current);
+    lintTimer.current = setTimeout(async () => {
+      try {
+        setLintResult(await api.lintFlow({ yaml }));
+      } catch {
+        setLintResult(null);
+      }
+    }, 500);
+    return () => {
+      if (lintTimer.current) clearTimeout(lintTimer.current);
+    };
+  }, [yaml]);
 
   const runDirectCompile = async (generated: string) => {
     if (!generated.trim()) return;
@@ -281,13 +319,37 @@ export function FlowBuilder({
     toast({ title: 'Cleared', description: 'Flow builder has been reset' });
   };
 
+  // Merge consistency-lint findings into the validation result so they surface
+  // per-step and in the preview and gate Save. Skipped when the YAML doesn't
+  // compile — compile errors take precedence and already show.
+  const lintFindings = lintResult && !lintResult.compile_error ? lintResult.findings : [];
+  const lintErrors = lintFindings.filter((f) => f.severity === 'error' && !f.suppressed);
+  const lintWarnings = lintFindings.filter((f) => f.severity === 'warning' && !f.suppressed);
+
+  const effectiveValidation: ValidationResult | null =
+    !validationResult && lintFindings.length === 0
+      ? validationResult
+      : (() => {
+          const base: ValidationResult = validationResult ?? {
+            valid: true,
+            errors: [],
+            validated_at: new Date(),
+          };
+          return {
+            ...base,
+            valid: base.valid && lintErrors.length === 0,
+            errors: [...base.errors, ...lintErrors.map(lintToValidationError)],
+            warnings: [...(base.warnings ?? []), ...lintWarnings.map(lintWarningText)],
+          };
+        })();
+
   const handleRegister = async () => {
     if (!yaml.trim()) {
       setSaveError('Cannot save empty workflow');
       toast({ title: 'Error', description: 'Cannot save empty workflow', variant: 'destructive' });
       return;
     }
-    if (!validationResult?.valid) {
+    if (!effectiveValidation?.valid) {
       setSaveError('Fix validation errors before saving');
       toast({
         title: 'Cannot save',
@@ -344,7 +406,7 @@ export function FlowBuilder({
         onClear={handleClear}
         onRegister={handleRegister}
         isRegistering={registerMutation.isPending || updateMutation.isPending}
-        isValid={validationResult?.valid || false}
+        isValid={effectiveValidation?.valid || false}
         flowName={draft.flow.name}
         isEditMode={isEditMode}
         dirty={dirty}
@@ -388,14 +450,14 @@ export function FlowBuilder({
                 <FlowBuilderGuided
                   draft={draft}
                   onChange={handleDraftChange}
-                  errors={validationResult?.errors || []}
+                  errors={effectiveValidation?.errors || []}
                 />
               )
             ) : (
               <FlowBuilderYaml
                 yaml={yaml}
                 onChange={handleYamlChange}
-                validationResult={validationResult}
+                validationResult={effectiveValidation}
                 baselineYaml={lastSavedYaml}
                 lastSavedAt={lastSavedAt}
                 hasUnsavedChanges={dirty}
@@ -408,7 +470,7 @@ export function FlowBuilder({
               className="sticky top-6 bg-white border border-slate-200 rounded-lg p-4"
               style={{ maxHeight: 'calc(100vh - 180px)' }}
             >
-              <FlowPreviewPanel validationResult={validationResult} draft={draft} />
+              <FlowPreviewPanel validationResult={effectiveValidation} draft={draft} />
             </div>
           </div>
         </div>

@@ -6,12 +6,28 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from saz.domain.literals import PlannerMode
+from saz.linter import LintFinding
 
 
 class RegisterFlowRequest(BaseModel):
     """Request to register a new flow from YAML."""
 
     yaml: str = Field(..., description="Flow definition in YAML format")
+
+
+class FlowLintRequest(BaseModel):
+    """Request to lint a flow YAML without persisting."""
+
+    yaml: str = Field(..., description="Flow YAML to lint")
+
+
+class FlowLintResponse(BaseModel):
+    """Consistency lint result. ``valid`` is False when any finding blocks."""
+
+    valid: bool
+    findings: list[LintFinding] = []
+    llm_ran: bool = False
+    compile_error: str | None = None
 
 
 class RegisterFlowResponse(BaseModel):

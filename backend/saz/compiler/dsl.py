@@ -366,7 +366,7 @@ _ALLOWED_STEP_TYPES: set[str] = {
 # normalization; ``when`` is the optional guard; ``uses_credentials`` scopes
 # secrets.
 _COMMON_STEP_KEYS: frozenset[str] = frozenset(
-    {"id", "type", "description", "when", "uses_credentials", "retry", "params"}
+    {"id", "type", "description", "when", "uses_credentials", "retry", "params", "lint_ignore"}
 )
 
 # Extra keys an AI step (``ai.*``) may declare. These tune the single-shot

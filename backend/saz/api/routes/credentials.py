@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from saz.api.dependencies import CredentialServiceDep, CurrentUserDep
+from saz.api.dependencies import CredentialServiceDep, CurrentUserDep, OperatorUserDep
 from saz.api.errors import NotFoundError
 from saz.api.schemas.credential_schemas import (
     CreateCredentialRequest,
@@ -41,7 +41,7 @@ async def list_credentials(
 async def create_credential(
     req: CreateCredentialRequest,
     service: CredentialServiceDep,
-    user: CurrentUserDep,
+    user: OperatorUserDep,
 ) -> CredentialResponse:
     """Create a new encrypted credential."""
     credential_name = service.create(
@@ -94,7 +94,7 @@ async def update_credential(
     name: str,
     req: UpdateCredentialRequest,
     service: CredentialServiceDep,
-    _user: CurrentUserDep,
+    _user: OperatorUserDep,
 ) -> CredentialResponse:
     """Update an existing credential."""
     credential_name = service.update(
@@ -122,7 +122,7 @@ async def update_credential(
 async def delete_credential(
     name: str,
     service: CredentialServiceDep,
-    _user: CurrentUserDep,
+    _user: OperatorUserDep,
 ) -> dict:
     """Delete a credential."""
     service.delete(name)

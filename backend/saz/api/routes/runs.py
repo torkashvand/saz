@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
-from saz.api.dependencies import CurrentUserDep, RunServiceDep
+from saz.api.dependencies import CurrentUserDep, OperatorUserDep, RunServiceDep
 from saz.api.errors import AuthorizationError, NotFoundError
 from saz.api.schemas.event_schemas import EventListResponse, EventResponse
 from saz.api.schemas.run_schemas import (
@@ -165,7 +165,7 @@ async def list_runs(
 async def create_run(
     req: CreateRunRequest,
     service: RunServiceDep,
-    user: CurrentUserDep,
+    user: OperatorUserDep,
 ) -> CreateRunResponse:
     """Create and start a new run."""
     run_id = service.create(
@@ -580,7 +580,7 @@ async def get_run_graph(
 async def retry_run_endpoint(
     run_id: str,
     service: RunServiceDep,
-    user: CurrentUserDep,
+    user: OperatorUserDep,
     req: RetryRunRequest | None = None,
 ) -> RetryRunResponse:
     """Retry a failed run from the point of failure (same-run semantics).

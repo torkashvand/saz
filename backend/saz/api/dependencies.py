@@ -7,12 +7,17 @@ Auth gating is split into three layers so /auth/me and
 * ``get_authenticated_user`` — valid JWT + active account; password may
   still be in the must-change state. Use for endpoints the user must be
   able to reach even before they have picked a new password.
-* ``get_current_user`` — adds the must-change check. Use for every
-  operational endpoint. ``CurrentUserDep`` is wired to this.
+* ``get_current_user`` — adds the must-change check. Use for read
+  endpoints any authenticated tier may reach. ``CurrentUserDep`` is
+  wired to this.
+* ``get_operator_user`` — adds the write-access check (admin or
+  operator, i.e. not a viewer). Use for mutating endpoints.
+  ``OperatorUserDep`` is wired to this.
 * ``get_current_admin`` — adds the admin check. Use for /admin/*.
 
-There is intentionally no separate "permission" framework; one extra
-bool is enough for a self-hosted product.
+Authorization is a single ``role`` tier (admin / operator / viewer);
+there is no per-permission framework, which is enough for a self-hosted
+product.
 """
 
 from typing import Annotated
@@ -23,6 +28,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from saz.db.dependencies import get_uow
 from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import Role
 from saz.services.admin_service import AdminService
 from saz.services.auth_service import AuthError, AuthService
 from saz.services.credential_service import CredentialService
@@ -107,6 +113,21 @@ def get_current_user(user: User = Depends(get_authenticated_user)) -> User:
     return user
 
 
+def get_operator_user(user: User = Depends(get_current_user)) -> User:
+    """Require write access: an admin or operator, never a viewer.
+
+    Viewers are read-only — they reach GET endpoints through
+    ``get_current_user`` but are turned away from any mutating endpoint
+    with HTTP 403. The security boundary is here, not in the UI.
+    """
+    if user.role == Role.VIEWER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="write access required",
+        )
+    return user
+
+
 def get_current_admin(user: User = Depends(get_current_user)) -> User:
     """Require an authenticated admin user.
 
@@ -130,4 +151,5 @@ AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_uow)]
 AuthenticatedUserDep = Annotated[User, Depends(get_authenticated_user)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+OperatorUserDep = Annotated[User, Depends(get_operator_user)]
 AdminUserDep = Annotated[User, Depends(get_current_admin)]

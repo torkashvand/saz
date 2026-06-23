@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from saz.api.compile_errors import safe_compile_response
-from saz.api.dependencies import CurrentUserDep, FlowServiceDep
+from saz.api.dependencies import CurrentUserDep, FlowServiceDep, OperatorUserDep
 from saz.api.dsl_metadata import build_dsl_metadata
 from saz.api.errors import NotFoundError
 from saz.api.schemas.flow_schemas import (
@@ -56,7 +56,7 @@ async def list_flows(
 async def register_flow(
     req: RegisterFlowRequest,
     service: FlowServiceDep,
-    user: CurrentUserDep,
+    user: OperatorUserDep,
 ) -> RegisterFlowResponse:
     """Register a new flow from YAML definition."""
     flow_id = service.register(req.yaml, created_by_user_id=user.id)
@@ -207,7 +207,7 @@ async def update_flow(
     flow_id: str,
     req: UpdateFlowRequest,
     service: FlowServiceDep,
-    _user: CurrentUserDep,
+    _user: OperatorUserDep,
 ) -> RegisterFlowResponse:
     """Update an existing flow by its ID.
 

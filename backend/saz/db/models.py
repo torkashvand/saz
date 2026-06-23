@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    ColumnElement,
     DateTime,
     Float,
     ForeignKey,
@@ -14,7 +15,10 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from saz.domain.literals import Role
 
 
 class Base(DeclarativeBase):
@@ -26,10 +30,15 @@ class Base(DeclarativeBase):
 class User(Base):
     """User aggregate - a person who can authenticate to Saz.
 
-    Two binary capability flags only — no roles, no permissions, no tenants:
+    Authorization is a single tier on ``role`` (admin / operator / viewer):
 
     * ``is_active`` — can the user log in (gate at authentication).
-    * ``is_admin``  — can the user reach the admin user-management surface.
+    * ``role``      — the authorization tier; ``admin`` reaches the admin
+      user-management surface.
+
+    ``is_admin`` is a derived compatibility shim (``role == ADMIN``) kept so
+    existing call sites and SQL filters keep working while the column is
+    retired — no ``is_admin`` column exists.
 
     ``must_change_password`` is set when an admin resets another user's
     password and cleared the next time that user successfully changes
@@ -46,7 +55,7 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default=Role.OPERATOR, index=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -58,6 +67,21 @@ class User(Base):
         nullable=False,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @hybrid_property
+    def is_admin(self) -> bool:
+        """Derived from ``role``. Kept as a compatibility shim for existing
+        call sites; assigning it maps onto the role tier."""
+        return self.role == Role.ADMIN
+
+    @is_admin.inplace.setter
+    def _is_admin_setter(self, value: bool) -> None:
+        self.role = Role.ADMIN if value else Role.OPERATOR
+
+    @is_admin.inplace.expression
+    @classmethod
+    def _is_admin_expression(cls) -> ColumnElement[bool]:
+        return cls.role == Role.ADMIN
 
     def __repr__(self) -> str:
         flags = []

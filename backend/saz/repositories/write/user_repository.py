@@ -7,15 +7,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from saz.db.models import User
+from saz.domain.literals import Role
 from saz.repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User]):
     """Write repository for User aggregate.
 
-    Identity-only: stores who exists and lets callers update login state.
-    Authorization concerns (roles, scopes, tenant membership) live elsewhere
-    when they exist.
+    Stores who exists, their authorization tier (``role``), and login state.
     """
 
     def __init__(self, session: Session):
@@ -91,6 +90,6 @@ class UserRepository(BaseRepository[User]):
         stmt = (
             select(func.count())
             .select_from(User)
-            .where(User.is_admin.is_(True), User.is_active.is_(True))
+            .where(User.role == Role.ADMIN, User.is_active.is_(True))
         )
         return int(self.session.scalar(stmt) or 0)

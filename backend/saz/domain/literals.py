@@ -60,6 +60,24 @@ class StepStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+class Role(StrEnum):
+    """A user's authorization tier — the single source of truth for what a
+    user may do.
+
+    Stored on ``User.role``; the legacy ``User.is_admin`` boolean is derived
+    from this (``role == ADMIN``) so existing call sites and SQL filters keep
+    working while the column is retired.
+
+    * ``ADMIN``    — full administration, including user management.
+    * ``OPERATOR`` — run and manage workflows; the default for new accounts.
+    * ``VIEWER``   — read-only access to operational data.
+    """
+
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+
 class PlannerMode(StrEnum):
     """Which planner the run executes under.
 

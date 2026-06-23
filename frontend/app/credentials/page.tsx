@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { FieldError } from '@/components/ui/field-error';
 import { useErrorToast } from '@/lib/use-error-toast';
+import { useAuth } from '@/lib/auth';
 import { getFieldError } from '@/lib/errors';
 import type { AppError } from '@/lib/errors';
 import type {
@@ -33,6 +34,7 @@ type ViewMode = 'list' | 'create' | 'edit';
 export default function CredentialsPage() {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useErrorToast();
+  const { canWrite } = useAuth();
 
   // View mode state
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -735,7 +737,9 @@ export default function CredentialsPage() {
           <h1 className="text-3xl font-bold">Credentials</h1>
           <p className="text-gray-600 mt-1">Manage encrypted credentials for workflows</p>
         </div>
-        {viewMode === 'list' && <Button onClick={handleStartCreate}>+ New Credential</Button>}
+        {viewMode === 'list' && canWrite && (
+          <Button onClick={handleStartCreate}>+ New Credential</Button>
+        )}
       </div>
 
       {/* Create Form (only in create mode) */}
@@ -1134,19 +1138,21 @@ export default function CredentialsPage() {
                     <span>Updated: {new Date(credential.updated_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleEdit(credential)}>
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDelete(credential.name)}
-                    disabled={deleteMutation.isPending}
-                  >
-                    Delete
-                  </Button>
-                </div>
+                {canWrite && (
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleEdit(credential)}>
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(credential.name)}
+                      disabled={deleteMutation.isPending}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                )}
               </div>
             </Card>
           ))}
@@ -1154,7 +1160,7 @@ export default function CredentialsPage() {
       ) : (
         <Card className="p-12 text-center">
           <p className="text-gray-500 mb-4">No credentials yet</p>
-          <Button onClick={handleStartCreate}>Create Your First Credential</Button>
+          {canWrite && <Button onClick={handleStartCreate}>Create Your First Credential</Button>}
         </Card>
       )}
     </div>

@@ -17,7 +17,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from './api';
-import type { CurrentUser } from './types';
+import type { CurrentUser, UserRole } from './types';
 
 const STORAGE_KEY = 'saz.access_token';
 
@@ -55,6 +55,11 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  role: UserRole | null;
+  // Whether the current tier may perform write actions (admin/operator).
+  // UI convenience only — the backend enforces the same rule on every
+  // mutating endpoint, so a viewer who bypasses the UI still gets a 403.
+  canWrite: boolean;
   mustChangePassword: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
@@ -119,6 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       isAuthenticated: user !== null,
       isAdmin: user?.is_admin ?? false,
+      role: user?.role ?? null,
+      canWrite: user !== null && user.role !== 'viewer',
       mustChangePassword: user?.must_change_password ?? false,
       login,
       logout,

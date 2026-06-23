@@ -9,9 +9,11 @@ import { ErrorBanner } from '@/components/ui/error-banner';
 import { RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import type { RunListItem, FlowListItem } from '@/lib/types';
+import { useAuth } from '@/lib/auth';
 
 export default function RunsPage() {
   const router = useRouter();
+  const { canWrite } = useAuth();
   const [page, setPage] = useState(0);
   const [flowFilter, setFlowFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -49,9 +51,11 @@ export default function RunsPage() {
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Link href="/runs/new">
-            <Button>+ New Run</Button>
-          </Link>
+          {canWrite && (
+            <Link href="/runs/new">
+              <Button>+ New Run</Button>
+            </Link>
+          )}
         </div>
       </div>
 

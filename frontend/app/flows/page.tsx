@@ -8,10 +8,12 @@ import { Button } from '@/components/ui/button';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { Search } from 'lucide-react';
 import { WorkflowCard } from '@/components/flows/workflow-card';
+import { useAuth } from '@/lib/auth';
 import Link from 'next/link';
 
 export default function FlowsPage() {
   const router = useRouter();
+  const { canWrite } = useAuth();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [plannerFilter, setPlannerFilter] = useState<string>('all');
@@ -44,9 +46,11 @@ export default function FlowsPage() {
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Workflow Catalog</h1>
-        <Link href="/flows/new">
-          <Button>+ Register Flow</Button>
-        </Link>
+        {canWrite && (
+          <Link href="/flows/new">
+            <Button>+ Register Flow</Button>
+          </Link>
+        )}
       </div>
 
       <div className="flex gap-4 mb-6">
@@ -86,8 +90,8 @@ export default function FlowsPage() {
               <WorkflowCard
                 key={flow.id}
                 flow={flow}
-                showEdit
-                showLaunch
+                showEdit={canWrite}
+                showLaunch={canWrite}
                 onLaunch={(flowId) => router.push(`/runs/new?flow=${flowId}`)}
               />
             ))}

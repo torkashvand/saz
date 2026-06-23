@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { useRunDetails, useResumeRun } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
+import { useAuth } from '@/lib/auth';
 import type { HumanApprovalError, WebhookWaitError } from '@/lib/types';
 import { useRunEvents } from '@/lib/use-run-events';
 import { useRunMetrics } from '@/lib/use-run-metrics';
@@ -32,6 +33,7 @@ export default function RunDetailPageRedesign() {
   const runId = params.id as string;
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useErrorToast();
+  const { canWrite } = useAuth();
   const { data: run, isLoading, error } = useRunDetails(runId);
   const { events } = useRunEvents(runId);
   const metrics = useRunMetrics(run);
@@ -371,7 +373,7 @@ export default function RunDetailPageRedesign() {
         </div>
         <RunHeader
           run={run}
-          onRetry={() => retryMutation.mutate()}
+          onRetry={canWrite ? () => retryMutation.mutate() : undefined}
           onConfigureCredential={() => router.push('/credentials')}
           isRetrying={retryMutation.isPending}
         />

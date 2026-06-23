@@ -157,6 +157,11 @@ class AdminService:
                 raise AdminError("admins cannot disable their own account")
 
         user.is_active = is_active
+        if not is_active:
+            # A disabled user must lose every active session immediately, so
+            # neither their access token nor a refresh can outlive the change.
+            assert self.uow.auth_sessions is not None
+            self.uow.auth_sessions.revoke_all_for_user(user.id, "user_disabled")
         self.uow.commit()
         admin_audit(
             "user.activated" if is_active else "user.disabled",
@@ -215,6 +220,10 @@ class AdminService:
 
         user.password_hash = hash_password(temporary_password)
         user.must_change_password = True
+        # A reset invalidates the old credential everywhere: revoke all
+        # sessions so the user must sign in again with the new password.
+        assert self.uow.auth_sessions is not None
+        self.uow.auth_sessions.revoke_all_for_user(user.id, "password_reset")
         self.uow.commit()
         admin_audit(
             "user.password_reset",

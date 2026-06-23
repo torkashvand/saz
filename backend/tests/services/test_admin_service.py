@@ -9,6 +9,7 @@ from saz.db.unit_of_work import UnitOfWork
 from saz.domain.literals import Role
 from saz.security import hash_password, verify_password
 from saz.services.admin_service import AdminError, AdminService
+from saz.services.auth_service import AuthService
 
 
 def _service(db_engine):
@@ -54,6 +55,43 @@ def test_create_user_hashes_password_and_returns_row(db_engine):
         assert u.role == Role.OPERATOR
         assert u.is_active is True
         assert u.must_change_password is False
+    finally:
+        session.close()
+
+
+def test_disable_revokes_active_sessions(db_engine):
+    actor = _admin_actor(db_engine, username="disabler_admin")
+    uow, session, svc = _service(db_engine)
+    try:
+        target = svc.create_user(
+            actor=actor, username="victim", email="victim@example.com", password="pw-strong-1"
+        )
+        AuthService(uow).start_session(target)
+        uow.commit()
+        assert uow.auth_sessions is not None
+        assert len(uow.auth_sessions.list_for_user(target.id)) == 1
+
+        svc.set_active(actor=actor, user_id=target.id, is_active=False)
+        # No active (unrevoked) sessions remain after disabling.
+        assert uow.auth_sessions.list_for_user(target.id) == []
+    finally:
+        session.close()
+
+
+def test_reset_password_revokes_active_sessions(db_engine):
+    actor = _admin_actor(db_engine, username="resetter_admin")
+    uow, session, svc = _service(db_engine)
+    try:
+        target = svc.create_user(
+            actor=actor, username="forgot", email="forgot@example.com", password="pw-strong-1"
+        )
+        AuthService(uow).start_session(target)
+        uow.commit()
+        assert uow.auth_sessions is not None
+        assert len(uow.auth_sessions.list_for_user(target.id)) == 1
+
+        svc.reset_password(actor=actor, user_id=target.id, temporary_password="temp-pw-1234")
+        assert uow.auth_sessions.list_for_user(target.id) == []
     finally:
         session.close()
 

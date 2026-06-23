@@ -49,15 +49,34 @@ def lint_flow(
     llm_ran = False
     if run_llm:
         llm_findings, llm_ran = _run_llm_rule(ctx, llm_port)
-        # De-dup: drop an LLM finding that overlaps a deterministic one on the
-        # same step + field. Compare on the trailing field segment because the
-        # LLM and deterministic rules report the same field at different
-        # granularities (e.g. "pre_checks" vs "expect.pre_checks").
-        det_keys = {_dedup_key(f) for f in findings if f.source == "deterministic"}
-        findings.extend(f for f in llm_findings if _dedup_key(f) not in det_keys)
+        findings.extend(_dedup_llm(llm_findings, findings))
 
     _apply_suppressions(ctx, findings)
     return LintReport(findings=findings, llm_ran=llm_ran)
+
+
+def _dedup_llm(
+    llm_findings: list[LintFinding], deterministic: list[LintFinding]
+) -> list[LintFinding]:
+    """Drop LLM findings that restate a deterministic finding.
+
+    Two overlap cases, both observed from real models:
+    - Same field at different granularity ("pre_checks" vs "expect.pre_checks")
+      → match on the trailing field segment.
+    - The LLM omits the field (``None``) on a step that already has a
+      deterministic finding → almost always the same issue stated vaguely; drop.
+    Deterministic findings are authoritative (precise field + message).
+    """
+    det_keys = {_dedup_key(f) for f in deterministic if f.source == "deterministic"}
+    det_steps = {f.step_id for f in deterministic if f.source == "deterministic"}
+    kept: list[LintFinding] = []
+    for f in llm_findings:
+        if _dedup_key(f) in det_keys:
+            continue
+        if not f.field and f.step_id in det_steps:
+            continue
+        kept.append(f)
+    return kept
 
 
 def _dedup_key(f: LintFinding) -> tuple[str | None, str | None]:

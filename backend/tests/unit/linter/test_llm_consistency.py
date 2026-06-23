@@ -148,3 +148,42 @@ def test_llm_dedup_against_deterministic():
     assert LintCode.LLM_PROSE_SCHEMA_CONTRADICTION not in llm_codes  # de-duped
     assert LintCode.LLM_CROSS_FIELD_RULE_UNENFORCED in llm_codes  # kept
     assert any(f.code is LintCode.PROSE_SCHEMA_COUNT_MISMATCH for f in report.findings)
+
+
+def test_llm_fieldless_finding_deduped_when_step_already_flagged():
+    # Smaller models (e.g. qwen) often omit the field; a field-less LLM finding
+    # on a step that already has a deterministic finding is dropped.
+    flow = {
+        "workflow": {
+            "steps": [
+                {
+                    "id": "summarize",
+                    "type": "ai.extract",
+                    "instruction": '- "pre_checks" is a list (3-6 items).',
+                    "expect": {
+                        "type": "object",
+                        "properties": {
+                            "pre_checks": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            }
+                        },
+                    },
+                }
+            ]
+        }
+    }
+    payload = {
+        "findings": [
+            {
+                "code": "LLM_PROSE_SCHEMA_CONTRADICTION",
+                "step_id": "summarize",
+                "field": None,
+                "message": "vague restatement of the count mismatch",
+            }
+        ]
+    }
+    report = lint_flow(flow, run_llm=True, llm_port=_FakeLLM(payload))
+    assert not any(f.source == "llm" for f in report.findings)  # field-less dup dropped
+    assert any(f.code is LintCode.PROSE_SCHEMA_COUNT_MISMATCH for f in report.findings)

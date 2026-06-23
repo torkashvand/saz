@@ -62,4 +62,26 @@ class CurrentUserResponse(BaseModel):
     last_login_at: datetime | None = None
 
 
+class SessionResponse(BaseModel):
+    """A refresh session in the user's own session list. No secrets."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    auth_method: str
+    provider_key: str | None = None
+    created_at: datetime
+    last_used_at: datetime
+    idle_expires_at: datetime
+    absolute_expires_at: datetime
+    ip: str | None = None
+    user_agent: str | None = None
+    is_current: bool = False
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionResponse]
+    total: int
+
+
 TokenResponse.model_rebuild()

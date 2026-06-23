@@ -625,6 +625,24 @@ export interface TokenResponse {
   user: CurrentUser;
 }
 
+export interface AuthSession {
+  id: string;
+  auth_method: string;
+  provider_key?: string | null;
+  created_at: string;
+  last_used_at: string;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+  ip?: string | null;
+  user_agent?: string | null;
+  is_current: boolean;
+}
+
+export interface AuthSessionListResponse {
+  items: AuthSession[];
+  total: number;
+}
+
 // --- Admin user management ---
 
 export interface AdminUser {

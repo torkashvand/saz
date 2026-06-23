@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -81,8 +81,27 @@ class Settings(BaseSettings):
     change without also rotating ``JWT_SECRET_KEY`` and reviewing the
     decode path."""
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
-    """Access-token lifetime in minutes. Refresh tokens and revocation are
-    out of scope — when this expires the user must log in again."""
+    """Access-token lifetime in minutes. Access tokens carry a ``sid``
+    binding them to a refresh session; revoking the session rejects the
+    token on its next request even before this expiry elapses."""
+
+    # --- Sessions / refresh ---
+    REFRESH_COOKIE_NAME: str = "saz_refresh"
+    """Name of the HttpOnly cookie carrying the opaque refresh secret."""
+
+    SESSION_IDLE_TIMEOUT_DAYS: int = 7
+    """A session expires this many days after its last refresh."""
+
+    SESSION_ABSOLUTE_TIMEOUT_DAYS: int = 30
+    """A session expires this many days after creation, regardless of use."""
+
+    COOKIE_SECURE: bool = False
+    """Set ``COOKIE_SECURE=true`` in any HTTPS deployment so the refresh
+    cookie is never sent over plaintext. Left False for local http dev."""
+
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    """SameSite policy for the refresh cookie. ``none`` requires
+    ``COOKIE_SECURE=true`` and is only needed for cross-site frontends."""
 
     # --- CORS ---
     # ``NoDecode`` keeps pydantic-settings from JSON-parsing the env value,

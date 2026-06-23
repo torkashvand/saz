@@ -6,10 +6,10 @@ must_change_password gating) live in the FastAPI dependency layer.
 """
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from saz.api.errors import ConflictError, ValidationError
-from saz.db.models import User
+from saz.db.models import AuthSession, User
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.literals import Role
 from saz.security import (
@@ -17,9 +17,12 @@ from saz.security import (
     TokenExpiredError,
     create_access_token,
     decode_access_token,
+    generate_refresh_secret,
     hash_password,
+    hash_refresh_secret,
     verify_password,
 )
+from saz.settings import settings
 
 
 class AuthError(Exception):
@@ -135,9 +138,111 @@ class AuthService:
         self.uow.commit()
         return user
 
-    def issue_access_token(self, user: User) -> tuple[str, datetime]:
-        """Mint a JWT for ``user``. Returns (token, expires_at)."""
-        return create_access_token(user_id=user.id, username=user.username)
+    # --- Sessions (refresh + revocation) ---
+
+    def start_session(
+        self,
+        user: User,
+        *,
+        auth_method: str = "local",
+        provider_key: str | None = None,
+        ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[str, datetime, str, AuthSession]:
+        """Open a refresh session and mint the first access token.
+
+        Returns ``(access_token, access_expires_at, refresh_secret, session)``.
+        The plaintext ``refresh_secret`` is returned once for the caller to
+        set as an HttpOnly cookie; only its hash is persisted. Does not
+        commit — the route layer commits.
+        """
+        assert self.uow.auth_sessions is not None
+        now = datetime.now(UTC)
+        secret = generate_refresh_secret()
+        session = self.uow.auth_sessions.create(
+            user_id=user.id,
+            refresh_secret_hash=hash_refresh_secret(secret),
+            idle_expires_at=now + timedelta(days=settings.SESSION_IDLE_TIMEOUT_DAYS),
+            absolute_expires_at=now + timedelta(days=settings.SESSION_ABSOLUTE_TIMEOUT_DAYS),
+            auth_method=auth_method,
+            provider_key=provider_key,
+            ip=ip,
+            user_agent=user_agent,
+        )
+        self.uow.users.record_login(user.id)  # type: ignore[union-attr]
+        token, expires_at = create_access_token(
+            user_id=user.id, username=user.username, session_id=session.id
+        )
+        return token, expires_at, secret, session
+
+    def refresh_session(self, refresh_secret: str) -> tuple[str, datetime, str, AuthSession]:
+        """Rotate a refresh session and mint a fresh access token.
+
+        Detects replay: a secret matching a session's *previous* hash means
+        an already-rotated secret was reused, so the session is revoked and
+        the refresh refused. Returns the same shape as ``start_session``.
+        """
+        assert self.uow.auth_sessions is not None
+        repo = self.uow.auth_sessions
+        presented = hash_refresh_secret(refresh_secret)
+        now = datetime.now(UTC)
+
+        session = repo.get_by_refresh_hash(presented)
+        if session is None:
+            replayed = repo.get_by_previous_refresh_hash(presented)
+            if replayed is not None and replayed.revoked_at is None:
+                repo.revoke(replayed, "refresh_replay")
+                self.uow.commit()
+            raise AuthError("invalid refresh token")
+        if not session.is_active(now):
+            raise AuthError("session is no longer active")
+
+        user = self.uow.users.get(session.user_id)  # type: ignore[union-attr]
+        if user is None or not user.is_active:
+            repo.revoke(session, "user_unavailable")
+            self.uow.commit()
+            raise AuthError("account is unavailable")
+
+        new_secret = generate_refresh_secret()
+        session.previous_refresh_secret_hash = session.refresh_secret_hash
+        session.refresh_secret_hash = hash_refresh_secret(new_secret)
+        session.last_used_at = now
+        session.idle_expires_at = now + timedelta(days=settings.SESSION_IDLE_TIMEOUT_DAYS)
+        token, expires_at = create_access_token(
+            user_id=user.id, username=user.username, session_id=session.id
+        )
+        self.uow.commit()
+        return token, expires_at, new_secret, session
+
+    def revoke_session_by_secret(self, refresh_secret: str) -> None:
+        """Revoke the session matching a refresh secret (logout). No-op if the
+        secret does not resolve — logout is idempotent and never errors."""
+        assert self.uow.auth_sessions is not None
+        session = self.uow.auth_sessions.get_by_refresh_hash(hash_refresh_secret(refresh_secret))
+        if session is not None:
+            self.uow.auth_sessions.revoke(session, "logout")
+            self.uow.commit()
+
+    def revoke_session(self, user_id: str, session_id: str) -> bool:
+        """Revoke one of the user's own sessions. Returns False if it does not
+        exist or belongs to someone else (callers map that to 404)."""
+        assert self.uow.auth_sessions is not None
+        session = self.uow.auth_sessions.get(session_id)
+        if session is None or session.user_id != user_id:
+            return False
+        self.uow.auth_sessions.revoke(session, "user_revoked")
+        self.uow.commit()
+        return True
+
+    def revoke_all_sessions(self, user_id: str) -> int:
+        assert self.uow.auth_sessions is not None
+        count = self.uow.auth_sessions.revoke_all_for_user(user_id, "logout_all")
+        self.uow.commit()
+        return count
+
+    def list_sessions(self, user_id: str) -> list[AuthSession]:
+        assert self.uow.auth_sessions is not None
+        return self.uow.auth_sessions.list_for_user(user_id)
 
     # --- Token → user ---
 
@@ -168,6 +273,16 @@ class AuthService:
             raise AuthError("user no longer exists")
         if not user.is_active:
             raise AuthError("account is disabled")
+
+        # Tokens minted through a session carry a ``sid``; reject them once
+        # the session is revoked or expired so logout/disable take effect on
+        # the very next request. Sessionless tokens (test helpers) skip this.
+        sid = claims.get("sid")
+        if isinstance(sid, str):
+            assert self.uow.auth_sessions is not None
+            session = self.uow.auth_sessions.get(sid)
+            if session is None or not session.is_active(datetime.now(UTC)):
+                raise AuthError("session is no longer active")
         return user
 
     # --- Password change (self-service) ---

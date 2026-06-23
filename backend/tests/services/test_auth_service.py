@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from saz.api.errors import ConflictError, ValidationError
 from saz.db.unit_of_work import UnitOfWork
-from saz.security import verify_password
+from saz.security import create_access_token, verify_password
 from saz.services.auth_service import AuthError, AuthService
 
 
@@ -147,7 +147,7 @@ def test_user_from_token_returns_active_user(db_engine):
         user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
-        token, _ = auth.issue_access_token(user)
+        token, _ = create_access_token(user_id=user.id, username=user.username)
         resolved = auth.user_from_token(token)
         assert resolved.id == user.id
     finally:
@@ -160,7 +160,7 @@ def test_user_from_token_rejects_disabled_user(db_engine):
         user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
-        token, _ = auth.issue_access_token(user)
+        token, _ = create_access_token(user_id=user.id, username=user.username)
 
         assert uow.users is not None
         uow.users.set_active(user.id, False)
@@ -178,7 +178,7 @@ def test_user_from_token_rejects_deleted_user(db_engine):
         user = auth.create_user(
             username="alice", email="alice@example.com", password="strong-password-1"
         )
-        token, _ = auth.issue_access_token(user)
+        token, _ = create_access_token(user_id=user.id, username=user.username)
 
         assert uow.users is not None
         deleted = uow.users.get(user.id)

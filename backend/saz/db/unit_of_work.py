@@ -10,6 +10,7 @@ from saz.repositories.read.event_queries import EventQueries
 from saz.repositories.read.flow_read_repository import FlowReadRepository
 from saz.repositories.read.run_read_repository import RunReadRepository
 from saz.repositories.write.artifact_repository import ArtifactRepository
+from saz.repositories.write.auth_session_repository import AuthSessionRepository
 from saz.repositories.write.credential_repository import CredentialRepository
 from saz.repositories.write.event_repository import EventRepository
 from saz.repositories.write.flow_repository import FlowRepository
@@ -33,6 +34,7 @@ class UnitOfWork:
         self.artifacts: ArtifactRepository | None = None
         self.events_repo: EventRepository | None = None
         self.users: UserRepository | None = None
+        self.auth_sessions: AuthSessionRepository | None = None
 
         # Read repositories
         self.run_reads: RunReadRepository | None = None
@@ -49,6 +51,7 @@ class UnitOfWork:
         self.artifacts = ArtifactRepository(self._session)
         self.events_repo = EventRepository(self._session)
         self.users = UserRepository(self._session)
+        self.auth_sessions = AuthSessionRepository(self._session)
 
         # Read repositories
         self.run_reads = RunReadRepository(self._session)

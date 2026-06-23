@@ -44,6 +44,7 @@ import type {
   LoginRequest,
   ChangePasswordRequest,
   TokenResponse,
+  AuthSessionListResponse,
   CurrentUser,
   UserRole,
   // Admin
@@ -56,16 +57,44 @@ import type {
 } from './types';
 import { fromHttpError, fromNetworkError, fromUnknownError } from './errors';
 import { addBreadcrumb, captureAppError } from './monitoring';
-import { getAccessToken } from './auth';
+import { getAccessToken, _internalAuth } from './auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
+// Single-flight silent refresh: exchange the HttpOnly refresh cookie for a
+// fresh access token. Concurrent 401s share one in-flight refresh so we don't
+// stampede the endpoint or rotate the cookie multiple times.
+let _refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshAccessToken(): Promise<boolean> {
+  if (!_refreshInFlight) {
+    _refreshInFlight = (async () => {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!resp.ok) return false;
+        const data = (await resp.json()) as TokenResponse;
+        _internalAuth.setAccessToken(data.access_token);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        _refreshInFlight = null;
+      }
+    })();
+  }
+  return _refreshInFlight;
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit,
   timeoutMs = DEFAULT_TIMEOUT,
+  retried = false,
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const method = options?.method || 'GET';
@@ -91,12 +120,24 @@ async function fetchApi<T>(
     const response = await fetch(url, {
       ...options,
       headers,
+      // Send/receive the HttpOnly refresh cookie. Requires the API to set
+      // CORS allow_credentials + an explicit origin (it does).
+      credentials: 'include',
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // On a 401, try one silent refresh and replay the request. Skip the
+      // auth endpoints themselves to avoid recursion on a dead session.
+      if (response.status === 401 && !retried && !endpoint.startsWith('/api/v1/auth/')) {
+        clearTimeout(timeoutId);
+        if (await tryRefreshAccessToken()) {
+          return fetchApi<T>(endpoint, options, timeoutMs, true);
+        }
+      }
+
       const appError = await fromHttpError(response);
 
       // Add error breadcrumb
@@ -177,6 +218,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  /** Exchange the refresh cookie for a fresh access token. */
+  refreshSession: () => fetchApi<TokenResponse>('/api/v1/auth/refresh', { method: 'POST' }),
+
+  /** Revoke the current refresh session server-side. */
+  logout: () => fetchApi<void>('/api/v1/auth/logout', { method: 'POST' }),
+
+  /** Revoke every session for the current user (all devices). */
+  logoutAll: () => fetchApi<{ revoked: number }>('/api/v1/auth/logout_all', { method: 'POST' }),
+
+  /** List the current user's active refresh sessions. */
+  listSessions: () => fetchApi<AuthSessionListResponse>('/api/v1/auth/sessions'),
+
+  /** Revoke one of the current user's sessions by id. */
+  revokeSession: (id: string) =>
+    fetchApi<void>(`/api/v1/auth/sessions/${id}`, { method: 'DELETE' }),
 
   // ========== Admin: User management (admin-only) ==========
 

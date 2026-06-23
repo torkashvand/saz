@@ -62,7 +62,7 @@ interface AuthContextValue {
   canWrite: boolean;
   mustChangePassword: boolean;
   login: (identifier: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
@@ -105,7 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(resp.user);
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Revoke the server-side session so the refresh cookie can't mint new
+    // tokens. Best-effort: clear local state even if the call fails.
+    try {
+      await api.logout();
+    } catch {
+      // ignore — local sign-out proceeds regardless
+    }
     setAccessToken(null);
     setUser(null);
   }, []);

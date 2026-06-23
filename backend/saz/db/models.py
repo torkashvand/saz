@@ -72,6 +72,60 @@ class User(Base):
         return f"<User {self.username}{suffix}>"
 
 
+class AuthSession(Base):
+    """Server-side refresh session — the unit of revocation.
+
+    The opaque refresh secret is never stored; only its hash. Access tokens
+    carry this row's ``id`` in their ``sid`` claim, so revoking the session
+    (logout, admin disable, password reset, refresh-replay) rejects the
+    access token on its next request — well before its own ``exp``.
+
+    Refresh rotates the secret on every use; the prior hash is retained for
+    one generation so a replayed (already-rotated) secret is detected as
+    theft and revokes the whole session.
+    """
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    refresh_secret_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    previous_refresh_secret_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # How the session was established: "local" password login or "oidc" SSO.
+    auth_method: Mapped[str] = mapped_column(String(20), nullable=False, default="local")
+    provider_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    idle_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    def is_active(self, now: datetime) -> bool:
+        """A session is usable only while unrevoked and within both timeouts.
+
+        Normalises naive timestamps to UTC: SQLite (dev/tests) drops tzinfo on
+        read while Postgres (prod) preserves it, so compare defensively.
+        """
+
+        def _aware(value: datetime) -> datetime:
+            return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+        return (
+            self.revoked_at is None
+            and now < _aware(self.idle_expires_at)
+            and now < _aware(self.absolute_expires_at)
+        )
+
+
 class Flow(Base):
     """Flow aggregate - workflow definition."""
 

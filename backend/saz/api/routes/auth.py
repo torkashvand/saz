@@ -11,33 +11,85 @@ login.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from saz.api.dependencies import AuthenticatedUserDep, AuthServiceDep
 from saz.api.schemas.auth_schemas import (
     ChangePasswordRequest,
     CurrentUserResponse,
     LoginRequest,
+    SessionListResponse,
+    SessionResponse,
     TokenResponse,
 )
 from saz.audit.admin_audit import admin_audit
+from saz.security import InvalidTokenError, TokenExpiredError, decode_access_token
 from saz.services.auth_service import AuthError
+from saz.settings import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+# The refresh cookie is scoped to the auth routes so it is only sent on
+# refresh/logout calls, never on every API request.
+_REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
 def _user_response(user) -> CurrentUserResponse:  # type: ignore[no-untyped-def]
     return CurrentUserResponse.model_validate(user)
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, auth: AuthServiceDep) -> TokenResponse:
-    """Exchange a username-or-email + password for a JWT access token.
+def _set_refresh_cookie(response: Response, secret: str) -> None:
+    response.set_cookie(
+        key=settings.REFRESH_COOKIE_NAME,
+        value=secret,
+        max_age=settings.SESSION_ABSOLUTE_TIMEOUT_DAYS * 24 * 3600,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path=_REFRESH_COOKIE_PATH,
+    )
 
-    The token is minted regardless of ``must_change_password``; the
-    backend gates operational endpoints separately. The frontend reads
-    that flag from the returned user object and redirects accordingly.
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.REFRESH_COOKIE_NAME,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path=_REFRESH_COOKIE_PATH,
+    )
+
+
+def _client_meta(request: Request) -> tuple[str | None, str | None]:
+    ip = request.client.host if request.client else None
+    return ip, request.headers.get("user-agent")
+
+
+def _current_session_id(request: Request) -> str | None:
+    """Best-effort read of the ``sid`` from the bearer token so the session
+    list can flag the caller's own session. Never raises."""
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        return None
+    try:
+        claims = decode_access_token(auth_header[7:])
+    except (InvalidTokenError, TokenExpiredError):
+        return None
+    sid = claims.get("sid")
+    return sid if isinstance(sid, str) else None
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    req: LoginRequest, request: Request, response: Response, auth: AuthServiceDep
+) -> TokenResponse:
+    """Exchange a username-or-email + password for a short-lived access token
+    plus a server-side refresh session (set as an HttpOnly cookie).
+
+    The token is minted regardless of ``must_change_password``; the backend
+    gates operational endpoints separately. The frontend reads that flag from
+    the returned user object and redirects accordingly.
     """
     try:
         user = auth.authenticate(req.identifier, req.password)
@@ -52,12 +104,81 @@ async def login(req: LoginRequest, auth: AuthServiceDep) -> TokenResponse:
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    token, expires_at = auth.issue_access_token(user)
-    return TokenResponse(
-        access_token=token,
-        expires_at=expires_at,
-        user=_user_response(user),
+    ip, user_agent = _client_meta(request)
+    token, expires_at, secret, _session = auth.start_session(
+        user, auth_method="local", ip=ip, user_agent=user_agent
     )
+    auth.uow.commit()
+    _set_refresh_cookie(response, secret)
+    return TokenResponse(access_token=token, expires_at=expires_at, user=_user_response(user))
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(request: Request, response: Response, auth: AuthServiceDep) -> TokenResponse:
+    """Rotate the refresh session and mint a new access token.
+
+    Reads the opaque refresh secret from the HttpOnly cookie. On success the
+    cookie is replaced with the rotated secret; a replayed (already-rotated)
+    secret revokes the session.
+    """
+    secret = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    if not secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+    try:
+        token, expires_at, new_secret, session = auth.refresh_session(secret)
+    except AuthError as exc:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    user = auth.uow.users.get(session.user_id)  # type: ignore[union-attr]
+    assert user is not None
+    _set_refresh_cookie(response, new_secret)
+    return TokenResponse(access_token=token, expires_at=expires_at, user=_user_response(user))
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: Request, response: Response, auth: AuthServiceDep) -> Response:
+    """Revoke the current refresh session and clear the cookie. Idempotent."""
+    secret = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    if secret:
+        auth.revoke_session_by_secret(secret)
+    _clear_refresh_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@router.post("/logout_all")
+async def logout_all(user: AuthenticatedUserDep, response: Response, auth: AuthServiceDep) -> dict:
+    """Revoke every refresh session for the current user (all devices)."""
+    revoked = auth.revoke_all_sessions(user.id)
+    _clear_refresh_cookie(response)
+    return {"revoked": revoked}
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    user: AuthenticatedUserDep, request: Request, auth: AuthServiceDep
+) -> SessionListResponse:
+    """List the current user's active refresh sessions."""
+    current_sid = _current_session_id(request)
+    sessions = auth.list_sessions(user.id)
+    items = []
+    for s in sessions:
+        item = SessionResponse.model_validate(s)
+        item.is_current = s.id == current_sid
+        items.append(item)
+    return SessionListResponse(items=items, total=len(items))
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: str, user: AuthenticatedUserDep, response: Response, auth: AuthServiceDep
+) -> Response:
+    """Revoke one of the caller's own sessions."""
+    if not auth.revoke_session(user.id, session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/me", response_model=CurrentUserResponse)

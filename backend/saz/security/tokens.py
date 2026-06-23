@@ -46,8 +46,14 @@ def create_access_token(
     user_id: str,
     username: str,
     expires_delta: timedelta | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, datetime]:
     """Mint a signed JWT for ``user_id``.
+
+    ``session_id`` binds the token to a refresh session via the ``sid``
+    claim; the dependency layer rejects the token once that session is
+    revoked. Tokens minted without a session (e.g. test helpers) carry no
+    ``sid`` and skip the session check.
 
     Returns ``(token, expires_at)`` so callers can include the expiry in the
     response without having to decode the token again.
@@ -65,6 +71,8 @@ def create_access_token(
         "exp": int(expires_at.timestamp()),
         "type": "access",
     }
+    if session_id is not None:
+        claims["sid"] = session_id
     token = jwt.encode(claims, secret, algorithm=settings.JWT_ALGORITHM)
     return token, expires_at
 

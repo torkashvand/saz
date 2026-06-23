@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       isAuthenticated: user !== null,
-      isAdmin: user?.is_admin ?? false,
+      isAdmin: user?.role === 'admin',
       role: user?.role ?? null,
       canWrite: user !== null && user.role !== 'viewer',
       mustChangePassword: user?.must_change_password ?? false,

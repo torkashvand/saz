@@ -57,7 +57,6 @@ class CurrentUserResponse(BaseModel):
     display_name: str | None = None
     is_active: bool
     role: Role
-    is_admin: bool
     must_change_password: bool
     created_at: datetime
     last_login_at: datetime | None = None

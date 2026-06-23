@@ -1,8 +1,8 @@
 """Pydantic schemas for admin user-management endpoints.
 
-These are admin-only — they intentionally expose ``role`` (plus the
-derived ``is_admin``) and ``must_change_password`` so the admin UI can
-render and edit the right state. Password hashes are never exposed.
+These are admin-only — they intentionally expose ``role`` and
+``must_change_password`` so the admin UI can render and edit the right
+state. Password hashes are never exposed.
 """
 
 from datetime import datetime
@@ -23,7 +23,6 @@ class AdminUserResponse(BaseModel):
     display_name: str | None = None
     is_active: bool
     role: Role
-    is_admin: bool
     must_change_password: bool
     created_at: datetime
     updated_at: datetime

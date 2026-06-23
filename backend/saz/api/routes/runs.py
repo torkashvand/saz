@@ -35,7 +35,7 @@ from saz.audit.event_emitter import EventEmitter
 from saz.db.models import User
 from saz.domain.error_enrichment import ErrorEnrichmentService
 from saz.domain.event_schema import EventType
-from saz.domain.literals import PlannerMode, RunStatus, StepStatus
+from saz.domain.literals import PlannerMode, Role, RunStatus, StepStatus
 from saz.engine.scheduler import get_scheduler
 from saz.settings import settings
 
@@ -103,7 +103,7 @@ def _authorize_run_access(run: Any, user: User) -> None:
     share one access model instead of REST silently authorizing any logged-in
     user.
     """
-    if run.created_by_user_id != user.id and not user.is_admin:
+    if run.created_by_user_id != user.id and user.role != Role.ADMIN:
         raise AuthorizationError(f"Not authorized to access run {run.id}")
 
 
@@ -123,7 +123,7 @@ async def list_runs(
     """
     # Use read repository which returns DTOs with flow_name included
     assert service.uow.run_reads is not None
-    owner_scope = None if user.is_admin else user.id
+    owner_scope = None if user.role == Role.ADMIN else user.id
     run_dtos, total = service.uow.run_reads.list(
         flow_id=flow_id,
         status=status,

@@ -34,7 +34,6 @@ function mockUser(role: string) {
     email: 'u@e',
     is_active: true,
     role,
-    is_admin: role === 'admin',
     must_change_password: false,
     created_at: '2026-01-01T00:00:00Z',
   });

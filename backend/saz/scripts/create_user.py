@@ -87,8 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 role=Role.ADMIN if args.admin else Role.OPERATOR,
                 must_change_password=False,
             )
-        flag = "admin" if user.is_admin else "user"
-        print(f"created {flag} {user.username} ({user.id})")
+        print(f"created {user.role} {user.username} ({user.id})")
         return 0
     finally:
         session.close()

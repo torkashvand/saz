@@ -10,6 +10,7 @@ from saz.audit.event_bus import event_bus
 from saz.db.dependencies import get_uow
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.event_schema import Event
+from saz.domain.literals import Role
 from saz.services.auth_service import AuthError, AuthService
 
 router = APIRouter()
@@ -76,7 +77,7 @@ async def stream_run_events(
     # sees a single event (and cannot distinguish "not found" from "forbidden").
     assert uow.runs is not None
     run = uow.runs.get(run_id)
-    if run is None or (run.created_by_user_id != user.id and not user.is_admin):
+    if run is None or (run.created_by_user_id != user.id and user.role != Role.ADMIN):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

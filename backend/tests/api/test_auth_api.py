@@ -21,7 +21,6 @@ def _seed_user(
     password: str,
     email: str | None = None,
     is_active: bool = True,
-    is_admin: bool = False,
     must_change_password: bool = False,
 ) -> str:
     """Insert a user row directly so the test does not depend on the
@@ -36,7 +35,6 @@ def _seed_user(
                 email=email or f"{username}@example.com",
                 password_hash=hash_password(password),
                 is_active=is_active,
-                is_admin=is_admin,
                 must_change_password=must_change_password,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -148,12 +146,10 @@ def test_me_returns_current_user_with_valid_token(unauthenticated_app_client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["username"] == TEST_USER_USERNAME
-    # The new flags MUST be exposed so the frontend can route accordingly.
-    assert "is_admin" in body
-    assert body["is_admin"] is False
     # The seeded test user is an operator; role is the authorization source
-    # of truth and must be exposed alongside the is_admin compatibility flag.
+    # of truth and must be exposed so the frontend can route accordingly.
     assert body["role"] == "operator"
+    assert "is_admin" not in body
     assert "must_change_password" in body
     assert "password_hash" not in body
 

@@ -613,7 +613,6 @@ export interface CurrentUser {
   display_name?: string | null;
   is_active: boolean;
   role: UserRole;
-  is_admin: boolean;
   must_change_password: boolean;
   created_at: string;
   last_login_at?: string | null;
@@ -635,7 +634,6 @@ export interface AdminUser {
   display_name?: string | null;
   is_active: boolean;
   role: UserRole;
-  is_admin: boolean;
   must_change_password: boolean;
   created_at: string;
   updated_at: string;

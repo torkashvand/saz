@@ -26,7 +26,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({ user: { id: 'admin-1', username: 'root', is_admin: true, role: 'admin' } }),
+  useAuth: () => ({ user: { id: 'admin-1', username: 'root', role: 'admin' } }),
 }));
 
 import AdminUsersPage from '@/app/admin/users/page';
@@ -39,7 +39,6 @@ function user(overrides: Record<string, unknown>) {
     display_name: null,
     is_active: true,
     role: 'operator',
-    is_admin: false,
     must_change_password: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -68,7 +67,7 @@ describe('AdminUsersPage role management', () => {
   it('renders a role badge for each tier', async () => {
     listUsers.mockResolvedValue({
       items: [
-        user({ id: 'a', username: 'theadmin', role: 'admin', is_admin: true }),
+        user({ id: 'a', username: 'theadmin', role: 'admin' }),
         user({ id: 'o', username: 'theop', role: 'operator' }),
         user({ id: 'v', username: 'theviewer', role: 'viewer' }),
       ],

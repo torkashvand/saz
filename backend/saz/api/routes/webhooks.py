@@ -14,7 +14,7 @@ from saz.api.schemas.webhook_schemas import (
 )
 from saz.audit.event_emitter import EventEmitter
 from saz.domain.event_schema import EventType
-from saz.domain.literals import SuspensionErrorType
+from saz.domain.literals import Role, SuspensionErrorType
 from saz.engine.scheduler import get_scheduler
 
 router = APIRouter(prefix="/api/v1", tags=["webhooks"])
@@ -67,15 +67,15 @@ async def resume_run(
     #    an approver need not own the run.
     #  * Otherwise only the run's owner (or an admin) may resume it, matching
     #    the per-run access model used by the read endpoints and WS stream.
-    # approver_role is surfaced but not enforced (Saz has no role system). The
-    # raw webhook callback URL remains a separate capability and is not gated
-    # here.
+    # Approval is gated by the approver list, not the role tier: any admin
+    # may approve, otherwise the caller must be a named approver. The raw
+    # webhook callback URL remains a separate capability and is not gated here.
     approval_meta = (run.error or {}).get("approval") or {}
     approvers = approval_meta.get("approvers")
     if approvers:
-        if not user.is_admin and not ({user.username, user.email} & set(approvers)):
+        if user.role != Role.ADMIN and not ({user.username, user.email} & set(approvers)):
             raise AuthorizationError(f"User '{user.username}' is not an approver for run {run_id}")
-    elif not user.is_admin:
+    elif user.role != Role.ADMIN:
         assert service.uow.runs is not None
         owner_run = service.uow.runs.get(run_id)
         if owner_run is not None and owner_run.created_by_user_id != user.id:

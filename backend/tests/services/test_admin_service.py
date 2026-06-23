@@ -28,7 +28,7 @@ def _admin_actor(db_engine, *, username: str = "root_admin") -> User:
             email=f"{username}@example.com",
             password_hash=hash_password("strong-password-1"),
             is_active=True,
-            is_admin=True,
+            role=Role.ADMIN,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -51,7 +51,7 @@ def test_create_user_hashes_password_and_returns_row(db_engine):
         )
         assert u.password_hash != "strong-password-1"
         assert verify_password("strong-password-1", u.password_hash)
-        assert u.is_admin is False
+        assert u.role == Role.OPERATOR
         assert u.is_active is True
         assert u.must_change_password is False
     finally:
@@ -94,7 +94,7 @@ def test_cannot_disable_last_active_admin(db_engine):
                 username="other",
                 email="o@example.com",
                 password_hash="x",
-                is_admin=True,
+                role=Role.ADMIN,
                 is_active=True,
             )
             svc.set_active(actor=other_actor, user_id=actor.id, is_active=False)
@@ -111,7 +111,7 @@ def test_cannot_demote_last_active_admin(db_engine):
             username="other2",
             email="o2@example.com",
             password_hash="x",
-            is_admin=True,
+            role=Role.ADMIN,
             is_active=True,
         )
         with pytest.raises(AdminError):
@@ -133,7 +133,7 @@ def test_cannot_self_disable(db_engine):
                 email="another@example.com",
                 password_hash=hash_password("x" * 12),
                 is_active=True,
-                is_admin=True,
+                role=Role.ADMIN,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )

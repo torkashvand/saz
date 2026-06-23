@@ -47,7 +47,7 @@ describe('ChangePasswordPage', () => {
       username: 'alice',
       email: 'alice@example.com',
       is_active: true,
-      is_admin: false,
+      role: 'operator',
       must_change_password: true,
       created_at: '2026-01-01T00:00:00Z',
     });
@@ -63,7 +63,7 @@ describe('ChangePasswordPage', () => {
       username: 'alice',
       email: 'alice@example.com',
       is_active: true,
-      is_admin: false,
+      role: 'operator',
       must_change_password: false,
       created_at: '2026-01-01T00:00:00Z',
     });

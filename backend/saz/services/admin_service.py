@@ -229,7 +229,7 @@ class AdminService:
 
     def _guard_last_admin(self, target: User) -> None:
         """Block changes that would leave zero active admins."""
-        if not (target.is_admin and target.is_active):
+        if not (target.role == Role.ADMIN and target.is_active):
             return
         assert self.uow.users is not None
         active = self.uow.users.count_active_admins()

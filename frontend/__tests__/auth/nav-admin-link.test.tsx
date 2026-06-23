@@ -47,7 +47,7 @@ describe('NavHeader admin link', () => {
       username: 'alice',
       email: 'a@e',
       is_active: true,
-      is_admin: false,
+      role: 'operator',
       must_change_password: false,
       created_at: '2026-01-01T00:00:00Z',
     });
@@ -62,7 +62,7 @@ describe('NavHeader admin link', () => {
       username: 'admin',
       email: 'a@e',
       is_active: true,
-      is_admin: true,
+      role: 'admin',
       must_change_password: false,
       created_at: '2026-01-01T00:00:00Z',
     });

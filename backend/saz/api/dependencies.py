@@ -134,7 +134,7 @@ def get_current_admin(user: User = Depends(get_current_user)) -> User:
     Builds on top of ``get_current_user`` so admins also can't reach the
     admin panel while in the forced password-change state.
     """
-    if not user.is_admin:
+    if user.role != Role.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="admin access required",

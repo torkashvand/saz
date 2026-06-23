@@ -6,7 +6,6 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
-    ColumnElement,
     DateTime,
     Float,
     ForeignKey,
@@ -15,7 +14,6 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from saz.domain.literals import Role
@@ -34,11 +32,7 @@ class User(Base):
 
     * ``is_active`` — can the user log in (gate at authentication).
     * ``role``      — the authorization tier; ``admin`` reaches the admin
-      user-management surface.
-
-    ``is_admin`` is a derived compatibility shim (``role == ADMIN``) kept so
-    existing call sites and SQL filters keep working while the column is
-    retired — no ``is_admin`` column exists.
+      user-management surface, ``viewer`` is read-only.
 
     ``must_change_password`` is set when an admin resets another user's
     password and cleared the next time that user successfully changes
@@ -68,25 +62,8 @@ class User(Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    @hybrid_property
-    def is_admin(self) -> bool:
-        """Derived from ``role``. Kept as a compatibility shim for existing
-        call sites; assigning it maps onto the role tier."""
-        return self.role == Role.ADMIN
-
-    @is_admin.inplace.setter
-    def _is_admin_setter(self, value: bool) -> None:
-        self.role = Role.ADMIN if value else Role.OPERATOR
-
-    @is_admin.inplace.expression
-    @classmethod
-    def _is_admin_expression(cls) -> ColumnElement[bool]:
-        return cls.role == Role.ADMIN
-
     def __repr__(self) -> str:
-        flags = []
-        if self.is_admin:
-            flags.append("admin")
+        flags = [self.role]
         if not self.is_active:
             flags.append("disabled")
         if self.must_change_password:

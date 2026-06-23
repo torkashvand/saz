@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from saz.db.models import User
+from saz.domain.literals import Role
 from saz.security import hash_password
 from tests.conftest import TEST_USER_ID
 
@@ -26,7 +27,7 @@ def admin_user(db_engine):
     with Session(db_engine) as s:
         u = s.get(User, TEST_USER_ID)
         assert u is not None
-        u.is_admin = True
+        u.role = Role.ADMIN
         s.commit()
     yield
 
@@ -36,7 +37,7 @@ def _seed_normal_user(
     *,
     username: str = "victim",
     password: str = "initial-pw-1",
-    is_admin: bool = False,
+    role: Role = Role.OPERATOR,
     is_active: bool = True,
     must_change_password: bool = False,
 ) -> str:
@@ -49,7 +50,7 @@ def _seed_normal_user(
                 email=f"{username}@example.com",
                 password_hash=hash_password(password),
                 is_active=is_active,
-                is_admin=is_admin,
+                role=role,
                 must_change_password=must_change_password,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -123,7 +124,6 @@ def test_admin_can_create_user(app_client, admin_user):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["username"] == "newby"
-    assert body["is_admin"] is False
     # Accounts default to the operator tier when no role is supplied; role is
     # exposed so the admin UI can render and edit the authorization tier.
     assert body["role"] == "operator"
@@ -135,7 +135,7 @@ def test_admin_can_create_user(app_client, admin_user):
 
 
 def test_admin_can_create_user_with_explicit_role(app_client, admin_user):
-    for role, expect_admin in [("admin", True), ("viewer", False)]:
+    for role in ("admin", "viewer"):
         resp = app_client.post(
             "/api/v1/admin/users",
             json={
@@ -146,9 +146,7 @@ def test_admin_can_create_user_with_explicit_role(app_client, admin_user):
             },
         )
         assert resp.status_code == 201, resp.text
-        body = resp.json()
-        assert body["role"] == role
-        assert body["is_admin"] is expect_admin
+        assert resp.json()["role"] == role
 
 
 def test_admin_can_change_user_role(app_client, admin_user, db_engine):
@@ -159,7 +157,6 @@ def test_admin_can_change_user_role(app_client, admin_user, db_engine):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["role"] == "viewer"
-    assert resp.json()["is_admin"] is False
 
     resp = app_client.post(
         f"/api/v1/admin/users/{user_id}/set_role",
@@ -167,7 +164,6 @@ def test_admin_can_change_user_role(app_client, admin_user, db_engine):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["role"] == "admin"
-    assert resp.json()["is_admin"] is True
 
 
 def test_set_role_rejects_unknown_tier(app_client, admin_user, db_engine):
@@ -271,7 +267,7 @@ def test_admin_cannot_disable_last_admin(app_client, admin_user, db_engine):
     # another user to admin, then ensure the seeded admin can't disable
     # themselves; then make the *other* user the only active admin and
     # ensure they can't be disabled.
-    other = _seed_normal_user(db_engine, username="second_admin", is_admin=True)
+    other = _seed_normal_user(db_engine, username="second_admin", role=Role.ADMIN)
 
     # Demoting yourself out of the admin tier is always refused.
     resp = app_client.post(
@@ -309,7 +305,7 @@ def test_admin_reset_password_forces_change_and_clears_after_user_changes(
                 email="realadmin@example.com",
                 password_hash=hash_password(admin_pw),
                 is_active=True,
-                is_admin=True,
+                role=Role.ADMIN,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )

@@ -62,11 +62,8 @@ class StepStatus(StrEnum):
 
 class Role(StrEnum):
     """A user's authorization tier — the single source of truth for what a
-    user may do.
-
-    Stored on ``User.role``; the legacy ``User.is_admin`` boolean is derived
-    from this (``role == ADMIN``) so existing call sites and SQL filters keep
-    working while the column is retired.
+    user may do. Stored on ``User.role`` and enforced in the FastAPI
+    dependency layer (``get_current_admin`` / ``get_operator_user``).
 
     * ``ADMIN``    — full administration, including user management.
     * ``OPERATOR`` — run and manage workflows; the default for new accounts.

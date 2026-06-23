@@ -12,6 +12,7 @@ from unittest.mock import patch
 from sqlalchemy.orm import Session
 
 from saz.db.models import User
+from saz.domain.literals import Role
 from saz.scripts.create_user import main as create_user_main
 
 
@@ -37,7 +38,7 @@ def test_cli_creates_admin_by_default(db_engine, capsys):
 
     with Session(db_engine) as s:
         u = s.query(User).filter_by(username="rootadmin").one()
-        assert u.is_admin is True
+        assert u.role == Role.ADMIN
         assert u.is_active is True
         assert u.must_change_password is False
         # Hash is stored, not plaintext.
@@ -59,11 +60,11 @@ def test_cli_no_admin_flag_creates_normal_user(db_engine, capsys):
     )
     assert rc == 0
     out = capsys.readouterr().out
-    assert "created user normie" in out
+    assert "created operator normie" in out
 
     with Session(db_engine) as s:
         u = s.query(User).filter_by(username="normie").one()
-        assert u.is_admin is False
+        assert u.role == Role.OPERATOR
 
 
 def test_cli_rejects_duplicate_username(db_engine, capsys):

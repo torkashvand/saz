@@ -26,11 +26,14 @@ def admin_audit(
     *,
     actor_user_id: str,
     actor_username: str,
-    target_user_id: str,
-    target_username: str,
+    target_user_id: str | None = None,
+    target_username: str | None = None,
     changes: dict[str, Any] | None = None,
 ) -> None:
-    """Emit one structured audit line for an admin user-management action.
+    """Emit one structured audit line for an admin action.
+
+    ``target_user_id`` / ``target_username`` are omitted for actions not
+    aimed at a specific user (e.g. auth-provider configuration changes).
 
     Caller is responsible for never passing secret material in ``changes``.
     The function silently drops any key whose value looks password-shaped

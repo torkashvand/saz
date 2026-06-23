@@ -13,7 +13,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
-from saz.api.dependencies import AuthenticatedUserDep, AuthServiceDep
+from saz.api.dependencies import AuthenticatedUserDep, AuthProviderServiceDep, AuthServiceDep
+from saz.api.schemas.auth_provider_schemas import PublicProviderResponse
 from saz.api.schemas.auth_schemas import (
     ChangePasswordRequest,
     CurrentUserResponse,
@@ -179,6 +180,22 @@ async def revoke_session(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
+
+
+@router.get("/providers", response_model=list[PublicProviderResponse])
+async def list_public_providers(
+    providers: AuthProviderServiceDep,
+) -> list[PublicProviderResponse]:
+    """Enabled SSO providers for the login screen. Unauthenticated; exposes
+    only the key, display name, and the URL that begins the login flow."""
+    return [
+        PublicProviderResponse(
+            provider_key=p.provider_key,
+            display_name=p.display_name,
+            start_url=f"/api/v1/auth/oidc/{p.provider_key}/start",
+        )
+        for p in providers.public_providers()
+    ]
 
 
 @router.get("/me", response_model=CurrentUserResponse)

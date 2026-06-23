@@ -643,6 +643,64 @@ export interface AuthSessionListResponse {
   total: number;
 }
 
+export interface AuthProvider {
+  id: string;
+  provider_key: string;
+  display_name: string;
+  issuer: string;
+  client_id: string;
+  scopes: string;
+  enabled: boolean;
+  allowed_domains?: string | null;
+  jit_enabled: boolean;
+  default_role: 'viewer' | 'operator';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthProviderListResponse {
+  items: AuthProvider[];
+  total: number;
+}
+
+export interface CreateAuthProviderRequest {
+  provider_key: string;
+  display_name: string;
+  issuer: string;
+  client_id: string;
+  client_secret: string;
+  scopes?: string;
+  enabled?: boolean;
+  allowed_domains?: string | null;
+  jit_enabled?: boolean;
+  default_role?: 'viewer' | 'operator';
+}
+
+export interface UpdateAuthProviderRequest {
+  display_name?: string;
+  issuer?: string;
+  client_id?: string;
+  client_secret?: string;
+  scopes?: string;
+  enabled?: boolean;
+  allowed_domains?: string | null;
+  jit_enabled?: boolean;
+  default_role?: 'viewer' | 'operator';
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  detail: string;
+  authorization_endpoint?: string | null;
+  token_endpoint?: string | null;
+}
+
+export interface PublicProvider {
+  provider_key: string;
+  display_name: string;
+  start_url: string;
+}
+
 // --- Admin user management ---
 
 export interface AdminUser {

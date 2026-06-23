@@ -13,6 +13,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -124,6 +125,66 @@ class AuthSession(Base):
             and now < _aware(self.idle_expires_at)
             and now < _aware(self.absolute_expires_at)
         )
+
+
+class AuthProvider(Base):
+    """An OIDC SSO provider configuration, managed by admins.
+
+    The client secret is stored Fernet-encrypted and never returned by the
+    API. Endpoints are resolved from the issuer's discovery document at login
+    time, so only the ``issuer`` URL is stored, not individual endpoints.
+    """
+
+    __tablename__ = "auth_providers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    provider_key: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    issuer: Mapped[str] = mapped_column(String(512), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    client_secret_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    scopes: Mapped[str] = mapped_column(String(512), nullable=False, default="openid profile email")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Comma-separated email domain allowlist; empty/None means no restriction.
+    allowed_domains: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Auto-create a local user on first login when the IdP email is verified.
+    jit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Role granted to JIT-provisioned users (default: read-only viewer).
+    default_role: Mapped[str] = mapped_column(String(20), nullable=False, default=Role.VIEWER)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+
+class ExternalIdentity(Base):
+    """A link between a local user and an external IdP subject.
+
+    Identity is keyed by ``(issuer, subject)`` — stable across email changes.
+    Email is retained only as a linking hint and for display.
+    """
+
+    __tablename__ = "external_identities"
+    __table_args__ = (UniqueConstraint("issuer", "subject", name="uq_external_identity_subject"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    issuer: Mapped[str] = mapped_column(String(512), nullable=False)
+    subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Flow(Base):

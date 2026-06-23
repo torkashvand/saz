@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
 
     # Include domain-based routers
     from saz.api.routes.admin import router as admin_router
+    from saz.api.routes.admin_auth import router as admin_auth_router
     from saz.api.routes.auth import router as auth_router
     from saz.api.routes.credentials import router as credentials_router
     from saz.api.routes.flows import router as flows_router
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(admin_auth_router)
     app.include_router(flows_router)
     app.include_router(runs_router)
     app.include_router(credentials_router)

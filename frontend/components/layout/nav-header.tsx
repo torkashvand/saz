@@ -18,7 +18,12 @@ export function NavHeader() {
     { href: '/credentials', label: 'Credentials' },
     // Admin link is appended only for admins. The backend is the
     // source of truth — hiding the link is UX, not a security boundary.
-    ...(isAdmin ? [{ href: '/admin/users', label: 'Admin' }] : []),
+    ...(isAdmin
+      ? [
+          { href: '/admin/users', label: 'Admin' },
+          { href: '/admin/auth', label: 'SSO' },
+        ]
+      : []),
   ];
 
   function handleLogout() {

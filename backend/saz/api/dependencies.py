@@ -30,6 +30,7 @@ from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.literals import Role
 from saz.services.admin_service import AdminService
+from saz.services.auth_provider_service import AuthProviderService
 from saz.services.auth_service import AuthError, AuthService
 from saz.services.credential_service import CredentialService
 from saz.services.flow_service import FlowService
@@ -59,6 +60,11 @@ def get_auth_service(uow: UnitOfWork = Depends(get_uow)) -> AuthService:
 def get_admin_service(uow: UnitOfWork = Depends(get_uow)) -> AdminService:
     """Get AdminService instance with UnitOfWork."""
     return AdminService(uow)
+
+
+def get_auth_provider_service(uow: UnitOfWork = Depends(get_uow)) -> AuthProviderService:
+    """Get AuthProviderService instance with UnitOfWork."""
+    return AuthProviderService(uow)
 
 
 # auto_error=False so the dependency yields None (not 403) when the header
@@ -148,6 +154,7 @@ RunServiceDep = Annotated[RunService, Depends(get_run_service)]
 CredentialServiceDep = Annotated[CredentialService, Depends(get_credential_service)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]
+AuthProviderServiceDep = Annotated[AuthProviderService, Depends(get_auth_provider_service)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_uow)]
 AuthenticatedUserDep = Annotated[User, Depends(get_authenticated_user)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

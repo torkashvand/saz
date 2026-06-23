@@ -47,6 +47,12 @@ import type {
   AuthSessionListResponse,
   CurrentUser,
   UserRole,
+  PublicProvider,
+  AuthProvider,
+  AuthProviderListResponse,
+  CreateAuthProviderRequest,
+  UpdateAuthProviderRequest,
+  ProviderTestResult,
   // Admin
   AdminUser,
   AdminUserListResponse,
@@ -234,6 +240,31 @@ export const api = {
   /** Revoke one of the current user's sessions by id. */
   revokeSession: (id: string) =>
     fetchApi<void>(`/api/v1/auth/sessions/${id}`, { method: 'DELETE' }),
+
+  /** Enabled SSO providers for the login screen (unauthenticated). */
+  listPublicProviders: () => fetchApi<PublicProvider[]>('/api/v1/auth/providers'),
+
+  // ========== Admin: OIDC providers (admin-only) ==========
+
+  listAuthProviders: () => fetchApi<AuthProviderListResponse>('/api/v1/admin/auth/providers'),
+
+  createAuthProvider: (data: CreateAuthProviderRequest) =>
+    fetchApi<AuthProvider>('/api/v1/admin/auth/providers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateAuthProvider: (id: string, data: UpdateAuthProviderRequest) =>
+    fetchApi<AuthProvider>(`/api/v1/admin/auth/providers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  deleteAuthProvider: (id: string) =>
+    fetchApi<void>(`/api/v1/admin/auth/providers/${id}`, { method: 'DELETE' }),
+
+  testAuthProvider: (id: string) =>
+    fetchApi<ProviderTestResult>(`/api/v1/admin/auth/providers/${id}/test`, { method: 'POST' }),
 
   // ========== Admin: User management (admin-only) ==========
 

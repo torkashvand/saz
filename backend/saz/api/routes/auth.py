@@ -13,6 +13,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from saz.api.cookies import clear_refresh_cookie, set_refresh_cookie
 from saz.api.dependencies import AuthenticatedUserDep, AuthProviderServiceDep, AuthServiceDep
 from saz.api.schemas.auth_provider_schemas import PublicProviderResponse
 from saz.api.schemas.auth_schemas import (
@@ -31,35 +32,9 @@ from saz.settings import settings
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 
-# The refresh cookie is scoped to the auth routes so it is only sent on
-# refresh/logout calls, never on every API request.
-_REFRESH_COOKIE_PATH = "/api/v1/auth"
-
 
 def _user_response(user) -> CurrentUserResponse:  # type: ignore[no-untyped-def]
     return CurrentUserResponse.model_validate(user)
-
-
-def _set_refresh_cookie(response: Response, secret: str) -> None:
-    response.set_cookie(
-        key=settings.REFRESH_COOKIE_NAME,
-        value=secret,
-        max_age=settings.SESSION_ABSOLUTE_TIMEOUT_DAYS * 24 * 3600,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        path=_REFRESH_COOKIE_PATH,
-    )
-
-
-def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(
-        key=settings.REFRESH_COOKIE_NAME,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        path=_REFRESH_COOKIE_PATH,
-    )
 
 
 def _client_meta(request: Request) -> tuple[str | None, str | None]:
@@ -110,7 +85,7 @@ async def login(
         user, auth_method="local", ip=ip, user_agent=user_agent
     )
     auth.uow.commit()
-    _set_refresh_cookie(response, secret)
+    set_refresh_cookie(response, secret)
     return TokenResponse(access_token=token, expires_at=expires_at, user=_user_response(user))
 
 
@@ -128,12 +103,12 @@ async def refresh(request: Request, response: Response, auth: AuthServiceDep) ->
     try:
         token, expires_at, new_secret, session = auth.refresh_session(secret)
     except AuthError as exc:
-        _clear_refresh_cookie(response)
+        clear_refresh_cookie(response)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     user = auth.uow.users.get(session.user_id)  # type: ignore[union-attr]
     assert user is not None
-    _set_refresh_cookie(response, new_secret)
+    set_refresh_cookie(response, new_secret)
     return TokenResponse(access_token=token, expires_at=expires_at, user=_user_response(user))
 
 
@@ -143,7 +118,7 @@ async def logout(request: Request, response: Response, auth: AuthServiceDep) -> 
     secret = request.cookies.get(settings.REFRESH_COOKIE_NAME)
     if secret:
         auth.revoke_session_by_secret(secret)
-    _clear_refresh_cookie(response)
+    clear_refresh_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 
@@ -152,7 +127,7 @@ async def logout(request: Request, response: Response, auth: AuthServiceDep) -> 
 async def logout_all(user: AuthenticatedUserDep, response: Response, auth: AuthServiceDep) -> dict:
     """Revoke every refresh session for the current user (all devices)."""
     revoked = auth.revoke_all_sessions(user.id)
-    _clear_refresh_cookie(response)
+    clear_refresh_cookie(response)
     return {"revoked": revoked}
 
 

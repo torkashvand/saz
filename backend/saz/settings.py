@@ -103,6 +103,16 @@ class Settings(BaseSettings):
     """SameSite policy for the refresh cookie. ``none`` requires
     ``COOKIE_SECURE=true`` and is only needed for cross-site frontends."""
 
+    # --- OIDC SSO ---
+    BACKEND_BASE_URL: str = "http://localhost:8000"
+    """Public base URL of this API. Used to build the exact OIDC redirect_uri
+    (``{BACKEND_BASE_URL}/api/v1/auth/oidc/{provider}/callback``) that must be
+    registered with each IdP."""
+
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    """Public base URL of the web app. The OIDC callback redirects the browser
+    back here once a session is established."""
+
     # --- CORS ---
     # ``NoDecode`` keeps pydantic-settings from JSON-parsing the env value,
     # so the validator below sees the raw ``"a,b,c"`` string and can split

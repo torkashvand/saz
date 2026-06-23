@@ -34,6 +34,7 @@ from saz.services.auth_provider_service import AuthProviderService
 from saz.services.auth_service import AuthError, AuthService
 from saz.services.credential_service import CredentialService
 from saz.services.flow_service import FlowService
+from saz.services.oidc_service import OidcService
 from saz.services.run_service import RunService
 
 
@@ -65,6 +66,11 @@ def get_admin_service(uow: UnitOfWork = Depends(get_uow)) -> AdminService:
 def get_auth_provider_service(uow: UnitOfWork = Depends(get_uow)) -> AuthProviderService:
     """Get AuthProviderService instance with UnitOfWork."""
     return AuthProviderService(uow)
+
+
+def get_oidc_service(uow: UnitOfWork = Depends(get_uow)) -> OidcService:
+    """Get OidcService instance with UnitOfWork."""
+    return OidcService(uow)
 
 
 # auto_error=False so the dependency yields None (not 403) when the header
@@ -155,6 +161,7 @@ CredentialServiceDep = Annotated[CredentialService, Depends(get_credential_servi
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]
 AuthProviderServiceDep = Annotated[AuthProviderService, Depends(get_auth_provider_service)]
+OidcServiceDep = Annotated[OidcService, Depends(get_oidc_service)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_uow)]
 AuthenticatedUserDep = Annotated[User, Depends(get_authenticated_user)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

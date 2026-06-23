@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, Suspense, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,16 +8,48 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { useAuth } from '@/lib/auth';
+import { api } from '@/lib/api';
 import type { AppError } from '@/lib/errors';
+import type { PublicProvider } from '@/lib/types';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useAuth();
+  const { login, completeSso } = useAuth();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
+  const [providers, setProviders] = useState<PublicProvider[]>([]);
+
+  // Load SSO providers for the login screen (best-effort — a failure just
+  // leaves password login available).
+  useEffect(() => {
+    api
+      .listPublicProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]));
+  }, []);
+
+  // Handle the OIDC redirect back from the callback.
+  useEffect(() => {
+    const sso = searchParams.get('sso');
+    if (sso === 'ok') {
+      completeSso()
+        .then(() => router.replace('/'))
+        .catch(() =>
+          setError({ kind: 'unknown', message: 'Single sign-on did not complete. Try again.' }),
+        );
+    } else if (sso === 'error') {
+      setError({
+        kind: 'unknown',
+        message: searchParams.get('reason') || 'Single sign-on failed.',
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,8 +82,8 @@ function LoginForm() {
         <CardHeader>
           <CardTitle>Sign in to Saz</CardTitle>
           <CardDescription>
-            Use your username or email to sign in. All authenticated users currently have the same
-            access level — role-based access is not yet implemented.
+            Use your username or email to sign in, or continue with a configured single sign-on
+            provider.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -88,6 +120,29 @@ function LoginForm() {
               {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
+
+          {providers.length > 0 && (
+            <div className="mt-6 space-y-2">
+              <div className="relative text-center text-xs text-slate-400">
+                <span className="bg-white px-2 relative z-10">or continue with</span>
+                <div className="absolute inset-x-0 top-1/2 border-t border-slate-200" />
+              </div>
+              {providers.map((p) => (
+                <Button
+                  key={p.provider_key}
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  data-testid={`sso-${p.provider_key}`}
+                  onClick={() => {
+                    window.location.href = `${API_BASE_URL}${p.start_url}`;
+                  }}
+                >
+                  Sign in with {p.display_name}
+                </Button>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

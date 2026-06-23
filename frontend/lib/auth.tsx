@@ -62,6 +62,9 @@ interface AuthContextValue {
   canWrite: boolean;
   mustChangePassword: boolean;
   login: (identifier: string, password: string) => Promise<void>;
+  // Establish the session after an OIDC redirect: exchange the refresh
+  // cookie set by the callback for an access token + user.
+  completeSso: () => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -105,6 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(resp.user);
   }, []);
 
+  const completeSso = useCallback(async () => {
+    const resp = await api.refreshSession();
+    setAccessToken(resp.access_token);
+    setUser(resp.user);
+  }, []);
+
   const logout = useCallback(async () => {
     // Revoke the server-side session so the refresh cookie can't mint new
     // tokens. Best-effort: clear local state even if the call fails.
@@ -135,11 +144,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canWrite: user !== null && user.role !== 'viewer',
       mustChangePassword: user?.must_change_password ?? false,
       login,
+      completeSso,
       logout,
       refresh,
       changePassword,
     }),
-    [user, isLoading, login, logout, refresh, changePassword],
+    [user, isLoading, login, completeSso, logout, refresh, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

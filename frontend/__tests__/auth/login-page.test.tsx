@@ -30,6 +30,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     login: (...args: unknown[]) => apiLogin(...args),
     getCurrentUser: (...args: unknown[]) => apiGetCurrentUser(...args),
+    listPublicProviders: () => Promise.resolve([]),
   },
 }));
 

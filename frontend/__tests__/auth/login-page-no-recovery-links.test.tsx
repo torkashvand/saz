@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     login: vi.fn(),
     getCurrentUser: vi.fn().mockRejectedValue({ kind: 'auth', message: 'nope' }),
+    listPublicProviders: () => Promise.resolve([]),
   },
 }));
 

@@ -50,12 +50,24 @@ def lint_flow(
     if run_llm:
         llm_findings, llm_ran = _run_llm_rule(ctx, llm_port)
         # De-dup: drop an LLM finding that overlaps a deterministic one on the
-        # same (step, field) — the deterministic finding is authoritative.
-        det_keys = {(f.step_id, f.field) for f in findings if f.source == "deterministic"}
-        findings.extend(f for f in llm_findings if (f.step_id, f.field) not in det_keys)
+        # same step + field. Compare on the trailing field segment because the
+        # LLM and deterministic rules report the same field at different
+        # granularities (e.g. "pre_checks" vs "expect.pre_checks").
+        det_keys = {_dedup_key(f) for f in findings if f.source == "deterministic"}
+        findings.extend(f for f in llm_findings if _dedup_key(f) not in det_keys)
 
     _apply_suppressions(ctx, findings)
     return LintReport(findings=findings, llm_ran=llm_ran)
+
+
+def _dedup_key(f: LintFinding) -> tuple[str | None, str | None]:
+    """Key for matching findings about the same thing across rule sources.
+
+    Normalizes the field to its trailing segment so "expect.pre_checks"
+    (deterministic) and "pre_checks" (LLM) collapse to one issue.
+    """
+    leaf = f.field.split(".")[-1] if f.field else None
+    return (f.step_id, leaf)
 
 
 def _run_llm_rule(ctx: LintContext, llm_port: LLMPort | None) -> tuple[list[LintFinding], bool]:

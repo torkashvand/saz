@@ -127,9 +127,12 @@ def test_llm_dedup_against_deterministic():
     payload = {
         "findings": [
             {
+                # real LLM reports the field at a coarser granularity than the
+                # deterministic rule ("pre_checks" vs "expect.pre_checks");
+                # de-dup must still collapse them.
                 "code": "LLM_PROSE_SCHEMA_CONTRADICTION",
                 "step_id": "summarize",
-                "field": "expect.pre_checks",
+                "field": "pre_checks",
                 "message": "dup of deterministic",
             },
             {

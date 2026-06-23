@@ -58,6 +58,7 @@ import type {
   AdminUserListResponse,
   AdminCreateUserRequest,
   AdminUpdateUserRequest,
+  AdminSessionListResponse,
   // Legacy
   FlowGraphResponse,
 } from './types';
@@ -301,6 +302,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ temporary_password: temporaryPassword }),
     }),
+
+  /** List a user's active refresh sessions (admin). */
+  listUserSessions: (id: string) =>
+    fetchApi<AdminSessionListResponse>(`/api/v1/admin/users/${id}/sessions`),
+
+  /** Revoke one of a user's sessions (admin). */
+  revokeUserSession: (id: string, sessionId: string) =>
+    fetchApi<void>(`/api/v1/admin/users/${id}/sessions/${sessionId}`, { method: 'DELETE' }),
+
+  /** Revoke all of a user's sessions (admin). */
+  revokeAllUserSessions: (id: string) =>
+    fetchApi<{ revoked: number }>(`/api/v1/admin/users/${id}/sessions`, { method: 'DELETE' }),
 
   // ========== Flow Endpoints ==========
 

@@ -15,6 +15,9 @@ const listUsers = vi.fn();
 const setUserRole = vi.fn();
 const updateUser = vi.fn();
 const setUserActive = vi.fn();
+const listUserSessions = vi.fn();
+const revokeUserSession = vi.fn();
+const revokeAllUserSessions = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -22,6 +25,9 @@ vi.mock('@/lib/api', () => ({
     setUserRole: (...a: any[]) => setUserRole(...a),
     updateUser: (...a: any[]) => updateUser(...a),
     setUserActive: (...a: any[]) => setUserActive(...a),
+    listUserSessions: (...a: any[]) => listUserSessions(...a),
+    revokeUserSession: (...a: any[]) => revokeUserSession(...a),
+    revokeAllUserSessions: (...a: any[]) => revokeAllUserSessions(...a),
   },
 }));
 
@@ -62,6 +68,9 @@ describe('AdminUsersPage role management', () => {
     setUserRole.mockReset();
     updateUser.mockReset();
     setUserActive.mockReset();
+    listUserSessions.mockReset();
+    revokeUserSession.mockReset();
+    revokeAllUserSessions.mockReset();
   });
 
   it('renders a role badge for each tier', async () => {
@@ -95,5 +104,36 @@ describe('AdminUsersPage role management', () => {
     await waitFor(() => expect(setUserRole).toHaveBeenCalledWith('u1', 'viewer'));
     expect(updateUser).not.toHaveBeenCalled();
     expect(setUserActive).not.toHaveBeenCalled();
+  });
+
+  it('lists a user’s sessions and revokes one from the sessions modal', async () => {
+    listUsers.mockResolvedValue({ items: [user({})], total: 1 });
+    listUserSessions.mockResolvedValue({
+      items: [
+        {
+          id: 'sess-1',
+          auth_method: 'local',
+          provider_key: null,
+          created_at: '2026-01-01T00:00:00Z',
+          last_used_at: '2026-01-02T00:00:00Z',
+          idle_expires_at: '2026-01-09T00:00:00Z',
+          absolute_expires_at: '2026-02-01T00:00:00Z',
+          ip: '10.0.0.1',
+          user_agent: 'curl',
+        },
+      ],
+      total: 1,
+    });
+    revokeUserSession.mockResolvedValue(undefined);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('alice')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('admin-sessions-alice'));
+
+    await waitFor(() => expect(listUserSessions).toHaveBeenCalledWith('u1'));
+    expect(await screen.findByTestId('session-sess-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('revoke-sess-1'));
+    await waitFor(() => expect(revokeUserSession).toHaveBeenCalledWith('u1', 'sess-1'));
   });
 });

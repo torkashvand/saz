@@ -16,6 +16,8 @@ from saz.api.errors import NotFoundError
 from saz.api.schemas.admin_schemas import (
     AdminCreateUserRequest,
     AdminResetPasswordRequest,
+    AdminSessionListResponse,
+    AdminSessionResponse,
     AdminSetActiveRequest,
     AdminSetRoleRequest,
     AdminUpdateUserRequest,
@@ -148,3 +150,48 @@ async def reset_password(
     except AdminError as exc:
         raise _handle_admin_error(exc) from exc
     return _resp(user)
+
+
+@router.get("/users/{user_id}/sessions", response_model=AdminSessionListResponse)
+async def list_user_sessions(
+    user_id: str,
+    admin: AdminUserDep,
+    svc: AdminServiceDep,
+) -> AdminSessionListResponse:
+    """List a user's active refresh sessions (device, IP, last used)."""
+    try:
+        sessions = svc.list_user_sessions(user_id)
+    except AdminError as exc:
+        raise NotFoundError(str(exc)) from exc
+    return AdminSessionListResponse(
+        items=[AdminSessionResponse.model_validate(s) for s in sessions],
+        total=len(sessions),
+    )
+
+
+@router.delete("/users/{user_id}/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_user_session(
+    user_id: str,
+    session_id: str,
+    admin: AdminUserDep,
+    svc: AdminServiceDep,
+) -> None:
+    """Revoke a single session belonging to the user."""
+    try:
+        svc.revoke_user_session(actor=admin, user_id=user_id, session_id=session_id)
+    except AdminError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+
+@router.delete("/users/{user_id}/sessions")
+async def revoke_all_user_sessions(
+    user_id: str,
+    admin: AdminUserDep,
+    svc: AdminServiceDep,
+) -> dict:
+    """Revoke every active session for the user (sign them out everywhere)."""
+    try:
+        revoked = svc.revoke_all_user_sessions(actor=admin, user_id=user_id)
+    except AdminError as exc:
+        raise NotFoundError(str(exc)) from exc
+    return {"revoked": revoked}

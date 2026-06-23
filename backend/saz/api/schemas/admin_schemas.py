@@ -74,3 +74,24 @@ class AdminSetActiveRequest(BaseModel):
 
 class AdminSetRoleRequest(BaseModel):
     role: Role
+
+
+class AdminSessionResponse(BaseModel):
+    """Admin view of one of a user's refresh sessions. No secrets."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    auth_method: str
+    provider_key: str | None = None
+    created_at: datetime
+    last_used_at: datetime
+    idle_expires_at: datetime
+    absolute_expires_at: datetime
+    ip: str | None = None
+    user_agent: str | None = None
+
+
+class AdminSessionListResponse(BaseModel):
+    items: list[AdminSessionResponse]
+    total: int

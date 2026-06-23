@@ -234,6 +234,51 @@ class AdminService:
         )
         return user
 
+    # --- Session management (per user) ---
+
+    def list_user_sessions(self, user_id: str) -> list:
+        """List a user's active refresh sessions. Raises if the user is gone."""
+        assert self.uow.users is not None
+        assert self.uow.auth_sessions is not None
+        if self.uow.users.get(user_id) is None:
+            raise AdminError(f"user not found: {user_id}")
+        return self.uow.auth_sessions.list_for_user(user_id)
+
+    def revoke_user_session(self, actor: User, user_id: str, session_id: str) -> None:
+        """Revoke a single session belonging to ``user_id``."""
+        assert self.uow.auth_sessions is not None
+        sess = self.uow.auth_sessions.get(session_id)
+        if sess is None or sess.user_id != user_id:
+            raise AdminError("session not found")
+        self.uow.auth_sessions.revoke(sess, "admin_revoked")
+        self.uow.commit()
+        admin_audit(
+            "user.session_revoked",
+            actor_user_id=actor.id,
+            actor_username=actor.username,
+            target_user_id=user_id,
+            changes={"session_id": session_id},
+        )
+
+    def revoke_all_user_sessions(self, actor: User, user_id: str) -> int:
+        """Revoke every active session for ``user_id``. Returns the count."""
+        assert self.uow.users is not None
+        assert self.uow.auth_sessions is not None
+        user = self.uow.users.get(user_id)
+        if user is None:
+            raise AdminError(f"user not found: {user_id}")
+        count = self.uow.auth_sessions.revoke_all_for_user(user_id, "admin_revoked")
+        self.uow.commit()
+        admin_audit(
+            "user.sessions_revoked",
+            actor_user_id=actor.id,
+            actor_username=actor.username,
+            target_user_id=user_id,
+            target_username=user.username,
+            changes={"revoked": count},
+        )
+        return count
+
     # --- Internal helpers ---
 
     def _guard_last_admin(self, target: User) -> None:

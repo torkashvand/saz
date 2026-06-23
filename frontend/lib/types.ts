@@ -643,6 +643,24 @@ export interface AuthSessionListResponse {
   total: number;
 }
 
+// Admin view of another user's session (no is_current marker).
+export interface AdminSession {
+  id: string;
+  auth_method: string;
+  provider_key?: string | null;
+  created_at: string;
+  last_used_at: string;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+  ip?: string | null;
+  user_agent?: string | null;
+}
+
+export interface AdminSessionListResponse {
+  items: AdminSession[];
+  total: number;
+}
+
 export interface AuthProvider {
   id: string;
   provider_key: string;

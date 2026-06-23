@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldAlert, ShieldCheck, KeyRound, Pencil, UserPlus } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, KeyRound, Pencil, UserPlus, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +44,7 @@ export default function AdminUsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
+  const [sessionsTarget, setSessionsTarget] = useState<AdminUser | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
 
@@ -136,6 +137,15 @@ export default function AdminUsersPage() {
                         >
                           <KeyRound className="w-3 h-3 mr-1" /> Reset
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSessionsTarget(u)}
+                          title="View and revoke active sessions"
+                          data-testid={`admin-sessions-${u.username}`}
+                        >
+                          <Monitor className="w-3 h-3 mr-1" /> Sessions
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -175,6 +185,9 @@ export default function AdminUsersPage() {
             invalidate();
           }}
         />
+      )}
+      {sessionsTarget && (
+        <SessionsModal target={sessionsTarget} onClose={() => setSessionsTarget(null)} />
       )}
     </div>
   );
@@ -505,6 +518,98 @@ function EditUserModal({
         </Button>
         <Button onClick={submit} disabled={submitting || !dirty} data-testid="admin-edit-save">
           {submitting ? 'Saving…' : 'Save changes'}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const queryKey = ['admin', 'user-sessions', target.id];
+  const { data, isLoading, error } = useQuery({
+    queryKey,
+    queryFn: () => api.listUserSessions(target.id),
+  });
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey });
+  const sessions = data?.items ?? [];
+
+  async function revokeOne(sessionId: string) {
+    setBusy(true);
+    try {
+      await api.revokeUserSession(target.id, sessionId);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeAll() {
+    if (!confirm(`Sign ${target.username} out of all ${sessions.length} session(s)?`)) return;
+    setBusy(true);
+    try {
+      await api.revokeAllUserSessions(target.id);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell title={`Sessions for ${target.username}`} onClose={onClose}>
+      {error && <ErrorBanner error={error as unknown as AppError} />}
+      <p className="text-sm text-slate-600 mb-3">
+        Active refresh sessions. Revoking one rejects its access token on the next request; revoking
+        all signs the user out everywhere.
+      </p>
+      {isLoading ? (
+        <div className="text-sm text-slate-500">Loading sessions…</div>
+      ) : sessions.length === 0 ? (
+        <div className="text-sm text-slate-500" data-testid="no-sessions">
+          No active sessions.
+        </div>
+      ) : (
+        <div className="space-y-2" data-testid="sessions-list">
+          {sessions.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between border border-slate-200 rounded-md px-3 py-2"
+              data-testid={`session-${s.id}`}
+            >
+              <div className="text-xs text-slate-600">
+                <div className="font-medium text-slate-800">
+                  {s.auth_method}
+                  {s.provider_key ? ` · ${s.provider_key}` : ''}
+                </div>
+                <div>{s.ip || 'unknown IP'}</div>
+                <div>last used {new Date(s.last_used_at).toLocaleString()}</div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => revokeOne(s.id)}
+                data-testid={`revoke-${s.id}`}
+              >
+                Revoke
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex justify-between gap-2 mt-4">
+        <Button
+          variant="outline"
+          onClick={revokeAll}
+          disabled={busy || sessions.length === 0}
+          data-testid="revoke-all-sessions"
+        >
+          Revoke all
+        </Button>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          Close
         </Button>
       </div>
     </ModalShell>

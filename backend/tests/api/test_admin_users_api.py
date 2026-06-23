@@ -9,15 +9,33 @@ Covers:
 - plaintext passwords never appear in responses
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
 
-from saz.db.models import User
+from saz.db.models import AuthSession, User
 from saz.domain.literals import Role
 from saz.security import hash_password
 from tests.conftest import TEST_USER_ID
+
+
+def _seed_session(db_engine, user_id: str, session_id: str) -> None:
+    now = datetime.now(UTC)
+    with Session(db_engine) as s:
+        s.add(
+            AuthSession(
+                id=session_id,
+                user_id=user_id,
+                refresh_secret_hash=f"hash-{session_id}",
+                auth_method="local",
+                created_at=now,
+                last_used_at=now,
+                idle_expires_at=now + timedelta(days=1),
+                absolute_expires_at=now + timedelta(days=10),
+            )
+        )
+        s.commit()
 
 
 @pytest.fixture
@@ -173,6 +191,49 @@ def test_set_role_rejects_unknown_tier(app_client, admin_user, db_engine):
         json={"role": "superuser"},
     )
     assert resp.status_code == 422
+
+
+def test_non_admin_cannot_list_user_sessions(app_client, db_engine):
+    uid = _seed_normal_user(db_engine, username="targetx")
+    assert app_client.get(f"/api/v1/admin/users/{uid}/sessions").status_code == 403
+
+
+def test_admin_lists_and_revokes_one_user_session(app_client, admin_user, db_engine):
+    uid = _seed_normal_user(db_engine, username="sessuser")
+    _seed_session(db_engine, uid, "sess-a")
+    _seed_session(db_engine, uid, "sess-b")
+
+    resp = app_client.get(f"/api/v1/admin/users/{uid}/sessions")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 2
+    assert "refresh_secret_hash" not in resp.text  # no secrets leak
+
+    assert app_client.delete(f"/api/v1/admin/users/{uid}/sessions/sess-a").status_code == 204
+    assert app_client.get(f"/api/v1/admin/users/{uid}/sessions").json()["total"] == 1
+
+
+def test_admin_revokes_all_user_sessions(app_client, admin_user, db_engine):
+    uid = _seed_normal_user(db_engine, username="bulkuser")
+    _seed_session(db_engine, uid, "s1")
+    _seed_session(db_engine, uid, "s2")
+
+    resp = app_client.delete(f"/api/v1/admin/users/{uid}/sessions")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["revoked"] == 2
+    assert app_client.get(f"/api/v1/admin/users/{uid}/sessions").json()["total"] == 0
+
+
+def test_admin_list_sessions_unknown_user_404(app_client, admin_user):
+    assert app_client.get("/api/v1/admin/users/nope/sessions").status_code == 404
+
+
+def test_admin_revoke_session_wrong_user_404(app_client, admin_user, db_engine):
+    owner = _seed_normal_user(db_engine, username="owner1")
+    other = _seed_normal_user(db_engine, username="other1")
+    _seed_session(db_engine, owner, "owned-sess")
+    # Revoking owner's session under the wrong user id must 404, not cross-revoke.
+    assert app_client.delete(f"/api/v1/admin/users/{other}/sessions/owned-sess").status_code == 404
 
 
 def test_admin_can_update_user_profile(app_client, admin_user, db_engine):

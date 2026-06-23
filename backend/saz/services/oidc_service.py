@@ -108,10 +108,19 @@ class OidcService:
             raise OidcError("unknown or disabled provider")
         return provider
 
+    def _discover(self, issuer: str) -> dict:
+        """Fetch discovery, turning network/HTTP failures into an OidcError so
+        an unreachable or misconfigured issuer becomes a friendly login error
+        rather than a 500."""
+        try:
+            return fetch_discovery_document(issuer)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise OidcError(f"could not reach provider discovery: {exc}") from exc
+
     def begin(self, provider_key: str) -> tuple[str, str]:
         """Return ``(authorization_url, tx_token)`` to start the login."""
         provider = self._provider(provider_key)
-        discovery = fetch_discovery_document(provider.issuer)
+        discovery = self._discover(provider.issuer)
         authorization_endpoint = discovery.get("authorization_endpoint")
         if not authorization_endpoint:
             raise OidcError("provider discovery missing authorization_endpoint")
@@ -151,7 +160,7 @@ class OidcService:
             raise OidcError("invalid OIDC state")
 
         provider = self._provider(provider_key)
-        discovery = fetch_discovery_document(provider.issuer)
+        discovery = self._discover(provider.issuer)
         token_endpoint = discovery.get("token_endpoint")
         jwks_uri = discovery.get("jwks_uri")
         disc_issuer = discovery.get("issuer", provider.issuer)
@@ -160,24 +169,32 @@ class OidcService:
 
         from saz.security.secret_box import decrypt_secret
 
-        token_resp = exchange_code(
-            token_endpoint,
-            code=code,
-            redirect_uri=self._redirect_uri(provider_key),
-            client_id=provider.client_id,
-            client_secret=decrypt_secret(provider.client_secret_encrypted),
-            code_verifier=str(tx["verifier"]),
-        )
+        try:
+            token_resp = exchange_code(
+                token_endpoint,
+                code=code,
+                redirect_uri=self._redirect_uri(provider_key),
+                client_id=provider.client_id,
+                client_secret=decrypt_secret(provider.client_secret_encrypted),
+                code_verifier=str(tx["verifier"]),
+            )
+        except httpx.HTTPError as exc:
+            raise OidcError(f"token exchange failed: {exc}") from exc
         id_token = token_resp.get("id_token")
         if not id_token:
             raise OidcError("token response missing id_token")
-        claims = verify_id_token(
-            id_token,
-            jwks_uri=jwks_uri,
-            issuer=disc_issuer,
-            client_id=provider.client_id,
-            nonce=str(tx["nonce"]),
-        )
+        try:
+            claims = verify_id_token(
+                id_token,
+                jwks_uri=jwks_uri,
+                issuer=disc_issuer,
+                client_id=provider.client_id,
+                nonce=str(tx["nonce"]),
+            )
+        except OidcError:
+            raise
+        except Exception as exc:  # jwt / JWKS verification failures
+            raise OidcError(f"ID token verification failed: {exc}") from exc
 
         user = self._resolve_user(provider, claims)
         token, expires_at, secret, _session = self.auth.start_session(

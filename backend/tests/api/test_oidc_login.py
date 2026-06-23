@@ -8,6 +8,7 @@ refuse) without a live IdP.
 
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from sqlalchemy.orm import sessionmaker
 
@@ -174,6 +175,41 @@ def test_complete_enforces_domain_allowlist(db_engine, monkeypatch):
             svc.complete("okta", code="c", state=state, tx_token=tx)
     finally:
         session.close()
+
+
+def test_begin_wraps_discovery_failure_as_oidc_error(db_engine, monkeypatch):
+    # An unreachable/misconfigured issuer must surface as OidcError (which the
+    # route turns into a friendly ?sso=error redirect), never a raw httpx error
+    # that would 500.
+    def boom(issuer: str):
+        raise httpx.ConnectError("nodename nor servname provided")
+
+    monkeypatch.setattr(oidc_mod, "fetch_discovery_document", boom)
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow)
+        with pytest.raises(OidcError):
+            OidcService(uow).begin("okta")
+    finally:
+        session.close()
+
+
+def test_start_route_redirects_to_login_on_discovery_failure(
+    unauthenticated_app_client, db_engine, monkeypatch
+):
+    def boom(issuer: str):
+        raise httpx.ConnectError("unreachable")
+
+    monkeypatch.setattr(oidc_mod, "fetch_discovery_document", boom)
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow)
+    finally:
+        session.close()
+
+    resp = unauthenticated_app_client.get("/api/v1/auth/oidc/okta/start", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "sso=error" in resp.headers["location"]
 
 
 # --- Route-level smoke: start redirect + cookie, callback happy path ---

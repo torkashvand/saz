@@ -125,6 +125,9 @@ def test_admin_can_create_user(app_client, admin_user):
     body = resp.json()
     assert body["username"] == "newby"
     assert body["is_admin"] is False
+    # A non-admin account lands in the operator tier; role is exposed so the
+    # admin UI can render and (later) edit the authorization tier.
+    assert body["role"] == "operator"
     # By default we force the user to change the admin-set password.
     assert body["must_change_password"] is True
     # Plaintext password and the hash itself must not leak.

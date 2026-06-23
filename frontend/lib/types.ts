@@ -604,12 +604,15 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
 export interface CurrentUser {
   id: string;
   username: string;
   email: string;
   display_name?: string | null;
   is_active: boolean;
+  role: UserRole;
   is_admin: boolean;
   must_change_password: boolean;
   created_at: string;
@@ -631,6 +634,7 @@ export interface AdminUser {
   email: string;
   display_name?: string | null;
   is_active: boolean;
+  role: UserRole;
   is_admin: boolean;
   must_change_password: boolean;
   created_at: string;

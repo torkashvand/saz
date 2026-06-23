@@ -150,6 +150,10 @@ def test_me_returns_current_user_with_valid_token(unauthenticated_app_client):
     assert body["username"] == TEST_USER_USERNAME
     # The new flags MUST be exposed so the frontend can route accordingly.
     assert "is_admin" in body
+    assert body["is_admin"] is False
+    # The seeded test user is an operator; role is the authorization source
+    # of truth and must be exposed alongside the is_admin compatibility flag.
+    assert body["role"] == "operator"
     assert "must_change_password" in body
     assert "password_hash" not in body
 

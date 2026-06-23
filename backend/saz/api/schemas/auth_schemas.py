@@ -9,6 +9,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from saz.domain.literals import Role
+
 
 class LoginRequest(BaseModel):
     """Payload for POST /api/v1/auth/login.
@@ -54,6 +56,7 @@ class CurrentUserResponse(BaseModel):
     email: str
     display_name: str | None = None
     is_active: bool
+    role: Role
     is_admin: bool
     must_change_password: bool
     created_at: datetime

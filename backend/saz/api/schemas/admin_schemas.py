@@ -9,6 +9,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from saz.domain.literals import Role
+
 
 class AdminUserResponse(BaseModel):
     """Admin view of a user. Never includes password_hash."""
@@ -20,6 +22,7 @@ class AdminUserResponse(BaseModel):
     email: str
     display_name: str | None = None
     is_active: bool
+    role: Role
     is_admin: bool
     must_change_password: bool
     created_at: datetime

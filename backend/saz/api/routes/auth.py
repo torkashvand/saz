@@ -187,6 +187,7 @@ async def me(user: AuthenticatedUserDep) -> CurrentUserResponse:
 @router.post("/change_password", response_model=CurrentUserResponse)
 async def change_password(
     req: ChangePasswordRequest,
+    request: Request,
     user: AuthenticatedUserDep,
     auth: AuthServiceDep,
 ) -> CurrentUserResponse:
@@ -194,7 +195,8 @@ async def change_password(
 
     Requires the current password (so a stolen token alone cannot
     silently rotate the password). On success, clears
-    ``must_change_password`` so the user can resume normal use of Saz.
+    ``must_change_password`` and revokes the user's other sessions (keeping
+    the current one) so a changed password logs out every other device.
     Emits an audit event attributed to the user.
     """
     try:
@@ -203,6 +205,7 @@ async def change_password(
             user_id=user.id,
             current_password=req.current_password,
             new_password=req.new_password,
+            keep_session_id=_current_session_id(request),
         )
     except AuthError as exc:
         raise HTTPException(

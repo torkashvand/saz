@@ -16,6 +16,32 @@ def _service(db_engine):
     return uow, session, AuthService(uow)
 
 
+def test_change_password_revokes_other_sessions_keeps_current(db_engine):
+    uow, session, auth = _service(db_engine)
+    try:
+        user = auth.create_user(
+            username="alice", email="alice@example.com", password="strong-password-1"
+        )
+        *_, current = auth.start_session(user)
+        *_, other = auth.start_session(user)
+        uow.commit()
+        assert uow.auth_sessions is not None
+        assert len(uow.auth_sessions.list_for_user(user.id)) == 2
+
+        auth.change_password(
+            user_id=user.id,
+            current_password="strong-password-1",
+            new_password="new-strong-password-2",
+            keep_session_id=current.id,
+        )
+        uow.commit()
+        remaining = uow.auth_sessions.list_for_user(user.id)
+        assert [s.id for s in remaining] == [current.id]
+        assert other.id not in {s.id for s in remaining}
+    finally:
+        session.close()
+
+
 def test_create_user_persists_hashed_password(db_engine):
     uow, session, auth = _service(db_engine)
     try:

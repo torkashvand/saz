@@ -97,6 +97,28 @@ def test_logout_all_revokes_every_session(unauthenticated_app_client, db_engine)
     assert client_b.post("/api/v1/auth/refresh").status_code == 401
 
 
+def test_change_password_keeps_current_session_revokes_others(unauthenticated_app_client):
+    from fastapi.testclient import TestClient
+
+    client = unauthenticated_app_client
+    token = _login(client).json()["access_token"]
+
+    other = TestClient(client.app, raise_server_exceptions=False)
+    _login(other)
+
+    resp = client.post(
+        "/api/v1/auth/change_password",
+        headers=_bearer(token),
+        json={"current_password": TEST_USER_PASSWORD, "new_password": "brand-new-pass-99"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # The device that changed the password stays signed in.
+    assert client.get("/api/v1/auth/me", headers=_bearer(token)).status_code == 200
+    # Every other session is revoked.
+    assert other.post("/api/v1/auth/refresh").status_code == 401
+
+
 def test_refresh_replay_revokes_session(unauthenticated_app_client):
     client = unauthenticated_app_client
     _login(client)

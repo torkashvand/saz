@@ -69,8 +69,12 @@ class AuthSessionRepository(BaseRepository[AuthSession]):
             session.revoked_at = datetime.now(UTC)
             session.revoked_reason = reason
 
-    def revoke_all_for_user(self, user_id: str, reason: str) -> int:
-        sessions = self.list_for_user(user_id)
+    def revoke_all_for_user(
+        self, user_id: str, reason: str, *, except_session_id: str | None = None
+    ) -> int:
+        """Revoke all active sessions for a user. ``except_session_id`` keeps
+        one session alive (e.g. the caller's own on self password change)."""
+        sessions = [s for s in self.list_for_user(user_id) if s.id != except_session_id]
         for s in sessions:
             self.revoke(s, reason)
         return len(sessions)

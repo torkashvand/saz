@@ -292,13 +292,17 @@ class AuthService:
         user_id: str,
         current_password: str,
         new_password: str,
+        keep_session_id: str | None = None,
     ) -> User:
         """Authenticated user changes their own password.
 
         Requires the current password so a stolen token alone cannot
-        rotate the password. Clears ``must_change_password`` on success.
-        Does not commit — the route layer is responsible for committing
-        so audit events flush in the same transaction.
+        rotate the password. Clears ``must_change_password`` on success and
+        revokes all of the user's other refresh sessions, keeping only
+        ``keep_session_id`` (the caller's current session) alive so they are
+        not logged out of the device they just used. Does not commit — the
+        route layer is responsible for committing so audit events flush in
+        the same transaction.
         """
         assert self.uow.users is not None
         user = self.uow.users.get(user_id)
@@ -318,4 +322,8 @@ class AuthService:
 
         user.password_hash = hash_password(new_password)
         user.must_change_password = False
+        assert self.uow.auth_sessions is not None
+        self.uow.auth_sessions.revoke_all_for_user(
+            user.id, "password_changed", except_session_id=keep_session_id
+        )
         return user

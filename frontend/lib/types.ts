@@ -652,7 +652,7 @@ export interface AdminCreateUserRequest {
   email: string;
   password: string;
   display_name?: string;
-  is_admin?: boolean;
+  role?: UserRole;
   is_active?: boolean;
   must_change_password?: boolean;
 }

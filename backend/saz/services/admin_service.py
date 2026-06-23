@@ -16,6 +16,7 @@ from saz.api.errors import ConflictError, ValidationError
 from saz.audit.admin_audit import admin_audit
 from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import Role
 from saz.security import hash_password
 from saz.services.auth_service import AuthService
 
@@ -52,7 +53,7 @@ class AdminService:
         email: str,
         password: str,
         display_name: str | None = None,
-        is_admin: bool = False,
+        role: Role = Role.OPERATOR,
         is_active: bool = True,
         must_change_password: bool = False,
     ) -> User:
@@ -61,7 +62,7 @@ class AdminService:
             email=email,
             password=password,
             display_name=display_name,
-            is_admin=is_admin,
+            role=role,
             is_active=is_active,
             must_change_password=must_change_password,
         )
@@ -74,7 +75,7 @@ class AdminService:
             changes={
                 "email": user.email,
                 "display_name": user.display_name,
-                "is_admin": user.is_admin,
+                "role": user.role,
                 "is_active": user.is_active,
                 "must_change_password": user.must_change_password,
             },
@@ -166,28 +167,32 @@ class AdminService:
         )
         return user
 
-    def set_admin(self, actor: User, user_id: str, is_admin: bool) -> User:
+    def set_role(self, actor: User, user_id: str, role: Role) -> User:
         assert self.uow.users is not None
         user = self.uow.users.get(user_id)
         if user is None:
             raise AdminError(f"user not found: {user_id}")
 
-        if user.is_admin == is_admin:
-            return user
+        if user.role == role:
+            return user  # no-op, no event
 
-        if not is_admin:
+        # Dropping the admin tier must not strand the system without an
+        # admin, and an admin cannot demote themselves.
+        if user.role == Role.ADMIN and role != Role.ADMIN:
             self._guard_last_admin(user)
             if actor.id == user.id:
-                raise AdminError("admins cannot revoke their own admin capability")
+                raise AdminError("admins cannot change their own role")
 
-        user.is_admin = is_admin
+        previous = user.role
+        user.role = role
         self.uow.commit()
         admin_audit(
-            "user.admin_granted" if is_admin else "user.admin_revoked",
+            "user.role_changed",
             actor_user_id=actor.id,
             actor_username=actor.username,
             target_user_id=user.id,
             target_username=user.username,
+            changes={"role": {"from": previous, "to": role}},
         )
         return user
 

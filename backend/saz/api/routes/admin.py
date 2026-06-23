@@ -17,7 +17,7 @@ from saz.api.schemas.admin_schemas import (
     AdminCreateUserRequest,
     AdminResetPasswordRequest,
     AdminSetActiveRequest,
-    AdminSetAdminRequest,
+    AdminSetRoleRequest,
     AdminUpdateUserRequest,
     AdminUserListResponse,
     AdminUserResponse,
@@ -60,7 +60,7 @@ async def create_user(
         email=req.email,
         password=req.password,
         display_name=req.display_name,
-        is_admin=req.is_admin,
+        role=req.role,
         is_active=req.is_active,
         must_change_password=req.must_change_password,
     )
@@ -113,15 +113,15 @@ async def set_active(
     return _resp(user)
 
 
-@router.post("/users/{user_id}/set_admin", response_model=AdminUserResponse)
-async def set_admin(
+@router.post("/users/{user_id}/set_role", response_model=AdminUserResponse)
+async def set_role(
     user_id: str,
-    req: AdminSetAdminRequest,
+    req: AdminSetRoleRequest,
     admin: AdminUserDep,
     svc: AdminServiceDep,
 ) -> AdminUserResponse:
     try:
-        user = svc.set_admin(actor=admin, user_id=user_id, is_admin=req.is_admin)
+        user = svc.set_role(actor=admin, user_id=user_id, role=req.role)
     except AdminError as exc:
         raise _handle_admin_error(exc) from exc
     return _resp(user)

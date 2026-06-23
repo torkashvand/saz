@@ -1,7 +1,7 @@
 """Authentication service - create users, login, resolve users from tokens,
 change passwords.
 
-This is identity-only. Authorization decisions (is_admin / is_active /
+This is identity-only. Authorization decisions (role / is_active /
 must_change_password gating) live in the FastAPI dependency layer.
 """
 
@@ -11,6 +11,7 @@ from datetime import datetime
 from saz.api.errors import ConflictError, ValidationError
 from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import Role
 from saz.security import (
     InvalidTokenError,
     TokenExpiredError,
@@ -33,8 +34,9 @@ _MIN_PASSWORD_LENGTH = 8
 class AuthService:
     """Identity service: who is this user, can they log in.
 
-    Does not decide *what* they can do beyond the binary admin flag —
-    authorization beyond that lives in the FastAPI dependency layer.
+    Does not decide *what* they can do — a user's ``role`` is persisted
+    here, but authorization enforcement lives in the FastAPI dependency
+    layer.
     """
 
     def __init__(self, uow: UnitOfWork):
@@ -71,7 +73,7 @@ class AuthService:
         email: str,
         password: str,
         display_name: str | None = None,
-        is_admin: bool = False,
+        role: Role = Role.OPERATOR,
         is_active: bool = True,
         must_change_password: bool = False,
     ) -> User:
@@ -95,7 +97,7 @@ class AuthService:
             password_hash=hash_password(password),
             display_name=display_name.strip() if display_name else None,
             is_active=is_active,
-            is_admin=is_admin,
+            role=role,
             must_change_password=must_change_password,
         )
         self.uow.commit()

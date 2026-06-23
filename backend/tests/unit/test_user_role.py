@@ -34,12 +34,12 @@ def test_new_user_defaults_to_operator(db_engine):
         session.close()
 
 
-def test_create_with_is_admin_sets_role_admin(db_engine):
+def test_create_with_role_admin_reports_is_admin(db_engine):
     session = _session(db_engine)
     try:
         repo = UserRepository(session)
         user = repo.create(
-            username="ad1", email="ad1@example.com", password_hash="x", is_admin=True
+            username="ad1", email="ad1@example.com", password_hash="x", role=Role.ADMIN
         )
         session.flush()
         assert user.role == Role.ADMIN
@@ -53,7 +53,7 @@ def test_setting_is_admin_false_demotes_to_operator(db_engine):
     try:
         repo = UserRepository(session)
         user = repo.create(
-            username="ad2", email="ad2@example.com", password_hash="x", is_admin=True
+            username="ad2", email="ad2@example.com", password_hash="x", role=Role.ADMIN
         )
         session.flush()
         user.is_admin = False
@@ -82,7 +82,7 @@ def test_count_active_admins_filters_by_role(db_engine):
     try:
         repo = UserRepository(session)
         # Seeded "testuser" is an operator; add one admin and one viewer.
-        repo.create(username="ad3", email="ad3@example.com", password_hash="x", is_admin=True)
+        repo.create(username="ad3", email="ad3@example.com", password_hash="x", role=Role.ADMIN)
         viewer = repo.create(username="vw2", email="vw2@example.com", password_hash="x")
         viewer.role = Role.VIEWER
         session.flush()

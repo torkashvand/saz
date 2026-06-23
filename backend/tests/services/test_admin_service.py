@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from saz.api.errors import ConflictError
 from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import Role
 from saz.security import hash_password, verify_password
 from saz.services.admin_service import AdminError, AdminService
 
@@ -114,7 +115,7 @@ def test_cannot_demote_last_active_admin(db_engine):
             is_active=True,
         )
         with pytest.raises(AdminError):
-            svc.set_admin(actor=other_actor, user_id=actor.id, is_admin=False)
+            svc.set_role(actor=other_actor, user_id=actor.id, role=Role.OPERATOR)
     finally:
         session.close()
 

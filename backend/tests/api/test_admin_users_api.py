@@ -118,21 +118,65 @@ def test_admin_can_create_user(app_client, admin_user):
             "email": "newby@example.com",
             "password": "first-pw-9999",
             "display_name": "New Newby",
-            "is_admin": False,
         },
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["username"] == "newby"
     assert body["is_admin"] is False
-    # A non-admin account lands in the operator tier; role is exposed so the
-    # admin UI can render and (later) edit the authorization tier.
+    # Accounts default to the operator tier when no role is supplied; role is
+    # exposed so the admin UI can render and edit the authorization tier.
     assert body["role"] == "operator"
     # By default we force the user to change the admin-set password.
     assert body["must_change_password"] is True
     # Plaintext password and the hash itself must not leak.
     assert "first-pw-9999" not in resp.text
     assert "password_hash" not in body
+
+
+def test_admin_can_create_user_with_explicit_role(app_client, admin_user):
+    for role, expect_admin in [("admin", True), ("viewer", False)]:
+        resp = app_client.post(
+            "/api/v1/admin/users",
+            json={
+                "username": f"{role}_acct",
+                "email": f"{role}@example.com",
+                "password": "first-pw-9999",
+                "role": role,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["role"] == role
+        assert body["is_admin"] is expect_admin
+
+
+def test_admin_can_change_user_role(app_client, admin_user, db_engine):
+    user_id = _seed_normal_user(db_engine, username="promote_me")
+    resp = app_client.post(
+        f"/api/v1/admin/users/{user_id}/set_role",
+        json={"role": "viewer"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role"] == "viewer"
+    assert resp.json()["is_admin"] is False
+
+    resp = app_client.post(
+        f"/api/v1/admin/users/{user_id}/set_role",
+        json={"role": "admin"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role"] == "admin"
+    assert resp.json()["is_admin"] is True
+
+
+def test_set_role_rejects_unknown_tier(app_client, admin_user, db_engine):
+    user_id = _seed_normal_user(db_engine, username="bad_role")
+    resp = app_client.post(
+        f"/api/v1/admin/users/{user_id}/set_role",
+        json={"role": "superuser"},
+    )
+    assert resp.status_code == 422
 
 
 def test_admin_can_update_user_profile(app_client, admin_user, db_engine):
@@ -229,23 +273,19 @@ def test_admin_cannot_disable_last_admin(app_client, admin_user, db_engine):
     # ensure they can't be disabled.
     other = _seed_normal_user(db_engine, username="second_admin", is_admin=True)
 
-    # Demote seeded admin so `second_admin` is the only active admin.
+    # Demoting yourself out of the admin tier is always refused.
     resp = app_client.post(
-        f"/api/v1/admin/users/{TEST_USER_ID}/set_admin",
-        json={"is_admin": False},
+        f"/api/v1/admin/users/{TEST_USER_ID}/set_role",
+        json={"role": "operator"},
     )
     assert resp.status_code == 400, "demoting yourself should be refused"
 
-    # Try disabling the only-other admin via that admin's session — not
-    # easy in this fixture (we don't have a second authenticated client).
-    # Instead disable a third user and confirm guard fires on the other
-    # admin if we try via this admin.
-    resp = app_client.post(
-        f"/api/v1/admin/users/{other}/set_admin",
-        json={"is_admin": False},
-    )
     # Demoting "second_admin" is allowed because the seeded admin is
     # still active — there is still one active admin left.
+    resp = app_client.post(
+        f"/api/v1/admin/users/{other}/set_role",
+        json={"role": "operator"},
+    )
     assert resp.status_code == 200, resp.text
 
 

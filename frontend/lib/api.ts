@@ -45,6 +45,7 @@ import type {
   ChangePasswordRequest,
   TokenResponse,
   CurrentUser,
+  UserRole,
   // Admin
   AdminUser,
   AdminUserListResponse,
@@ -201,10 +202,10 @@ export const api = {
       body: JSON.stringify({ is_active: isActive }),
     }),
 
-  setUserAdmin: (id: string, isAdmin: boolean) =>
-    fetchApi<AdminUser>(`/api/v1/admin/users/${id}/set_admin`, {
+  setUserRole: (id: string, role: UserRole) =>
+    fetchApi<AdminUser>(`/api/v1/admin/users/${id}/set_role`, {
       method: 'POST',
-      body: JSON.stringify({ is_admin: isAdmin }),
+      body: JSON.stringify({ role }),
     }),
 
   resetUserPassword: (id: string, temporaryPassword: string) =>

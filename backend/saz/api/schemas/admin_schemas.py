@@ -1,8 +1,8 @@
 """Pydantic schemas for admin user-management endpoints.
 
-These are admin-only — they intentionally include ``is_admin`` and
-``must_change_password`` so the admin UI can render the right state.
-Password hashes are never exposed.
+These are admin-only — they intentionally expose ``role`` (plus the
+derived ``is_admin``) and ``must_change_password`` so the admin UI can
+render and edit the right state. Password hashes are never exposed.
 """
 
 from datetime import datetime
@@ -42,7 +42,7 @@ class AdminCreateUserRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=8, max_length=72)
     display_name: str | None = Field(default=None, max_length=255)
-    is_admin: bool = False
+    role: Role = Role.OPERATOR
     is_active: bool = True
     # Default True so admin-minted accounts force the recipient to pick a
     # password the admin doesn't know after first login. Admin can override
@@ -54,7 +54,7 @@ class AdminUpdateUserRequest(BaseModel):
     """Payload for PATCH /api/v1/admin/users/{id}.
 
     Profile fields (username, email, display name). ``is_active`` /
-    ``is_admin`` / password rotation each have their own dedicated
+    ``role`` / password rotation each have their own dedicated
     endpoint so the audit trail is unambiguous per operation.
     """
 
@@ -73,5 +73,5 @@ class AdminSetActiveRequest(BaseModel):
     is_active: bool
 
 
-class AdminSetAdminRequest(BaseModel):
-    is_admin: bool
+class AdminSetRoleRequest(BaseModel):
+    role: Role

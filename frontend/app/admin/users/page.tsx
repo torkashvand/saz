@@ -9,9 +9,29 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { api } from '@/lib/api';
-import type { AdminUser } from '@/lib/types';
+import type { AdminUser, UserRole } from '@/lib/types';
 import type { AppError } from '@/lib/errors';
 import { useAuth } from '@/lib/auth';
+
+const ROLE_OPTIONS: UserRole[] = ['admin', 'operator', 'viewer'];
+
+const ROLE_BADGE_CLASS: Record<UserRole, string> = {
+  admin: 'text-blue-700 bg-blue-50',
+  operator: 'text-slate-700 bg-slate-100',
+  viewer: 'text-emerald-700 bg-emerald-50',
+};
+
+function RoleBadge({ role }: { role: UserRole }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${ROLE_BADGE_CLASS[role]}`}
+      title={`Role: ${role}`}
+      data-testid={`role-badge-${role}`}
+    >
+      <ShieldCheck className="w-3 h-3" /> {role}
+    </span>
+  );
+}
 
 export default function AdminUsersPage() {
   const { user: currentUser } = useAuth();
@@ -72,14 +92,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{u.username}</span>
-                        {u.is_admin && (
-                          <span
-                            className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full"
-                            title="Admin"
-                          >
-                            <ShieldCheck className="w-3 h-3" /> admin
-                          </span>
-                        )}
+                        <RoleBadge role={u.role} />
                         {u.must_change_password && (
                           <span
                             className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full"
@@ -108,7 +121,7 @@ export default function AdminUsersPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => setEditTarget(u)}
-                          title="Edit profile, admin role, and status"
+                          title="Edit profile, role, and status"
                           data-testid={`admin-edit-${u.username}`}
                         >
                           <Pencil className="w-3 h-3 mr-1" /> Edit
@@ -172,7 +185,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState<UserRole>('operator');
   const [error, setError] = useState<AppError | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -185,7 +198,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         email,
         password,
         display_name: displayName || undefined,
-        is_admin: isAdmin,
+        role,
         // Admin-minted accounts always force a password change on first
         // login. The admin only knows the temporary password they typed
         // here, never the user's final one.
@@ -249,10 +262,22 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
             login.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
-          Make this user an admin
-        </label>
+        <div className="space-y-1">
+          <Label htmlFor="cu-role">Role</Label>
+          <select
+            id="cu-role"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            value={role}
+            onChange={(e) => setRole(e.target.value as UserRole)}
+            data-testid="admin-create-role"
+          >
+            {ROLE_OPTIONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="flex justify-end gap-2 mt-4">
         <Button variant="ghost" onClick={onClose} disabled={submitting}>
@@ -342,7 +367,7 @@ function EditUserModal({
   const [username, setUsername] = useState(target.username);
   const [email, setEmail] = useState(target.email);
   const [displayName, setDisplayName] = useState(target.display_name ?? '');
-  const [isAdmin, setIsAdmin] = useState(target.is_admin);
+  const [role, setRole] = useState<UserRole>(target.role);
   const [isActive, setIsActive] = useState(target.is_active);
   const [error, setError] = useState<AppError | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -355,10 +380,10 @@ function EditUserModal({
   const usernameChanged = trimmedUsername !== target.username;
   const emailChanged = trimmedEmail !== target.email;
   const displayChanged = trimmedDisplay !== (target.display_name ?? '');
-  const adminChanged = isAdmin !== target.is_admin;
+  const roleChanged = role !== target.role;
   const activeChanged = isActive !== target.is_active;
   const profileDirty = usernameChanged || emailChanged || displayChanged;
-  const dirty = profileDirty || adminChanged || activeChanged;
+  const dirty = profileDirty || roleChanged || activeChanged;
 
   async function submit() {
     if (!dirty) {
@@ -381,10 +406,10 @@ function EditUserModal({
         });
       }
       // Each toggle hits its own dedicated endpoint so the audit trail
-      // records "admin granted" / "deactivated" as distinct events rather
+      // records "role changed" / "deactivated" as distinct events rather
       // than burying them inside a single "user.updated" blob.
-      if (adminChanged) {
-        await api.setUserAdmin(target.id, isAdmin);
+      if (roleChanged) {
+        await api.setUserRole(target.id, role);
       }
       if (activeChanged) {
         await api.setUserActive(target.id, isActive);
@@ -442,19 +467,24 @@ function EditUserModal({
             placeholder="Leave blank to clear"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={isAdmin}
+        <div className="space-y-1">
+          <Label htmlFor="eu-role">Role</Label>
+          <select
+            id="eu-role"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+            value={role}
             disabled={isSelf}
-            onChange={(e) => setIsAdmin(e.target.checked)}
-            data-testid="admin-edit-is-admin"
-          />
-          Admin
-          {isSelf && (
-            <span className="text-xs text-slate-500">(cannot change your own admin role)</span>
-          )}
-        </label>
+            onChange={(e) => setRole(e.target.value as UserRole)}
+            data-testid="admin-edit-role"
+          >
+            {ROLE_OPTIONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          {isSelf && <span className="text-xs text-slate-500">(cannot change your own role)</span>}
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"

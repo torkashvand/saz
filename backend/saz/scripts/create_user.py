@@ -25,6 +25,7 @@ import sys
 
 from saz.db.session import SessionLocal
 from saz.db.unit_of_work import UnitOfWork
+from saz.domain.literals import Role
 from saz.services.auth_service import AuthService
 
 
@@ -83,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 email=args.email,
                 password=password,
                 display_name=args.display_name,
-                is_admin=args.admin,
+                role=Role.ADMIN if args.admin else Role.OPERATOR,
                 must_change_password=False,
             )
         flag = "admin" if user.is_admin else "user"

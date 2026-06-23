@@ -27,7 +27,7 @@ class UserRepository(BaseRepository[User]):
         password_hash: str,
         display_name: str | None = None,
         is_active: bool = True,
-        is_admin: bool = False,
+        role: Role = Role.OPERATOR,
         must_change_password: bool = False,
     ) -> User:
         """Insert a new user. Caller is responsible for hashing the password."""
@@ -39,7 +39,7 @@ class UserRepository(BaseRepository[User]):
             display_name=display_name,
             password_hash=password_hash,
             is_active=is_active,
-            is_admin=is_admin,
+            role=role,
             must_change_password=must_change_password,
             created_at=now,
             updated_at=now,

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Plug, Trash2, Pencil } from 'lucide-react';
+import { ShieldCheck, Plug, Trash2, Pencil, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -189,6 +189,7 @@ function ProviderModal({
   });
   const [error, setError] = useState<AppError | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
 
   const set = (patch: Partial<CreateAuthProviderRequest>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -261,11 +262,27 @@ function ProviderModal({
             <Input value={form.client_id} onChange={(e) => set({ client_id: e.target.value })} />
           </Field>
           <Field label={isEdit ? 'Client secret (leave blank to keep)' : 'Client secret'}>
-            <Input
-              type="password"
-              value={form.client_secret}
-              onChange={(e) => set({ client_secret: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                type={showSecret ? 'text' : 'password'}
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+                value={form.client_secret}
+                onChange={(e) => set({ client_secret: e.target.value })}
+                className="pr-10"
+                data-testid="provider-secret"
+              />
+              <button
+                type="button"
+                onClick={() => setShowSecret((s) => !s)}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 hover:text-slate-600"
+                aria-label={showSecret ? 'Hide secret' : 'Show secret'}
+              >
+                {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </Field>
           <Field label="Scopes">
             <Input value={form.scopes} onChange={(e) => set({ scopes: e.target.value })} />

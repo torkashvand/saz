@@ -79,4 +79,26 @@ describe('AdminAuthProvidersPage', () => {
     await waitFor(() => expect(createAuthProvider).toHaveBeenCalled());
     expect(createAuthProvider.mock.calls[0][0].provider_key).toBe('google');
   });
+
+  it('keeps password managers off the secret field and toggles visibility', async () => {
+    listAuthProviders.mockResolvedValue({ items: [], total: 0 });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('admin-add-provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('admin-add-provider'));
+
+    const secret = screen.getByTestId('provider-secret') as HTMLInputElement;
+    // Opt-out attributes that stop extensions from hijacking (and blocking paste on) the field.
+    expect(secret.getAttribute('autocomplete')).toBe('off');
+    expect(secret.getAttribute('data-1p-ignore')).not.toBeNull();
+    expect(secret.getAttribute('data-lpignore')).toBe('true');
+    expect(secret.getAttribute('data-bwignore')).not.toBeNull();
+
+    // Masked by default, reveal toggle flips to a plain text field.
+    expect(secret.type).toBe('password');
+    fireEvent.click(screen.getByLabelText('Show secret'));
+    expect((screen.getByTestId('provider-secret') as HTMLInputElement).type).toBe('text');
+    fireEvent.click(screen.getByLabelText('Hide secret'));
+    expect((screen.getByTestId('provider-secret') as HTMLInputElement).type).toBe('password');
+  });
 });

@@ -31,8 +31,12 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+const revalidateSelf = vi.fn();
 vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({ user: { id: 'admin-1', username: 'root', role: 'admin' } }),
+  useAuth: () => ({
+    user: { id: 'admin-1', username: 'root', role: 'admin' },
+    refresh: revalidateSelf,
+  }),
 }));
 
 import AdminUsersPage from '@/app/admin/users/page';
@@ -71,6 +75,7 @@ describe('AdminUsersPage role management', () => {
     listUserSessions.mockReset();
     revokeUserSession.mockReset();
     revokeAllUserSessions.mockReset();
+    revalidateSelf.mockReset();
   });
 
   it('renders a role badge for each tier', async () => {
@@ -135,5 +140,42 @@ describe('AdminUsersPage role management', () => {
 
     fireEvent.click(screen.getByTestId('revoke-sess-1'));
     await waitFor(() => expect(revokeUserSession).toHaveBeenCalledWith('u1', 'sess-1'));
+    // Revoking another user's session must not log the admin out.
+    expect(revalidateSelf).not.toHaveBeenCalled();
+  });
+
+  it('re-validates own auth after revoking one of your own sessions', async () => {
+    // The admin (id admin-1) manages their own sessions; revoking the current
+    // one must trigger an auth re-check so they are logged out immediately.
+    listUsers.mockResolvedValue({
+      items: [user({ id: 'admin-1', username: 'root', role: 'admin' })],
+      total: 1,
+    });
+    listUserSessions.mockResolvedValue({
+      items: [
+        {
+          id: 'sess-self',
+          auth_method: 'local',
+          provider_key: null,
+          created_at: '2026-01-01T00:00:00Z',
+          last_used_at: '2026-01-02T00:00:00Z',
+          idle_expires_at: '2026-01-09T00:00:00Z',
+          absolute_expires_at: '2026-02-01T00:00:00Z',
+          ip: '10.0.0.1',
+          user_agent: 'curl',
+        },
+      ],
+      total: 1,
+    });
+    revokeUserSession.mockResolvedValue(undefined);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('root')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('admin-sessions-root'));
+    expect(await screen.findByTestId('session-sess-self')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('revoke-sess-self'));
+    await waitFor(() => expect(revokeUserSession).toHaveBeenCalledWith('admin-1', 'sess-self'));
+    await waitFor(() => expect(revalidateSelf).toHaveBeenCalled());
   });
 });

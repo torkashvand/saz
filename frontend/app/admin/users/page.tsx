@@ -526,6 +526,7 @@ function EditUserModal({
 
 function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const { user: currentUser, refresh: revalidateSelf } = useAuth();
   const queryKey = ['admin', 'user-sessions', target.id];
   const { data, isLoading, error } = useQuery({
     queryKey,
@@ -536,11 +537,19 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
   const sessions = data?.items ?? [];
 
+  // When revoking your own sessions, re-validate immediately: if the revoked
+  // session was the current one, getCurrentUser 401s and the auth context logs
+  // you out now instead of leaving stale UI until the next page load.
+  const revalidateIfSelf = async () => {
+    if (currentUser && target.id === currentUser.id) await revalidateSelf();
+  };
+
   async function revokeOne(sessionId: string) {
     setBusy(true);
     try {
       await api.revokeUserSession(target.id, sessionId);
       await refresh();
+      await revalidateIfSelf();
     } finally {
       setBusy(false);
     }
@@ -552,6 +561,7 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
     try {
       await api.revokeAllUserSessions(target.id);
       await refresh();
+      await revalidateIfSelf();
     } finally {
       setBusy(false);
     }

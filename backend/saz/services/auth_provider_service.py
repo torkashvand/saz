@@ -76,6 +76,7 @@ class AuthProviderService:
         scopes: str = "openid profile email",
         enabled: bool = False,
         allowed_domains: str | None = None,
+        redirect_uri: str | None = None,
         jit_enabled: bool = False,
         default_role: str = "viewer",
     ) -> AuthProvider:
@@ -91,6 +92,7 @@ class AuthProviderService:
             scopes=scopes,
             enabled=enabled,
             allowed_domains=allowed_domains,
+            redirect_uri=redirect_uri or None,
             jit_enabled=jit_enabled,
             default_role=default_role,
         )
@@ -123,6 +125,7 @@ class AuthProviderService:
             "scopes",
             "enabled",
             "allowed_domains",
+            "redirect_uri",
             "jit_enabled",
             "default_role",
         ):

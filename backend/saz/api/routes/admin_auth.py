@@ -47,6 +47,7 @@ async def create_provider(
             scopes=req.scopes,
             enabled=req.enabled,
             allowed_domains=req.allowed_domains,
+            redirect_uri=req.redirect_uri,
             jit_enabled=req.jit_enabled,
             default_role=req.default_role,
         )

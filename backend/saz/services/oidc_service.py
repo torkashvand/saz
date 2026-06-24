@@ -39,6 +39,9 @@ class OidcError(Exception):
     """Recoverable OIDC login failure; surfaced to the user as a login error."""
 
 
+DEFAULT_CALLBACK_PATH = "/api/v1/auth/oidc/callback"
+
+
 # --- Injectable HTTP/crypto seams (monkeypatched in tests) ---
 
 
@@ -99,9 +102,26 @@ class OidcService:
         self.uow = uow
         self.auth = AuthService(uow)
 
-    def _redirect_uri(self, provider_key: str) -> str:
+    def _redirect_uri(self, provider: AuthProvider) -> str:
+        """The redirect URI registered with the IdP.
+
+        Defaults to the backend's generic callback; a provider may override it
+        (e.g. to point at a frontend route) to match its IdP registration. The
+        same value is used in the authorization request and the token exchange.
+        """
+        if provider.redirect_uri:
+            return provider.redirect_uri
         base = settings.BACKEND_BASE_URL.rstrip("/")
-        return f"{base}/api/v1/auth/oidc/{provider_key}/callback"
+        return f"{base}{DEFAULT_CALLBACK_PATH}"
+
+    def provider_key_from_tx(self, tx_token: str) -> str:
+        """Recover the provider key from a signed transaction token so the
+        generic callback can find the provider without it in the URL path."""
+        tx = self._decode_tx(tx_token)
+        provider_key = tx.get("provider_key")
+        if not provider_key:
+            raise OidcError("invalid OIDC state")
+        return str(provider_key)
 
     def _provider(self, provider_key: str) -> AuthProvider:
         assert self.uow.auth_providers is not None
@@ -130,10 +150,11 @@ class OidcService:
         state = secrets.token_urlsafe(24)
         nonce = secrets.token_urlsafe(24)
         verifier = secrets.token_urlsafe(48)
+        redirect_uri = self._redirect_uri(provider)
         params = {
             "response_type": "code",
             "client_id": provider.client_id,
-            "redirect_uri": self._redirect_uri(provider_key),
+            "redirect_uri": redirect_uri,
             "scope": provider.scopes,
             "state": state,
             "nonce": nonce,
@@ -145,8 +166,16 @@ class OidcService:
         if "offline_access" in provider.scopes.split():
             params["prompt"] = "consent"
         url = f"{authorization_endpoint}?{urlencode(params)}"
+        # Persist the exact redirect_uri so the token exchange uses an identical
+        # value (IdPs require the two to match byte-for-byte).
         tx = self._encode_tx(
-            {"provider_key": provider_key, "state": state, "nonce": nonce, "verifier": verifier}
+            {
+                "provider_key": provider_key,
+                "state": state,
+                "nonce": nonce,
+                "verifier": verifier,
+                "redirect_uri": redirect_uri,
+            }
         )
         return url, tx
 
@@ -179,7 +208,7 @@ class OidcService:
             token_resp = exchange_code(
                 token_endpoint,
                 code=code,
-                redirect_uri=self._redirect_uri(provider_key),
+                redirect_uri=str(tx["redirect_uri"]),
                 client_id=provider.client_id,
                 client_secret=(
                     decrypt_secret(provider.client_secret_encrypted)

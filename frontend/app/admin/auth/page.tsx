@@ -183,6 +183,7 @@ function ProviderModal({
     client_id: target?.client_id ?? '',
     client_secret: '',
     scopes: target?.scopes ?? 'openid profile email',
+    redirect_uri: target?.redirect_uri ?? '',
     enabled: target?.enabled ?? false,
     jit_enabled: target?.jit_enabled ?? false,
     default_role: target?.default_role ?? 'viewer',
@@ -292,6 +293,14 @@ function ProviderModal({
           </Field>
           <Field label="Scopes">
             <Input value={form.scopes} onChange={(e) => set({ scopes: e.target.value })} />
+          </Field>
+          <Field label="Redirect URI (leave blank for default backend callback)">
+            <Input
+              value={form.redirect_uri ?? ''}
+              onChange={(e) => set({ redirect_uri: e.target.value })}
+              placeholder="http://localhost:8000/api/v1/auth/oidc/callback"
+              data-testid="provider-redirect-uri"
+            />
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input

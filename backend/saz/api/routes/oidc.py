@@ -50,16 +50,20 @@ async def oidc_start(provider_key: str, oidc: OidcServiceDep) -> Response:
     return response
 
 
-@router.get("/{provider_key}/callback")
+@router.get("/callback")
 async def oidc_callback(
-    provider_key: str,
     request: Request,
     oidc: OidcServiceDep,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
 ) -> Response:
-    """Handle the IdP redirect: validate, open a session, return to the app."""
+    """Handle the IdP redirect: validate, open a session, return to the app.
+
+    The provider is recovered from the signed transaction cookie, so the
+    redirect URI registered with the IdP does not need the provider in its path
+    (and may even live on a different origin that forwards here).
+    """
     if error:
         return _redirect_error(error)
     tx = request.cookies.get(_TX_COOKIE)
@@ -69,6 +73,7 @@ async def oidc_callback(
     ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     try:
+        provider_key = oidc.provider_key_from_tx(tx)
         _token, _expires, secret = oidc.complete(
             provider_key, code=code, state=state, tx_token=tx, ip=ip, user_agent=user_agent
         )

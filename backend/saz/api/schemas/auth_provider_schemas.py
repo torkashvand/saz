@@ -26,6 +26,7 @@ class AuthProviderResponse(BaseModel):
     scopes: str
     enabled: bool
     allowed_domains: str | None = None
+    redirect_uri: str | None = None
     jit_enabled: bool
     default_role: str
     created_at: datetime
@@ -47,6 +48,7 @@ class CreateAuthProviderRequest(BaseModel):
     scopes: str = Field(default="openid profile email", max_length=512)
     enabled: bool = False
     allowed_domains: str | None = Field(default=None, max_length=1024)
+    redirect_uri: str | None = Field(default=None, max_length=512)
     jit_enabled: bool = False
     default_role: JitRole = "viewer"
 
@@ -61,6 +63,7 @@ class UpdateAuthProviderRequest(BaseModel):
     scopes: str | None = Field(default=None, max_length=512)
     enabled: bool | None = None
     allowed_domains: str | None = Field(default=None, max_length=1024)
+    redirect_uri: str | None = Field(default=None, max_length=512)
     jit_enabled: bool | None = None
     default_role: JitRole | None = None
 

@@ -144,6 +144,9 @@ class AuthProvider(Base):
     client_id: Mapped[str] = mapped_column(String(512), nullable=False)
     # Null for public (PKCE-only) clients that authenticate without a secret.
     client_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Optional override for the IdP-registered redirect URI; null uses the
+    # backend's default generic callback.
+    redirect_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
     scopes: Mapped[str] = mapped_column(String(512), nullable=False, default="openid profile email")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Comma-separated email domain allowlist; empty/None means no restriction.

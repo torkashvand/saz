@@ -670,6 +670,7 @@ export interface AuthProvider {
   scopes: string;
   enabled: boolean;
   allowed_domains?: string | null;
+  redirect_uri?: string | null;
   jit_enabled: boolean;
   default_role: 'viewer' | 'operator';
   created_at: string;
@@ -690,6 +691,7 @@ export interface CreateAuthProviderRequest {
   scopes?: string;
   enabled?: boolean;
   allowed_domains?: string | null;
+  redirect_uri?: string | null;
   jit_enabled?: boolean;
   default_role?: 'viewer' | 'operator';
 }
@@ -702,6 +704,7 @@ export interface UpdateAuthProviderRequest {
   scopes?: string;
   enabled?: boolean;
   allowed_domains?: string | null;
+  redirect_uri?: string | null;
   jit_enabled?: boolean;
   default_role?: 'viewer' | 'operator';
 }

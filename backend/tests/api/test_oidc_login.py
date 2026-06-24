@@ -72,7 +72,7 @@ def test_begin_builds_pkce_authorization_url(db_engine, monkeypatch):
         assert q["response_type"] == ["code"]
         assert q["code_challenge_method"] == ["S256"]
         assert q["code_challenge"] and q["nonce"] and state
-        assert q["redirect_uri"][0].endswith("/api/v1/auth/oidc/okta/callback")
+        assert q["redirect_uri"][0].endswith("/api/v1/auth/oidc/callback")
         # No offline_access in the default scopes -> no forced consent prompt.
         assert "prompt" not in q
     finally:
@@ -138,6 +138,53 @@ def test_complete_jit_creates_viewer(db_engine, monkeypatch):
         created = uow.users.get_by_email("newby@example.com")
         assert created is not None
         assert created.role == Role.VIEWER
+    finally:
+        session.close()
+
+
+def test_configured_redirect_uri_used_in_auth_url_and_exchange(db_engine, monkeypatch):
+    """A provider's redirect_uri override must appear in the authorization URL
+    and be sent (identically) in the token exchange."""
+    custom = "http://localhost:3000/api/auth/callback/oidc"
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow, redirect_uri=custom, jit_enabled=True, default_role="viewer")
+        captured = {}
+
+        def fake_exchange(token_endpoint, **kwargs):
+            captured.update(kwargs)
+            return {"id_token": "fake.jwt"}
+
+        monkeypatch.setattr(oidc_mod, "fetch_discovery_document", lambda issuer: DISCOVERY)
+        monkeypatch.setattr(oidc_mod, "exchange_code", fake_exchange)
+        monkeypatch.setattr(
+            oidc_mod,
+            "verify_id_token",
+            lambda id_token, **k: {
+                "iss": ISSUER,
+                "sub": "rd-1",
+                "email": "rd@example.com",
+                "email_verified": True,
+            },
+        )
+        svc = OidcService(uow)
+        url, tx, state = _begin(svc)
+        assert parse_qs(urlparse(url).query)["redirect_uri"] == [custom]
+        svc.complete("okta", code="c", state=state, tx_token=tx)
+        assert captured["redirect_uri"] == custom
+    finally:
+        session.close()
+
+
+def test_default_redirect_uri_is_generic_callback(db_engine, monkeypatch):
+    monkeypatch.setattr(oidc_mod, "fetch_discovery_document", lambda issuer: DISCOVERY)
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow)  # no redirect_uri override
+        url, _tx, _state = _begin(OidcService(uow))
+        rd = parse_qs(urlparse(url).query)["redirect_uri"][0]
+        assert rd.endswith("/api/v1/auth/oidc/callback")
+        assert "/okta/" not in rd
     finally:
         session.close()
 
@@ -301,9 +348,7 @@ def test_oidc_callback_signs_in_and_sets_refresh_cookie(
     start = client.get("/api/v1/auth/oidc/okta/start", follow_redirects=False)
     state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
 
-    cb = client.get(
-        f"/api/v1/auth/oidc/okta/callback?code=abc&state={state}", follow_redirects=False
-    )
+    cb = client.get(f"/api/v1/auth/oidc/callback?code=abc&state={state}", follow_redirects=False)
     assert cb.status_code == 303
     assert "sso=ok" in cb.headers["location"]
     from saz.settings import settings

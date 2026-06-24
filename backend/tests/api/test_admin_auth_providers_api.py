@@ -71,6 +71,14 @@ def test_admin_creates_public_client_without_secret(app_client, admin_user, db_e
         assert provider.client_secret_encrypted is None
 
 
+def test_admin_creates_provider_with_redirect_uri_override(app_client, admin_user):
+    custom = "http://localhost:3000/api/auth/callback/oidc"
+    body = _create_body(provider_key="rd", redirect_uri=custom)
+    resp = app_client.post("/api/v1/admin/auth/providers", json=body)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["redirect_uri"] == custom
+
+
 def test_create_duplicate_provider_key_conflicts(app_client, admin_user):
     assert app_client.post("/api/v1/admin/auth/providers", json=_create_body()).status_code == 201
     dup = app_client.post("/api/v1/admin/auth/providers", json=_create_body())

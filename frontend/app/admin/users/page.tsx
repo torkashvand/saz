@@ -589,9 +589,19 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
               data-testid={`session-${s.id}`}
             >
               <div className="text-xs text-slate-600">
-                <div className="font-medium text-slate-800">
-                  {s.auth_method}
-                  {s.provider_key ? ` · ${s.provider_key}` : ''}
+                <div className="font-medium text-slate-800 flex items-center gap-2">
+                  <span>
+                    {s.auth_method}
+                    {s.provider_key ? ` · ${s.provider_key}` : ''}
+                  </span>
+                  {s.is_current && (
+                    <span
+                      className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[10px] font-medium"
+                      data-testid={`session-current-${s.id}`}
+                    >
+                      this device
+                    </span>
+                  )}
                 </div>
                 <div>{s.ip || 'unknown IP'}</div>
                 <div>last used {new Date(s.last_used_at).toLocaleString()}</div>

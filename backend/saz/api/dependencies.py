@@ -29,6 +29,7 @@ from saz.db.dependencies import get_uow
 from saz.db.models import User
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.literals import Role
+from saz.security import InvalidTokenError, TokenExpiredError, decode_access_token
 from saz.services.admin_service import AdminService
 from saz.services.auth_provider_service import AuthProviderService
 from saz.services.auth_service import AuthError, AuthService
@@ -125,6 +126,21 @@ def get_current_user(user: User = Depends(get_authenticated_user)) -> User:
     return user
 
 
+def get_current_session_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> str | None:
+    """Best-effort read of the ``sid`` from the bearer token so session lists
+    can flag the caller's own session. Never raises."""
+    if credentials is None or not credentials.credentials:
+        return None
+    try:
+        claims = decode_access_token(credentials.credentials)
+    except (InvalidTokenError, TokenExpiredError):
+        return None
+    sid = claims.get("sid")
+    return sid if isinstance(sid, str) else None
+
+
 def get_operator_user(user: User = Depends(get_current_user)) -> User:
     """Require write access: an admin or operator, never a viewer.
 
@@ -165,5 +181,6 @@ OidcServiceDep = Annotated[OidcService, Depends(get_oidc_service)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_uow)]
 AuthenticatedUserDep = Annotated[User, Depends(get_authenticated_user)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+CurrentSessionIdDep = Annotated[str | None, Depends(get_current_session_id)]
 OperatorUserDep = Annotated[User, Depends(get_operator_user)]
 AdminUserDep = Annotated[User, Depends(get_current_admin)]

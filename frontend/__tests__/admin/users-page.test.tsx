@@ -125,6 +125,7 @@ describe('AdminUsersPage role management', () => {
           absolute_expires_at: '2026-02-01T00:00:00Z',
           ip: '10.0.0.1',
           user_agent: 'curl',
+          is_current: false,
         },
       ],
       total: 1,
@@ -137,6 +138,8 @@ describe('AdminUsersPage role management', () => {
 
     await waitFor(() => expect(listUserSessions).toHaveBeenCalledWith('u1'));
     expect(await screen.findByTestId('session-sess-1')).toBeInTheDocument();
+    // Another user's session is never "this device".
+    expect(screen.queryByTestId('session-current-sess-1')).toBeNull();
 
     fireEvent.click(screen.getByTestId('revoke-sess-1'));
     await waitFor(() => expect(revokeUserSession).toHaveBeenCalledWith('u1', 'sess-1'));
@@ -163,6 +166,7 @@ describe('AdminUsersPage role management', () => {
           absolute_expires_at: '2026-02-01T00:00:00Z',
           ip: '10.0.0.1',
           user_agent: 'curl',
+          is_current: true,
         },
       ],
       total: 1,
@@ -173,6 +177,8 @@ describe('AdminUsersPage role management', () => {
     await waitFor(() => expect(screen.getByText('root')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('admin-sessions-root'));
     expect(await screen.findByTestId('session-sess-self')).toBeInTheDocument();
+    // The admin's own current session shows the "this device" badge.
+    expect(screen.getByTestId('session-current-sess-self')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('revoke-sess-self'));
     await waitFor(() => expect(revokeUserSession).toHaveBeenCalledWith('admin-1', 'sess-self'));

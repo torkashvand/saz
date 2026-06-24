@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from saz.db.models import AuthSession, User
 from saz.domain.literals import Role
 from saz.security import hash_password
-from tests.conftest import TEST_USER_ID
+from tests.conftest import TEST_USER_ID, TEST_USER_PASSWORD, TEST_USER_USERNAME
 
 
 def _seed_session(db_engine, user_id: str, session_id: str) -> None:
@@ -211,6 +211,27 @@ def test_admin_lists_and_revokes_one_user_session(app_client, admin_user, db_eng
 
     assert app_client.delete(f"/api/v1/admin/users/{uid}/sessions/sess-a").status_code == 204
     assert app_client.get(f"/api/v1/admin/users/{uid}/sessions").json()["total"] == 1
+
+
+def test_admin_own_current_session_marked(unauthenticated_app_client, admin_user, db_engine):
+    """The session the admin is using is flagged is_current so the UI can show
+    a 'this device' badge; other sessions are not."""
+    client = unauthenticated_app_client
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": TEST_USER_USERNAME, "password": TEST_USER_PASSWORD},
+    ).json()["access_token"]
+    _seed_session(db_engine, TEST_USER_ID, "other-sess")
+
+    resp = client.get(
+        f"/api/v1/admin/users/{TEST_USER_ID}/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    current = [s for s in items if s["is_current"]]
+    assert len(current) == 1
+    assert current[0]["id"] != "other-sess"
 
 
 def test_admin_revokes_all_user_sessions(app_client, admin_user, db_engine):

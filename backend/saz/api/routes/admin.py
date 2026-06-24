@@ -11,7 +11,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from saz.api.dependencies import AdminServiceDep, AdminUserDep
+from saz.api.dependencies import AdminServiceDep, AdminUserDep, CurrentSessionIdDep
 from saz.api.errors import NotFoundError
 from saz.api.schemas.admin_schemas import (
     AdminCreateUserRequest,
@@ -157,16 +157,23 @@ async def list_user_sessions(
     user_id: str,
     admin: AdminUserDep,
     svc: AdminServiceDep,
+    current_session_id: CurrentSessionIdDep,
 ) -> AdminSessionListResponse:
-    """List a user's active refresh sessions (device, IP, last used)."""
+    """List a user's active refresh sessions (device, IP, last used).
+
+    Flags the session the requesting admin is currently using so the UI can
+    warn before they sign themselves out.
+    """
     try:
         sessions = svc.list_user_sessions(user_id)
     except AdminError as exc:
         raise NotFoundError(str(exc)) from exc
-    return AdminSessionListResponse(
-        items=[AdminSessionResponse.model_validate(s) for s in sessions],
-        total=len(sessions),
-    )
+    items = []
+    for s in sessions:
+        item = AdminSessionResponse.model_validate(s)
+        item.is_current = s.id == current_session_id
+        items.append(item)
+    return AdminSessionListResponse(items=items, total=len(items))
 
 
 @router.delete("/users/{user_id}/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

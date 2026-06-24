@@ -643,7 +643,8 @@ export interface AuthSessionListResponse {
   total: number;
 }
 
-// Admin view of another user's session (no is_current marker).
+// Admin view of a user's session. is_current marks the session the requesting
+// admin is using right now (only ever true when viewing your own user).
 export interface AdminSession {
   id: string;
   auth_method: string;
@@ -654,6 +655,7 @@ export interface AdminSession {
   absolute_expires_at: string;
   ip?: string | null;
   user_agent?: string | null;
+  is_current: boolean;
 }
 
 export interface AdminSessionListResponse {

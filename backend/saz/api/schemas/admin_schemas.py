@@ -90,6 +90,8 @@ class AdminSessionResponse(BaseModel):
     absolute_expires_at: datetime
     ip: str | None = None
     user_agent: str | None = None
+    # True when this is the session the requesting admin is currently using.
+    is_current: bool = False
 
 
 class AdminSessionListResponse(BaseModel):

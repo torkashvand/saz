@@ -671,6 +671,7 @@ export interface AuthProvider {
   enabled: boolean;
   allowed_domains?: string | null;
   redirect_uri?: string | null;
+  trust_email_verified: boolean;
   jit_enabled: boolean;
   default_role: 'viewer' | 'operator';
   created_at: string;
@@ -692,6 +693,7 @@ export interface CreateAuthProviderRequest {
   enabled?: boolean;
   allowed_domains?: string | null;
   redirect_uri?: string | null;
+  trust_email_verified?: boolean;
   jit_enabled?: boolean;
   default_role?: 'viewer' | 'operator';
 }
@@ -705,6 +707,7 @@ export interface UpdateAuthProviderRequest {
   enabled?: boolean;
   allowed_domains?: string | null;
   redirect_uri?: string | null;
+  trust_email_verified?: boolean;
   jit_enabled?: boolean;
   default_role?: 'viewer' | 'operator';
 }

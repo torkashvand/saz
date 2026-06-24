@@ -189,6 +189,71 @@ def test_default_redirect_uri_is_generic_callback(db_engine, monkeypatch):
         session.close()
 
 
+def _patch_seams_with_userinfo(monkeypatch, *, id_claims, userinfo):
+    disc = {**DISCOVERY, "userinfo_endpoint": f"{ISSUER}/userinfo"}
+    monkeypatch.setattr(oidc_mod, "fetch_discovery_document", lambda issuer: disc)
+    monkeypatch.setattr(
+        oidc_mod, "exchange_code", lambda *a, **k: {"id_token": "fake.jwt", "access_token": "at"}
+    )
+    monkeypatch.setattr(oidc_mod, "verify_id_token", lambda id_token, **k: id_claims)
+    monkeypatch.setattr(oidc_mod, "fetch_userinfo", lambda ep, at: userinfo)
+
+
+def test_userinfo_supplies_email_when_id_token_lacks_it(db_engine, monkeypatch):
+    """GEANT-style: ID token has only sub; email comes from UserInfo. With the
+    trust flag set, JIT creates the account from the UserInfo email."""
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow, jit_enabled=True, default_role="viewer", trust_email_verified=True)
+        _patch_seams_with_userinfo(
+            monkeypatch,
+            id_claims={"iss": ISSUER, "sub": "geant-1"},
+            userinfo={"sub": "geant-1", "email": "geant@example.org", "name": "G U"},
+        )
+        svc = OidcService(uow)
+        _url, tx, state = _begin(svc)
+        svc.complete("okta", code="c", state=state, tx_token=tx)
+        created = uow.users.get_by_email("geant@example.org")
+        assert created is not None and created.role == Role.VIEWER
+    finally:
+        session.close()
+
+
+def test_jit_refused_when_email_unverified_and_not_trusted(db_engine, monkeypatch):
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow, jit_enabled=True, default_role="viewer", trust_email_verified=False)
+        _patch_seams_with_userinfo(
+            monkeypatch,
+            id_claims={"iss": ISSUER, "sub": "geant-2"},
+            userinfo={"sub": "geant-2", "email": "nope@example.org"},
+        )
+        svc = OidcService(uow)
+        _url, tx, state = _begin(svc)
+        with pytest.raises(OidcError):
+            svc.complete("okta", code="c", state=state, tx_token=tx)
+    finally:
+        session.close()
+
+
+def test_userinfo_subject_mismatch_rejected(db_engine, monkeypatch):
+    """A UserInfo sub that doesn't match the ID token sub must be rejected."""
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow, jit_enabled=True, trust_email_verified=True)
+        _patch_seams_with_userinfo(
+            monkeypatch,
+            id_claims={"iss": ISSUER, "sub": "real"},
+            userinfo={"sub": "attacker", "email": "evil@example.org"},
+        )
+        svc = OidcService(uow)
+        _url, tx, state = _begin(svc)
+        with pytest.raises(OidcError):
+            svc.complete("okta", code="c", state=state, tx_token=tx)
+    finally:
+        session.close()
+
+
 def test_complete_public_client_omits_client_secret(db_engine, monkeypatch):
     """A provider with no stored secret (public/PKCE client) must exchange the
     code with client_secret=None and still sign the user in."""

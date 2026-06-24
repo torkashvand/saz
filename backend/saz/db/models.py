@@ -147,6 +147,9 @@ class AuthProvider(Base):
     # Optional override for the IdP-registered redirect URI; null uses the
     # backend's default generic callback.
     redirect_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Treat the IdP's email as verified even when it omits email_verified
+    # (e.g. GEANT/eduGAIN). Opt-in: only enable for trusted IdPs.
+    trust_email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     scopes: Mapped[str] = mapped_column(String(512), nullable=False, default="openid profile email")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Comma-separated email domain allowlist; empty/None means no restriction.

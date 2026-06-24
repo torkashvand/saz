@@ -184,6 +184,7 @@ function ProviderModal({
     client_secret: '',
     scopes: target?.scopes ?? 'openid profile email',
     redirect_uri: target?.redirect_uri ?? '',
+    trust_email_verified: target?.trust_email_verified ?? false,
     enabled: target?.enabled ?? false,
     jit_enabled: target?.jit_enabled ?? false,
     default_role: target?.default_role ?? 'viewer',
@@ -302,6 +303,15 @@ function ProviderModal({
               data-testid="provider-redirect-uri"
             />
           </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.trust_email_verified ?? false}
+              onChange={(e) => set({ trust_email_verified: e.target.checked })}
+              data-testid="provider-trust-email"
+            />
+            Trust this IdP&apos;s email as verified (for IdPs that omit email_verified, e.g. GEANT)
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

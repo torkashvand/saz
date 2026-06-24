@@ -77,6 +77,7 @@ class AuthProviderService:
         enabled: bool = False,
         allowed_domains: str | None = None,
         redirect_uri: str | None = None,
+        trust_email_verified: bool = False,
         jit_enabled: bool = False,
         default_role: str = "viewer",
     ) -> AuthProvider:
@@ -93,6 +94,7 @@ class AuthProviderService:
             enabled=enabled,
             allowed_domains=allowed_domains,
             redirect_uri=redirect_uri or None,
+            trust_email_verified=trust_email_verified,
             jit_enabled=jit_enabled,
             default_role=default_role,
         )
@@ -126,6 +128,7 @@ class AuthProviderService:
             "enabled",
             "allowed_domains",
             "redirect_uri",
+            "trust_email_verified",
             "jit_enabled",
             "default_role",
         ):

@@ -27,6 +27,7 @@ class AuthProviderResponse(BaseModel):
     enabled: bool
     allowed_domains: str | None = None
     redirect_uri: str | None = None
+    trust_email_verified: bool
     jit_enabled: bool
     default_role: str
     created_at: datetime
@@ -49,6 +50,7 @@ class CreateAuthProviderRequest(BaseModel):
     enabled: bool = False
     allowed_domains: str | None = Field(default=None, max_length=1024)
     redirect_uri: str | None = Field(default=None, max_length=512)
+    trust_email_verified: bool = False
     jit_enabled: bool = False
     default_role: JitRole = "viewer"
 
@@ -64,6 +66,7 @@ class UpdateAuthProviderRequest(BaseModel):
     enabled: bool | None = None
     allowed_domains: str | None = Field(default=None, max_length=1024)
     redirect_uri: str | None = Field(default=None, max_length=512)
+    trust_email_verified: bool | None = None
     jit_enabled: bool | None = None
     default_role: JitRole | None = None
 

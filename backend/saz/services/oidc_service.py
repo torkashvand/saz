@@ -74,6 +74,22 @@ def exchange_code(
     return data
 
 
+def fetch_userinfo(userinfo_endpoint: str, access_token: str) -> dict:
+    """Fetch OIDC UserInfo claims with the access token.
+
+    Many IdPs (e.g. GEANT/SATOSA) return only authentication claims in the ID
+    token and expose email/profile via UserInfo.
+    """
+    resp = httpx.get(
+        userinfo_endpoint,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    data: dict = resp.json()
+    return data
+
+
 def verify_id_token(
     id_token: str, *, jwks_uri: str, issuer: str, client_id: str, nonce: str
 ) -> dict:
@@ -235,6 +251,19 @@ class OidcService:
         except Exception as exc:  # jwt / JWKS verification failures
             raise OidcError(f"ID token verification failed: {exc}") from exc
 
+        # Many IdPs return email/profile only from UserInfo, not the ID token;
+        # merge those claims (verifying the subject matches) before resolving.
+        userinfo_endpoint = discovery.get("userinfo_endpoint")
+        access_token = token_resp.get("access_token")
+        if userinfo_endpoint and access_token:
+            try:
+                userinfo = fetch_userinfo(userinfo_endpoint, access_token)
+            except httpx.HTTPError as exc:
+                raise OidcError(f"userinfo request failed: {exc}") from exc
+            if str(userinfo.get("sub")) != str(claims.get("sub")):
+                raise OidcError("userinfo subject does not match ID token")
+            claims = {**claims, **userinfo}
+
         user = self._resolve_user(provider, claims)
         token, expires_at, secret, _session = self.auth.start_session(
             user, auth_method="oidc", provider_key=provider_key, ip=ip, user_agent=user_agent
@@ -263,7 +292,9 @@ class OidcService:
 
         email_raw = claims.get("email")
         email = email_raw.strip().lower() if isinstance(email_raw, str) else None
-        verified = bool(claims.get("email_verified"))
+        # Some trusted IdPs (e.g. GEANT) never emit email_verified; allow an
+        # opt-in per-provider override to treat a released email as verified.
+        verified = bool(claims.get("email_verified")) or provider.trust_email_verified
         self._check_domain(provider, email)
 
         # 2) Verified email matches an existing local user → link.

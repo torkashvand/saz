@@ -261,7 +261,13 @@ function ProviderModal({
           <Field label="Client ID">
             <Input value={form.client_id} onChange={(e) => set({ client_id: e.target.value })} />
           </Field>
-          <Field label={isEdit ? 'Client secret (leave blank to keep)' : 'Client secret'}>
+          <Field
+            label={
+              isEdit
+                ? 'Client secret (leave blank to keep)'
+                : 'Client secret (leave blank for public/PKCE clients)'
+            }
+          >
             <div className="relative">
               <Input
                 type={showSecret ? 'text' : 'password'}

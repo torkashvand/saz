@@ -23,7 +23,7 @@ class AuthProviderRepository(BaseRepository[AuthProvider]):
         display_name: str,
         issuer: str,
         client_id: str,
-        client_secret_encrypted: bytes,
+        client_secret_encrypted: bytes | None,
         scopes: str = "openid profile email",
         enabled: bool = False,
         allowed_domains: str | None = None,

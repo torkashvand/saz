@@ -142,7 +142,8 @@ class AuthProvider(Base):
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     issuer: Mapped[str] = mapped_column(String(512), nullable=False)
     client_id: Mapped[str] = mapped_column(String(512), nullable=False)
-    client_secret_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Null for public (PKCE-only) clients that authenticate without a secret.
+    client_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     scopes: Mapped[str] = mapped_column(String(512), nullable=False, default="openid profile email")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Comma-separated email domain allowlist; empty/None means no restriction.

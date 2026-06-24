@@ -127,6 +127,46 @@ def test_complete_jit_creates_viewer(db_engine, monkeypatch):
         session.close()
 
 
+def test_complete_public_client_omits_client_secret(db_engine, monkeypatch):
+    """A provider with no stored secret (public/PKCE client) must exchange the
+    code with client_secret=None and still sign the user in."""
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(
+            uow,
+            provider_key="okta",
+            client_secret_encrypted=None,
+            jit_enabled=True,
+            default_role="viewer",
+        )
+        captured = {}
+
+        def fake_exchange(token_endpoint, **kwargs):
+            captured.update(kwargs)
+            return {"id_token": "fake.jwt"}
+
+        monkeypatch.setattr(oidc_mod, "fetch_discovery_document", lambda issuer: DISCOVERY)
+        monkeypatch.setattr(oidc_mod, "exchange_code", fake_exchange)
+        monkeypatch.setattr(
+            oidc_mod,
+            "verify_id_token",
+            lambda id_token, **k: {
+                "iss": ISSUER,
+                "sub": "pub-1",
+                "email": "pub@example.com",
+                "email_verified": True,
+            },
+        )
+        svc = OidcService(uow)
+        _url, tx, state = _begin(svc)
+        token, _exp, secret = svc.complete("okta", code="c", state=state, tx_token=tx)
+        assert token and secret
+        assert captured["client_secret"] is None
+        assert captured["code_verifier"]
+    finally:
+        session.close()
+
+
 def test_complete_refuses_when_no_link_and_jit_disabled(db_engine, monkeypatch):
     uow, session = _uow(db_engine)
     try:

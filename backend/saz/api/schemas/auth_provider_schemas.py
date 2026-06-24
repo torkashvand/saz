@@ -42,7 +42,8 @@ class CreateAuthProviderRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255)
     issuer: str = Field(..., min_length=8, max_length=512)
     client_id: str = Field(..., min_length=1, max_length=512)
-    client_secret: str = Field(..., min_length=1, max_length=2048)
+    # Optional: public (PKCE-only) clients have no secret. Empty/None stores no secret.
+    client_secret: str | None = Field(default=None, max_length=2048)
     scopes: str = Field(default="openid profile email", max_length=512)
     enabled: bool = False
     allowed_domains: str | None = Field(default=None, max_length=1024)

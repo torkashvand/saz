@@ -48,22 +48,24 @@ def exchange_code(
     code: str,
     redirect_uri: str,
     client_id: str,
-    client_secret: str,
+    client_secret: str | None,
     code_verifier: str,
 ) -> dict:
-    """Exchange an authorization code for tokens (client_secret_post + PKCE)."""
-    resp = httpx.post(
-        token_endpoint,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code_verifier": code_verifier,
-        },
-        timeout=10.0,
-    )
+    """Exchange an authorization code for tokens.
+
+    Confidential clients send ``client_secret`` (client_secret_post); public
+    (PKCE-only) clients omit it and rely on the PKCE ``code_verifier`` alone.
+    """
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": code_verifier,
+    }
+    if client_secret:
+        form["client_secret"] = client_secret
+    resp = httpx.post(token_endpoint, data=form, timeout=10.0)
     resp.raise_for_status()
     data: dict = resp.json()
     return data
@@ -175,7 +177,11 @@ class OidcService:
                 code=code,
                 redirect_uri=self._redirect_uri(provider_key),
                 client_id=provider.client_id,
-                client_secret=decrypt_secret(provider.client_secret_encrypted),
+                client_secret=(
+                    decrypt_secret(provider.client_secret_encrypted)
+                    if provider.client_secret_encrypted
+                    else None
+                ),
                 code_verifier=str(tx["verifier"]),
             )
         except httpx.HTTPError as exc:

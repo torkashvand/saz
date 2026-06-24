@@ -56,6 +56,21 @@ def test_admin_creates_provider_without_leaking_secret(app_client, admin_user):
     assert "super-secret-value" not in resp.text
 
 
+def test_admin_creates_public_client_without_secret(app_client, admin_user, db_engine):
+    """Public (PKCE-only) clients have no secret; create must succeed and
+    persist no stored secret."""
+    body = _create_body(provider_key="spa", client_secret=None)
+    resp = app_client.post("/api/v1/admin/auth/providers", json=body)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["provider_key"] == "spa"
+
+    from saz.db.models import AuthProvider
+
+    with Session(db_engine) as s:
+        provider = s.query(AuthProvider).filter_by(provider_key="spa").one()
+        assert provider.client_secret_encrypted is None
+
+
 def test_create_duplicate_provider_key_conflicts(app_client, admin_user):
     assert app_client.post("/api/v1/admin/auth/providers", json=_create_body()).status_code == 201
     dup = app_client.post("/api/v1/admin/auth/providers", json=_create_body())

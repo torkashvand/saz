@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,10 +33,17 @@ function LoginForm() {
       .catch(() => setProviders([]));
   }, []);
 
-  // Handle the OIDC redirect back from the callback.
+  // Handle the OIDC redirect back from the callback. Guard against running
+  // twice — React StrictMode double-invokes effects in dev, and calling
+  // /refresh a second time replays the just-rotated refresh secret, which the
+  // backend treats as theft and revokes the session (bouncing the user back
+  // to login).
+  const ssoHandled = useRef(false);
   useEffect(() => {
     const sso = searchParams.get('sso');
     if (sso === 'ok') {
+      if (ssoHandled.current) return;
+      ssoHandled.current = true;
       completeSso()
         .then(() => router.replace('/'))
         .catch(() =>

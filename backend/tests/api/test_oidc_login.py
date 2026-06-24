@@ -73,6 +73,21 @@ def test_begin_builds_pkce_authorization_url(db_engine, monkeypatch):
         assert q["code_challenge_method"] == ["S256"]
         assert q["code_challenge"] and q["nonce"] and state
         assert q["redirect_uri"][0].endswith("/api/v1/auth/oidc/okta/callback")
+        # No offline_access in the default scopes -> no forced consent prompt.
+        assert "prompt" not in q
+    finally:
+        session.close()
+
+
+def test_begin_forces_consent_prompt_for_offline_access(db_engine, monkeypatch):
+    """IdPs (e.g. GEANT/SATOSA) reject offline_access without prompt=consent."""
+    monkeypatch.setattr(oidc_mod, "fetch_discovery_document", lambda issuer: DISCOVERY)
+    uow, session = _uow(db_engine)
+    try:
+        _seed_provider(uow, scopes="openid profile email offline_access")
+        url, _tx, _state = _begin(OidcService(uow))
+        q = parse_qs(urlparse(url).query)
+        assert q["prompt"] == ["consent"]
     finally:
         session.close()
 

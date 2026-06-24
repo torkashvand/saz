@@ -140,6 +140,10 @@ class OidcService:
             "code_challenge": _pkce_challenge(verifier),
             "code_challenge_method": "S256",
         }
+        # offline_access (refresh token) requires explicit consent; some IdPs
+        # (e.g. GEANT/SATOSA) reject the request outright without it.
+        if "offline_access" in provider.scopes.split():
+            params["prompt"] = "consent"
         url = f"{authorization_endpoint}?{urlencode(params)}"
         tx = self._encode_tx(
             {"provider_key": provider_key, "state": state, "nonce": nonce, "verifier": verifier}

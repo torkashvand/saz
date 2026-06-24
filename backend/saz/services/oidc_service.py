@@ -265,6 +265,9 @@ class OidcService:
             claims = {**claims, **userinfo}
 
         user = self._resolve_user(provider, claims)
+        # Ensure a JIT-created user's INSERT is emitted before the auth session
+        # row that references it (Postgres enforces the FK at statement time).
+        self.uow.flush()
         token, expires_at, secret, _session = self.auth.start_session(
             user, auth_method="oidc", provider_key=provider_key, ip=ip, user_agent=user_agent
         )

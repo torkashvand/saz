@@ -215,6 +215,10 @@ def test_userinfo_supplies_email_when_id_token_lacks_it(db_engine, monkeypatch):
         svc.complete("okta", code="c", state=state, tx_token=tx)
         created = uow.users.get_by_email("geant@example.org")
         assert created is not None and created.role == Role.VIEWER
+        # The auth session must reference the JIT-created user (FK satisfied:
+        # the user is flushed before the session row is inserted).
+        sessions = uow.auth_sessions.list_for_user(created.id)
+        assert len(sessions) == 1
     finally:
         session.close()
 

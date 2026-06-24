@@ -74,6 +74,15 @@ class UnitOfWork:
             self.rollback()
         # Don't close session - let the session owner handle that
 
+    def flush(self) -> None:
+        """Flush pending changes to the DB without committing.
+
+        Use when a later insert in the same transaction has a foreign key to a
+        row just created (e.g. an auth session referencing a JIT-created user),
+        so the parent row's INSERT is emitted first.
+        """
+        self._session.flush()
+
     def commit(self) -> list[EventSchema]:
         """
         Commit transaction and persist buffered events.

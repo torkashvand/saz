@@ -51,7 +51,7 @@ export default function AdminAuthProvidersPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">SSO providers</h1>
           <p className="text-sm text-slate-600 mt-1">
@@ -80,65 +80,67 @@ export default function AdminAuthProvidersPage() {
           ) : providers.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No SSO providers configured yet.</div>
           ) : (
-            <table className="w-full text-sm" data-testid="admin-providers-table">
-              <thead className="text-left text-slate-500 border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Provider</th>
-                  <th className="px-4 py-2 font-medium">Issuer</th>
-                  <th className="px-4 py-2 font-medium">JIT</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {providers.map((p) => (
-                  <tr
-                    key={p.id}
-                    className="border-b border-slate-100"
-                    data-testid={`provider-row-${p.provider_key}`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{p.display_name}</div>
-                      <div className="text-xs text-slate-500">{p.provider_key}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{p.issuer}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {p.jit_enabled ? `${p.default_role}` : 'off'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {p.enabled ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700">
-                          <ShieldCheck className="w-3 h-3" /> enabled
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">disabled</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => toggleEnabled(p)}>
-                          {p.enabled ? 'Disable' : 'Enable'}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => runTest(p)}>
-                          Test
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setEditTarget(p)}
-                          data-testid={`provider-edit-${p.provider_key}`}
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => remove(p)}>
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]" data-testid="admin-providers-table">
+                <thead className="text-left text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Provider</th>
+                    <th className="px-4 py-2 font-medium">Issuer</th>
+                    <th className="px-4 py-2 font-medium">JIT</th>
+                    <th className="px-4 py-2 font-medium">Status</th>
+                    <th className="px-4 py-2 font-medium text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {providers.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="border-b border-slate-100"
+                      data-testid={`provider-row-${p.provider_key}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{p.display_name}</div>
+                        <div className="text-xs text-slate-500">{p.provider_key}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{p.issuer}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {p.jit_enabled ? `${p.default_role}` : 'off'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.enabled ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700">
+                            <ShieldCheck className="w-3 h-3" /> enabled
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">disabled</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => toggleEnabled(p)}>
+                            {p.enabled ? 'Disable' : 'Enable'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => runTest(p)}>
+                            Test
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditTarget(p)}
+                            data-testid={`provider-edit-${p.provider_key}`}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => remove(p)}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>

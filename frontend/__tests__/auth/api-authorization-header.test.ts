@@ -43,6 +43,23 @@ describe('API client Authorization header', () => {
     expect(headers.Authorization).toBeUndefined();
   });
 
+  it('does not parse JSON on a 204 response (empty body)', async () => {
+    // A 204 can carry an application/json content-type with an empty body;
+    // calling response.json() would throw. The client must resolve cleanly so
+    // callers (e.g. session revoke) run their follow-up logic.
+    _internalAuth.setAccessToken('jwt-abc');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 204,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => {
+        throw new Error('Unexpected end of JSON input');
+      },
+      text: async () => '',
+    });
+    await expect(api.revokeSession('sess-1')).resolves.toBeDefined();
+  });
+
   it('reads the token at request time, not module load time', async () => {
     // The first call has no token...
     await api.listFlows();

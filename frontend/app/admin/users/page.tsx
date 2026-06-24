@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldAlert, ShieldCheck, KeyRound, Pencil, UserPlus, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { api } from '@/lib/api';
-import type { AdminUser, UserRole } from '@/lib/types';
+import type { AdminSessionListResponse, AdminUser, UserRole } from '@/lib/types';
 import type { AppError } from '@/lib/errors';
 import { useAuth } from '@/lib/auth';
 
@@ -548,30 +549,49 @@ function EditUserModal({
 
 function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { user: currentUser, refresh: revalidateSelf } = useAuth();
+  const router = useRouter();
+  const { user: currentUser, logout } = useAuth();
   const queryKey = ['admin', 'user-sessions', target.id];
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey,
     queryFn: () => api.listUserSessions(target.id),
   });
   const [busy, setBusy] = useState(false);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey });
   const sessions = data?.items ?? [];
+  const isSelf = !!currentUser && target.id === currentUser.id;
 
-  // When revoking your own sessions, re-validate immediately: if the revoked
-  // session was the current one, getCurrentUser 401s and the auth context logs
-  // you out now instead of leaving stale UI until the next page load.
-  const revalidateIfSelf = async () => {
-    if (currentUser && target.id === currentUser.id) await revalidateSelf();
-  };
+  // Revoking your own current session signs you out immediately rather than
+  // leaving you on a page whose token is already dead.
+  async function logoutSelf() {
+    await logout();
+    router.replace('/login');
+  }
+
+  // Drop a session from the cached list right away so the modal updates without
+  // waiting for (or depending on) a refetch; then reconcile in the background.
+  function dropFromCache(predicate: (id: string) => boolean) {
+    queryClient.setQueryData<AdminSessionListResponse>(queryKey, (old) =>
+      old
+        ? {
+            items: old.items.filter((s) => !predicate(s.id)),
+            total: old.items.filter((s) => !predicate(s.id)).length,
+          }
+        : old,
+    );
+  }
 
   async function revokeOne(sessionId: string) {
+    const revoked = sessions.find((s) => s.id === sessionId);
     setBusy(true);
     try {
       await api.revokeUserSession(target.id, sessionId);
-      await refresh();
-      await revalidateIfSelf();
+      if (isSelf && revoked?.is_current) {
+        await logoutSelf();
+        return;
+      }
+      dropFromCache((id) => id === sessionId);
+      void refetch();
     } finally {
       setBusy(false);
     }
@@ -582,8 +602,12 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
     setBusy(true);
     try {
       await api.revokeAllUserSessions(target.id);
-      await refresh();
-      await revalidateIfSelf();
+      if (isSelf) {
+        await logoutSelf();
+        return;
+      }
+      dropFromCache(() => true);
+      void refetch();
     } finally {
       setBusy(false);
     }

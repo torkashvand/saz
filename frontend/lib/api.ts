@@ -168,7 +168,12 @@ async function fetchApi<T>(
     // Add success breadcrumb
     addBreadcrumb(`API Success: ${method} ${endpoint}`, 'api', { status: response.status });
 
-    // Handle empty responses (204, etc.)
+    // Handle empty responses. A 204 carries no JSON even when the server tags
+    // it application/json; calling response.json() on it throws "Unexpected end
+    // of JSON input", so short-circuit before parsing.
+    if (response.status === 204) {
+      return {} as T;
+    }
     const contentType = response.headers.get('content-type');
     if (!contentType?.includes('application/json')) {
       return {} as T;

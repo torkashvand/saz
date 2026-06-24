@@ -135,15 +135,16 @@ export default function AdminUsersPage() {
                         {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="inline-flex gap-2">
+                        <div className="inline-flex gap-1">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => setEditTarget(u)}
                             title="Edit profile, role, and status"
+                            aria-label="Edit user"
                             data-testid={`admin-edit-${u.username}`}
                           >
-                            <Pencil className="w-3 h-3 mr-1" /> Edit
+                            <Pencil className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             size="sm"
@@ -151,18 +152,20 @@ export default function AdminUsersPage() {
                             onClick={() => setResetTarget(u)}
                             disabled={!u.is_active}
                             title="Reset password"
+                            aria-label="Reset password"
                             data-testid={`admin-reset-${u.username}`}
                           >
-                            <KeyRound className="w-3 h-3 mr-1" /> Reset
+                            <KeyRound className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => setSessionsTarget(u)}
                             title="View and revoke active sessions"
+                            aria-label="Sessions"
                             data-testid={`admin-sessions-${u.username}`}
                           >
-                            <Monitor className="w-3 h-3 mr-1" /> Sessions
+                            <Monitor className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </td>

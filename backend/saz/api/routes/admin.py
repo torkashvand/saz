@@ -47,7 +47,13 @@ async def list_users(
     offset: int = Query(0, ge=0),
 ) -> AdminUserListResponse:
     users, total = svc.list_users(limit=limit, offset=offset)
-    return AdminUserListResponse(items=[_resp(u) for u in users], total=total)
+    sso = svc.sso_providers_by_user([u.id for u in users])
+    items = []
+    for u in users:
+        item = _resp(u)
+        item.sso_providers = sso.get(u.id, [])
+        items.append(item)
+    return AdminUserListResponse(items=items, total=total)
 
 
 @router.post("/users", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)

@@ -27,6 +27,8 @@ class AdminUserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
+    # Linked SSO provider keys; empty means a local (password) account.
+    sso_providers: list[str] = []
 
 
 class AdminUserListResponse(BaseModel):

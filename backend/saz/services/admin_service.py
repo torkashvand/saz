@@ -44,6 +44,11 @@ class AdminService:
         assert self.uow.users is not None
         return self.uow.users.get(user_id)
 
+    def sso_providers_by_user(self, user_ids: list[str]) -> dict[str, list[str]]:
+        """Linked SSO provider keys per user (empty/absent means local-only)."""
+        assert self.uow.external_identities is not None
+        return self.uow.external_identities.providers_by_user(user_ids)
+
     # --- Mutations (each commits + audits) ---
 
     def create_user(

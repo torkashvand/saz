@@ -82,6 +82,23 @@ class ExternalIdentityRepository(BaseRepository[ExternalIdentity]):
             ).all()
         )
 
+    def providers_by_user(self, user_ids: list[str]) -> dict[str, list[str]]:
+        """Map each user id to its linked SSO provider keys (one batched query)
+        so an admin list can flag SSO vs local users without an N+1."""
+        if not user_ids:
+            return {}
+        rows = self.session.execute(
+            select(ExternalIdentity.user_id, ExternalIdentity.provider_key).where(
+                ExternalIdentity.user_id.in_(user_ids)
+            )
+        ).all()
+        result: dict[str, list[str]] = {}
+        for user_id, provider_key in rows:
+            keys = result.setdefault(user_id, [])
+            if provider_key not in keys:
+                keys.append(provider_key)
+        return result
+
     def link(
         self,
         *,

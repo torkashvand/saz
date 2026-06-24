@@ -10,11 +10,12 @@ Covers:
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.orm import Session
 
-from saz.db.models import AuthSession, User
+from saz.db.models import AuthSession, ExternalIdentity, User
 from saz.domain.literals import Role
 from saz.security import hash_password
 from tests.conftest import TEST_USER_ID, TEST_USER_PASSWORD, TEST_USER_USERNAME
@@ -211,6 +212,31 @@ def test_admin_lists_and_revokes_one_user_session(app_client, admin_user, db_eng
 
     assert app_client.delete(f"/api/v1/admin/users/{uid}/sessions/sess-a").status_code == 204
     assert app_client.get(f"/api/v1/admin/users/{uid}/sessions").json()["total"] == 1
+
+
+def test_admin_user_list_flags_sso_vs_local(app_client, admin_user, db_engine):
+    """Users with a linked external identity report their SSO provider keys;
+    local-only users report none."""
+    uid = _seed_normal_user(db_engine, username="ssoer")
+    with Session(db_engine) as s:
+        s.add(
+            ExternalIdentity(
+                id=str(uuid4()),
+                user_id=uid,
+                provider_key="okta",
+                issuer="https://idp.example.com",
+                subject="sub-1",
+                email_verified=True,
+            )
+        )
+        s.commit()
+
+    resp = app_client.get("/api/v1/admin/users")
+    assert resp.status_code == 200, resp.text
+    by_name = {u["username"]: u for u in resp.json()["items"]}
+    assert by_name["ssoer"]["sso_providers"] == ["okta"]
+    # The seeded admin is a local account.
+    assert by_name[TEST_USER_USERNAME]["sso_providers"] == []
 
 
 def test_admin_own_current_session_marked(unauthenticated_app_client, admin_user, db_engine):

@@ -740,6 +740,7 @@ export interface AdminUser {
   created_at: string;
   updated_at: string;
   last_login_at?: string | null;
+  sso_providers?: string[];
 }
 
 export interface AdminUserListResponse {

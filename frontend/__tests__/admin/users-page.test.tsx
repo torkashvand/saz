@@ -94,6 +94,22 @@ describe('AdminUsersPage role management', () => {
     expect(screen.getByTestId('role-badge-viewer')).toBeInTheDocument();
   });
 
+  it('flags SSO vs local accounts in the list', async () => {
+    listUsers.mockResolvedValue({
+      items: [
+        user({ id: 's', username: 'ssoer', sso_providers: ['okta'] }),
+        user({ id: 'l', username: 'localer', sso_providers: [] }),
+      ],
+      total: 2,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ssoer')).toBeInTheDocument());
+    expect(screen.getByTestId('user-sso-ssoer')).toBeInTheDocument();
+    expect(screen.queryByTestId('user-local-ssoer')).toBeNull();
+    expect(screen.getByTestId('user-local-localer')).toBeInTheDocument();
+    expect(screen.queryByTestId('user-sso-localer')).toBeNull();
+  });
+
   it('changing the role in the edit dialog calls set_role with the new tier', async () => {
     listUsers.mockResolvedValue({ items: [user({})], total: 1 });
     setUserRole.mockResolvedValue(user({ role: 'viewer' }));

@@ -94,6 +94,23 @@ export default function AdminUsersPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{u.username}</span>
                         <RoleBadge role={u.role} />
+                        {u.sso_providers && u.sso_providers.length > 0 ? (
+                          <span
+                            className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-xs font-medium"
+                            title={`SSO via ${u.sso_providers.join(', ')}`}
+                            data-testid={`user-sso-${u.username}`}
+                          >
+                            SSO
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-xs font-medium"
+                            title="Local password account"
+                            data-testid={`user-local-${u.username}`}
+                          >
+                            Local
+                          </span>
+                        )}
                         {u.must_change_password && (
                           <span
                             className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full"

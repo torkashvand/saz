@@ -17,13 +17,29 @@ class AuthProviderError(Exception):
     """Raised when a provider operation fails a business rule."""
 
 
+DISCOVERY_PATH = "/.well-known/openid-configuration"
+
+
+def normalize_issuer(issuer: str) -> str:
+    """Return the canonical issuer base URL.
+
+    Operators frequently paste the full discovery URL as the issuer; strip a
+    trailing ``/.well-known/openid-configuration`` (and any trailing slash) so
+    we never double it when building the discovery URL.
+    """
+    issuer = issuer.strip().rstrip("/")
+    if issuer.endswith(DISCOVERY_PATH):
+        issuer = issuer[: -len(DISCOVERY_PATH)]
+    return issuer.rstrip("/")
+
+
 def fetch_discovery_document(issuer: str) -> dict:
     """Fetch and return an OIDC issuer's discovery document.
 
     Raises ``httpx.HTTPError`` on network/HTTP failures so callers can render
     a useful test result.
     """
-    url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    url = normalize_issuer(issuer) + DISCOVERY_PATH
     resp = httpx.get(url, timeout=10.0, follow_redirects=True)
     resp.raise_for_status()
     data: dict = resp.json()
@@ -69,7 +85,7 @@ class AuthProviderService:
         provider = self.uow.auth_providers.create(
             provider_key=provider_key,
             display_name=display_name,
-            issuer=issuer.rstrip("/"),
+            issuer=normalize_issuer(issuer),
             client_id=client_id,
             client_secret_encrypted=encrypt_secret(client_secret) if client_secret else None,
             scopes=scopes,
@@ -113,7 +129,7 @@ class AuthProviderService:
             if key in fields and fields[key] is not None:
                 value = fields[key]
                 if key == "issuer" and isinstance(value, str):
-                    value = value.rstrip("/")
+                    value = normalize_issuer(value)
                 setattr(provider, key, value)
                 changes[key] = value
 

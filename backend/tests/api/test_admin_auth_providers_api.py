@@ -120,6 +120,61 @@ def test_public_providers_lists_only_enabled(app_client, admin_user):
     assert "client_secret" not in resp.text
 
 
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("https://idp.example.com", "https://idp.example.com"),
+        ("https://idp.example.com/", "https://idp.example.com"),
+        (
+            "https://idp.example.com/.well-known/openid-configuration",
+            "https://idp.example.com",
+        ),
+        (
+            "https://idp.example.com/.well-known/openid-configuration/",
+            "https://idp.example.com",
+        ),
+        (" https://idp.example.com ", "https://idp.example.com"),
+    ],
+)
+def test_normalize_issuer_strips_discovery_suffix(raw, expected):
+    from saz.services.auth_provider_service import normalize_issuer
+
+    assert normalize_issuer(raw) == expected
+
+
+def test_fetch_discovery_does_not_double_well_known(monkeypatch):
+    """Pasting the full discovery URL as the issuer must not produce a doubled
+    /.well-known/openid-configuration path."""
+    import saz.services.auth_provider_service as svc_mod
+
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"issuer": "https://idp.example.com"}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        return _Resp()
+
+    monkeypatch.setattr(svc_mod.httpx, "get", fake_get)
+    svc_mod.fetch_discovery_document("https://idp.example.com/.well-known/openid-configuration")
+    assert captured["url"] == "https://idp.example.com/.well-known/openid-configuration"
+
+
+def test_create_normalizes_pasted_discovery_url_as_issuer(app_client, admin_user):
+    body = _create_body(
+        provider_key="geant",
+        issuer="https://proxy.aai.geant.org/.well-known/openid-configuration",
+    )
+    resp = app_client.post("/api/v1/admin/auth/providers", json=body)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["issuer"] == "https://proxy.aai.geant.org"
+
+
 def test_provider_test_endpoint_reports_discovery(app_client, admin_user, monkeypatch):
     pid = app_client.post("/api/v1/admin/auth/providers", json=_create_body()).json()["id"]
 

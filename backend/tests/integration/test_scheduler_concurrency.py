@@ -32,7 +32,11 @@ def fresh_scheduler(db_engine, monkeypatch):
     monkeypatch.setattr(RunScheduler, "_instance", None)
     monkeypatch.setattr(sched_module, "_scheduler", None)
 
-    scheduler = RunScheduler(database_url=str(db_engine.url), max_workers=2)
+    # render_as_string(hide_password=False): str(url) masks the password, which
+    # breaks the scheduler thread's PostgreSQL auth.
+    scheduler = RunScheduler(
+        database_url=db_engine.url.render_as_string(hide_password=False), max_workers=2
+    )
 
     yield scheduler
 

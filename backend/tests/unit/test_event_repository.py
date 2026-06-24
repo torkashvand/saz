@@ -1,16 +1,18 @@
 """Tests for EventRepository write operations."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from saz.db.models import Event as DBEvent
 from saz.domain.event_schema import Event, EventType
 from saz.repositories.write.event_repository import EventRepository
+from tests.conftest import seed_run
 
 
 def test_event_repository_add(db_engine):
     """EventRepository.add() persists a single event."""
+    seed_run(db_engine, "run_123")
     with Session(db_engine) as session:
         repo = EventRepository(session)
 
@@ -35,6 +37,7 @@ def test_event_repository_add(db_engine):
 
 def test_event_repository_add_batch(db_engine):
     """EventRepository.add_batch() persists multiple events."""
+    seed_run(db_engine, "run_123", step_ids=["step_1"])
     with Session(db_engine) as session:
         repo = EventRepository(session)
 
@@ -73,10 +76,11 @@ def test_event_repository_add_batch(db_engine):
 
 def test_event_repository_preserves_all_fields(db_engine):
     """EventRepository preserves all event fields."""
+    seed_run(db_engine, "run_123", step_ids=["step_456"])
     with Session(db_engine) as session:
         repo = EventRepository(session)
 
-        now = datetime(2025, 1, 1, 12, 0, 0)
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         event = Event(
             id="evt_custom123",
             event_type=EventType.TOOL_FAILED,

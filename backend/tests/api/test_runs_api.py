@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from saz.db.models import Flow, Run
+from saz.db.models import Flow, Run, Step
 from saz.domain.event_schema import Event, EventType
 from saz.repositories.write.event_repository import EventRepository
 from tests.conftest import TEST_USER_ID
@@ -38,6 +38,19 @@ def run_with_events(db_engine, app_client):
             duration_ms=5000,
         )
         session.add(run)
+        session.commit()
+
+        # Create the step the events below reference (FK: events.step_id).
+        session.add(
+            Step(
+                id="step_1",
+                run_id="run_123",
+                number=1,
+                name="step_1",
+                step_type="tool.call",
+                status="completed",
+            )
+        )
         session.commit()
 
         # Create events

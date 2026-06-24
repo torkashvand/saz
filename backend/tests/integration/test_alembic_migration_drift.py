@@ -2,23 +2,22 @@
 
 If the ORM models drift from the migration history, fresh installs and
 prod databases disagree. This test:
-  1. Spins up a temp SQLite database.
+  1. Creates a fresh, empty PostgreSQL database.
   2. Runs alembic upgrade head against it.
   3. Inspects the resulting schema and compares to
      ``Base.metadata.tables`` — every table must exist, and every model
      column must have a matching column in the migrated schema.
 
-It tolerates some divergence (extra columns added in migrations but not
-yet on the model, type aliases SQLite collapses) but treats *missing*
-tables/columns as a real drift to fix.
+It tolerates extra columns added in migrations but not yet on the model, but
+treats *missing* tables/columns as a real drift to fix.
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import make_url
 
 from alembic import command
 from alembic.config import Config
@@ -34,35 +33,53 @@ def _table_names_lower(inspector) -> set[str]:
     return {t.lower() for t in inspector.get_table_names()}
 
 
+def _admin_exec(admin_url, statements: list[str]) -> None:
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            for stmt in statements:
+                conn.exec_driver_sql(stmt)
+    finally:
+        admin.dispose()
+
+
 @pytest.fixture
 def migrated_db(monkeypatch):
     ini_path = _alembic_ini_path()
     if not ini_path.exists():
         pytest.skip(f"no alembic.ini at {ini_path}")
 
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        db_path = tmp.name
+    base = make_url(
+        os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg2://saz:saz@localhost:5433/saz_test")
+    )
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    mig_db = f"{base.database}_mig_{worker}"
+    admin_url = base.set(database="postgres")
+    mig_url = base.set(database=mig_db)
+    url_str = mig_url.render_as_string(hide_password=False)
 
-    url = f"sqlite:///{db_path}"
+    drop = [
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{mig_db}' AND pid <> pg_backend_pid()",
+        f'DROP DATABASE IF EXISTS "{mig_db}"',
+    ]
+    _admin_exec(admin_url, [*drop, f'CREATE DATABASE "{mig_db}"'])
     try:
         cfg = Config(str(ini_path))
-        cfg.set_main_option("sqlalchemy.url", url)
-        # env.py reads DATABASE_URL from the environment; conftest pins it to
-        # :memory: globally, so we must override it for the duration of the
-        # upgrade or alembic migrates a different database than we inspect.
-        backend_root = ini_path.parent
-        monkeypatch.setenv("DATABASE_URL", url)
+        cfg.set_main_option("sqlalchemy.url", url_str)
+        # env.py reads DATABASE_URL from the environment; override it so alembic
+        # migrates the fresh database we inspect.
+        monkeypatch.setenv("DATABASE_URL", url_str)
         monkeypatch.setenv(
             "PYTHONPATH",
-            f"{backend_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+            f"{ini_path.parent}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
         )
         command.upgrade(cfg, "head")
-        engine = create_engine(url)
+        engine = create_engine(url_str)
         yield engine
         engine.dispose()
     finally:
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+        _admin_exec(admin_url, drop)
 
 
 def test_every_model_table_exists_after_migration(migrated_db):

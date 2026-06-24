@@ -17,8 +17,6 @@ engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    # SQLite specific
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
 )
 
 # Session factory

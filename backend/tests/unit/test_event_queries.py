@@ -8,11 +8,14 @@ from sqlalchemy.orm import Session
 from saz.domain.event_schema import Event, EventType
 from saz.repositories.read.event_queries import EventQueries
 from saz.repositories.write.event_repository import EventRepository
+from tests.conftest import seed_run
 
 
 @pytest.fixture
 def sample_events(db_engine):
     """Create sample events for testing."""
+    seed_run(db_engine, "run_1", step_ids=["step_1", "step_2"])
+    seed_run(db_engine, "run_2")
     with Session(db_engine) as session:
         repo = EventRepository(session)
 
@@ -209,6 +212,7 @@ def test_get_latest_by_type(db_engine, sample_events):
 
 def test_get_by_correlation(db_engine):
     """get_by_correlation() fetches events by correlation_id."""
+    seed_run(db_engine, "run_1", step_ids=["step_1"])
     with Session(db_engine) as session:
         repo = EventRepository(session)
 

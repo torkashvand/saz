@@ -507,8 +507,12 @@ class WorkflowExecutor:
                 within_budget, budget_error = self.policy_engine.budget_tracker.check_budget(run_id)
                 if not within_budget:
                     logger.error(f"Budget exceeded for run {run_id}: {budget_error}")
+                    # Budget is checked before the step row is created, so there
+                    # is no persisted Step to reference; emit a run-level event
+                    # (events.step_id has an FK to steps.id). The DSL step id is
+                    # still captured in the failure error below.
                     emitter.policy_budget_exhausted(
-                        reason=budget_error or "budget exceeded", step_id=plan_step.step_id
+                        reason=budget_error or "budget exceeded", step_id=None
                     )
                     await emitter.commit_and_broadcast()
                     await self._fail_run(

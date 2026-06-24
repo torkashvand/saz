@@ -17,8 +17,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DATABASE_URL: str = "sqlite:///./saz.db"
-    """The database connection URL."""
+    DATABASE_URL: str = "postgresql+psycopg2://saz:saz@localhost:5432/saz_db"
+    """The database connection URL (PostgreSQL; set via .env for your cluster)."""
     ARTIFACT_STORAGE_PATH: str = "./data/artifacts"
     """Directory where run artifacts (rendered documents, audit records) are stored.
 

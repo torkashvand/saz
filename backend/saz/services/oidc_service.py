@@ -265,9 +265,6 @@ class OidcService:
             claims = {**claims, **userinfo}
 
         user = self._resolve_user(provider, claims)
-        # Ensure a JIT-created user's INSERT is emitted before the auth session
-        # row that references it (Postgres enforces the FK at statement time).
-        self.uow.flush()
         token, expires_at, secret, _session = self.auth.start_session(
             user, auth_method="oidc", provider_key=provider_key, ip=ip, user_agent=user_agent
         )
@@ -319,6 +316,9 @@ class OidcService:
             if not (email and verified):
                 raise OidcError("a verified email is required to create an account")
             user = self._jit_create(provider, claims, email)
+            # Flush so the new user row exists before the external_identity and
+            # auth_session rows reference it (Postgres enforces FKs at insert).
+            self.uow.flush()
             self.uow.external_identities.link(
                 user_id=user.id,
                 provider_key=provider.provider_key,

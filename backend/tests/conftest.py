@@ -14,10 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Set environment variables BEFORE importing any saz module so the settings
 # singleton picks them up on first instantiation.
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-# Disable the SuspensionSweeper background thread for tests — each test gets
-# its own temp-file SQLite engine, so a process-wide sweeper running against
-# a stale DATABASE_URL would error on "no such table: runs". Tests that need
+# Disable the SuspensionSweeper background thread for tests; tests that need
 # the sweeper drive it synchronously via SuspensionSweeper(engine=...).sweep_once().
 os.environ["SUSPENSION_SWEEP_ENABLED"] = "False"
 # Auth tests need a JWT secret. Set it before importing saz modules so the
@@ -28,13 +25,64 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-do-not-use-in-prod"
 # depend on a developer's local .env (CI sets no CREDENTIALS_ENCRYPTION_KEY).
 os.environ.setdefault("CREDENTIALS_ENCRYPTION_KEY", "dd0qHBIV-Wv_KlnZVjRzzfl4x8crVfFargy4WRUV_FI=")
 
-from saz.agents import LLMPort, LLMResponse
-from saz.api.app import app
-from saz.api.dependencies import get_current_user
-from saz.db.dependencies import get_uow
-from saz.db.models import Base, User
-from saz.db.unit_of_work import UnitOfWork
-from saz.security import hash_password
+# --- PostgreSQL test database (one isolated database per xdist worker) ---
+# Tests run against PostgreSQL only, for production parity: foreign-key
+# enforcement, JSON, and real transaction semantics that SQLite did not give
+# us. Point TEST_DATABASE_URL at a reachable cluster; each worker creates and
+# tears down its own database, so parallel runs never collide.
+from sqlalchemy.engine import make_url  # noqa: E402
+
+_TEST_DB_BASE = make_url(
+    os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg2://saz:saz@localhost:5433/saz_test")
+)
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
+_WORKER_DB = f"{_TEST_DB_BASE.database}_{_WORKER}"
+_WORKER_URL = _TEST_DB_BASE.set(database=_WORKER_DB)
+_ADMIN_URL = _TEST_DB_BASE.set(database="postgres")
+
+# Anything that reads DATABASE_URL at import time (settings singleton, the
+# module-level engine in saz.db.session) must see this worker's database.
+os.environ["DATABASE_URL"] = _WORKER_URL.render_as_string(hide_password=False)
+
+
+def _admin_exec(statements: list[str]) -> None:
+    """Run AUTOCOMMIT maintenance statements against the ``postgres`` database."""
+    admin = create_engine(_ADMIN_URL, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            for stmt in statements:
+                conn.exec_driver_sql(stmt)
+    finally:
+        admin.dispose()
+
+
+def _drop_db_statements(name: str) -> list[str]:
+    return [
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{name}' AND pid <> pg_backend_pid()",
+        f'DROP DATABASE IF EXISTS "{name}"',
+    ]
+
+
+# Create the worker database up front so importing the app (which builds a
+# module-level engine) and the first test both see a live database.
+_admin_exec([*_drop_db_statements(_WORKER_DB), f'CREATE DATABASE "{_WORKER_DB}"'])
+
+
+def pytest_unconfigure(config):  # noqa: ARG001
+    """Drop this worker's database when the session ends."""
+    _admin_exec(_drop_db_statements(_WORKER_DB))
+
+
+# Imported after the worker database is created above so importing the app
+# (which builds a module-level engine) sees a live database.
+from saz.agents import LLMPort, LLMResponse  # noqa: E402
+from saz.api.app import app  # noqa: E402
+from saz.api.dependencies import get_current_user  # noqa: E402
+from saz.db.dependencies import get_uow  # noqa: E402
+from saz.db.models import Base, User  # noqa: E402
+from saz.db.unit_of_work import UnitOfWork  # noqa: E402
+from saz.security import hash_password  # noqa: E402
 
 # Fixed test-user id used everywhere a test inserts a Flow/Run/Credential
 # directly. The `users` row is seeded into every fresh test database by the
@@ -46,50 +94,115 @@ TEST_USER_EMAIL = "testuser@example.com"
 TEST_USER_PASSWORD = "test-password-123"
 
 
-@pytest.fixture(scope="function")
-def db_engine():
-    """Create test database engine using temporary file."""
-    import tempfile
-
-    # Use a temporary file for each test to avoid threading issues
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
-        db_path = tmp_file.name
-
+def _seed_test_user(engine) -> None:
+    """Seed the canonical test user so direct ORM inserts of Flow/Run/Credential
+    rows resolve their NOT NULL ``created_by_user_id`` FK without each test
+    managing the auth fixture chain."""
+    seed_session = sessionmaker(bind=engine)()
     try:
-        database_url = f"sqlite:///{db_path}"
-        engine = create_engine(database_url, connect_args={"check_same_thread": False})
-        Base.metadata.create_all(bind=engine)
+        now = datetime.now(UTC)
+        seed_session.add(
+            User(
+                id=TEST_USER_ID,
+                username=TEST_USER_USERNAME,
+                email=TEST_USER_EMAIL,
+                display_name="Test User",
+                password_hash=hash_password(TEST_USER_PASSWORD),
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        seed_session.commit()
+    finally:
+        seed_session.close()
 
-        # Seed the canonical test user so that direct ORM inserts of Flow,
-        # Run, and Credential rows in legacy tests resolve their NOT NULL
-        # ``created_by_user_id`` FK without each test having to manage the
-        # auth fixture chain.
-        seed_session = sessionmaker(bind=engine)()
-        try:
-            now = datetime.now(UTC)
-            seed_session.add(
-                User(
-                    id=TEST_USER_ID,
-                    username=TEST_USER_USERNAME,
-                    email=TEST_USER_EMAIL,
-                    display_name="Test User",
-                    password_hash=hash_password(TEST_USER_PASSWORD),
-                    is_active=True,
+
+@pytest.fixture(scope="session")
+def _pg_engine():
+    """One PostgreSQL engine per xdist worker; schema built from the ORM models.
+
+    The worker database is created (and dropped) around the whole session in
+    module-level setup/``pytest_unconfigure``; here we just build the schema.
+    """
+    engine = create_engine(_WORKER_URL, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    engine.dispose()
+
+
+def seed_run(
+    engine,
+    run_id: str,
+    *,
+    status: str = "running",
+    flow_id: str = "flow_seed",
+    step_ids: list[str] | None = None,
+) -> str:
+    """Insert a Run (plus a shared parent Flow, and any requested Steps) so
+    events/steps referencing them satisfy PostgreSQL foreign keys. Idempotent.
+
+    SQLite did not enforce these FKs, so many event/run tests historically used
+    bare ``run_id``/``step_id`` strings; on PostgreSQL the parent rows must exist.
+    """
+    from saz.db.models import Flow, Run, Step
+
+    session = sessionmaker(bind=engine)()
+    try:
+        now = datetime.now(UTC)
+        if session.get(Flow, flow_id) is None:
+            session.add(
+                Flow(
+                    id=flow_id,
+                    name=f"seed-flow-{flow_id}",
+                    definition={},
+                    created_by_user_id=TEST_USER_ID,
                     created_at=now,
-                    updated_at=now,
                 )
             )
-            seed_session.commit()
-        finally:
-            seed_session.close()
-
-        yield engine
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
+            session.flush()
+        if session.get(Run, run_id) is None:
+            session.add(
+                Run(
+                    id=run_id,
+                    flow_id=flow_id,
+                    status=status,
+                    payload={},
+                    created_by_user_id=TEST_USER_ID,
+                    created_at=now,
+                )
+            )
+            session.flush()
+        for i, step_id in enumerate(step_ids or [], start=1):
+            if session.get(Step, step_id) is None:
+                session.add(
+                    Step(
+                        id=step_id,
+                        run_id=run_id,
+                        number=i,
+                        name=step_id,
+                        step_type="tool.call",
+                        status="completed",
+                    )
+                )
+        session.commit()
     finally:
-        # Clean up the temporary file
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+        session.close()
+    return run_id
+
+
+@pytest.fixture(scope="function")
+def db_engine(_pg_engine):
+    """Per-test clean database: truncate every table and reseed the test user.
+
+    Faster than create_all/drop_all per test while keeping full PostgreSQL
+    semantics (FK enforcement, JSON, real transactions).
+    """
+    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+    with _pg_engine.begin() as conn:
+        conn.exec_driver_sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
+    _seed_test_user(_pg_engine)
+    yield _pg_engine
 
 
 @pytest.fixture(scope="function")
@@ -98,17 +211,16 @@ def sync_executor(db_engine):
 
     ``RunScheduler`` is a classic singleton (``__new__`` caches
     ``_instance``), so naively constructing ``SyncScheduler(...)`` here
-    returns the same object as any previous test's scheduler, including
-    the disposed db_engine. Each test gets its own temp-file SQLite
-    engine — so we must clear the class-level singleton state before
-    instantiating, otherwise the second test in a worker calls
-    ``scheduler.schedule()`` against the first test's already-dropped
-    tables and the resume endpoint returns 500.
+    returns the same object as any previous test's scheduler. We must clear
+    the class-level singleton state before instantiating so the scheduler binds
+    to this test's ``db_engine`` rather than a stale one from a prior test.
     """
     from saz.engine.scheduler import RunScheduler, _scheduler_lock
 
-    # Get the database URL from the engine
-    database_url = str(db_engine.url)
+    # Get the database URL from the engine. render_as_string(hide_password=False)
+    # is required: str(url) masks the password as "***", which makes the
+    # scheduler's per-thread engine fail PostgreSQL authentication.
+    database_url = db_engine.url.render_as_string(hide_password=False)
 
     # Create a single-thread executor for deterministic testing
     class SyncScheduler(RunScheduler):

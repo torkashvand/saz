@@ -295,6 +295,9 @@ def test_websocket_rejects_non_owner(app_client, db_engine, test_user_token):
                 updated_at=datetime.now(UTC),
             )
         )
+        # Flush so the owner row exists before the flow/run reference it
+        # (PostgreSQL enforces the FK at insert time).
+        session.flush()
         session.add(
             Flow(
                 created_by_user_id=other_id,

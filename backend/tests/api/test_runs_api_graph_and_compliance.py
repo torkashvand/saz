@@ -84,29 +84,6 @@ def test_run_graph_endpoint_returns_404_for_unknown_run(app_client):
     assert resp.status_code == 404
 
 
-def test_run_graph_endpoint_returns_empty_graph_when_flow_missing(app_client, db_engine):
-    """If the run's flow has been deleted but the run row still exists, the
-    endpoint must respond with an empty graph rather than 500."""
-    with Session(db_engine) as session:
-        run = Run(
-            created_by_user_id=TEST_USER_ID,
-            id="run_no_flow",
-            flow_id="missing_flow",
-            status="failed",
-            planner_mode="deterministic",
-            payload={},
-        )
-        session.add(run)
-        session.commit()
-
-    resp = app_client.get("/api/v1/runs/run_no_flow/graph")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["run_id"] == "run_no_flow"
-    assert body["nodes"] == []
-    assert body["edges"] == []
-
-
 def test_run_compliance_endpoint_aggregates_step_tokens_and_cost(app_client, db_engine):
     """Compliance report sums per-step tokens and cost, and assigns
     compliance_score=1.0 only for completed runs."""

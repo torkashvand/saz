@@ -39,8 +39,24 @@ jobs:
       run:
         working-directory: backend
     env:
-      DATABASE_URL: "sqlite:///:memory:"
       SUSPENSION_SWEEP_ENABLED: "False"
+      # Tests create one isolated database per xdist worker from this base URL.
+      TEST_DATABASE_URL: "postgresql+psycopg2://saz:saz@localhost:5432/saz_test"
+      DATABASE_URL: "postgresql+psycopg2://saz:saz@localhost:5432/saz_test"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: saz
+          POSTGRES_PASSWORD: saz
+          POSTGRES_DB: saz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U saz -d saz_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 

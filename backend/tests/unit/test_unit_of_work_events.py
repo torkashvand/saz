@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from saz.db.models import Event as DBEvent
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.event_schema import Event, EventType
+from tests.conftest import seed_run
 
 
 def test_emit_event_buffers(db_engine):
@@ -29,6 +30,7 @@ def test_emit_event_buffers(db_engine):
 
 
 def test_commit_persists_events(db_engine):
+    seed_run(db_engine, "run_123", step_ids=["step_1"])
     """commit() persists buffered events and clears buffer."""
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:
@@ -89,6 +91,7 @@ def test_rollback_clears_buffer(db_engine):
 
 
 def test_multiple_commits(db_engine):
+    seed_run(db_engine, "run_123", step_ids=["step_1"])
     """Multiple commits work correctly."""
     with Session(db_engine) as session:
         with UnitOfWork(session) as uow:

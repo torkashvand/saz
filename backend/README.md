@@ -32,8 +32,9 @@ Run execution
 
 | Module                                                             | Responsibility                                                                                                                                               |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `saz.api`                                                          | FastAPI app factory, lifespan, CORS, error handlers, router registration.                                                                                    |
-| `saz.api.routes`                                                   | HTTP endpoints for `flows`, `runs`, `templates`, `credentials`, `webhooks`, `stream` (WebSocket), `health`.                                                  |
+| `saz.api`                                                          | FastAPI app factory, lifespan, CORS (`ALLOWED_ORIGINS`), error handlers, router registration.                                                                |
+| `saz.api.routes`                                                   | HTTP endpoints for `auth`, `oidc`, `admin` (users + sessions), `admin_auth` (SSO providers), `flows`, `runs`, `templates`, `credentials`, `webhooks`, `stream` (WebSocket), `health`. |
+| `saz.api.dependencies`                                             | Auth dependency layer: token/session validation and the `viewer`/`operator`/`admin` role gates.                                                              |
 | `saz.api.schemas`                                                  | Request/response Pydantic models per domain.                                                                                                                 |
 | `saz.compiler.dsl`                                                 | YAML → strict workflow model. Enforces `schema_version: 1` and validates steps/forms/policies.                                                               |
 | `saz.compiler.template_validator`                                  | Validates bundled example templates at startup.                                                                                                              |
@@ -53,15 +54,19 @@ Run execution
 | `saz.tools.*`                                                      | Deterministic side-effecting tools: `http_tool`, `webhook_tool`, `artifact_tool`, `ansible_tool`. The `registry` is the lookup surface used by the executor. |
 | `saz.repositories.read` / `write`                                  | Read/write split repositories over SQLAlchemy.                                                                                                               |
 | `saz.services.flow_service` / `run_service` / `credential_service` | Business logic between routes and repositories.                                                                                                              |
+| `saz.services.auth_service` / `admin_service` / `oidc_service` / `auth_provider_service` | Login, refresh-session lifecycle, user administration, and the OIDC SSO flow + provider config. |
 | `saz.db.models`                                                    | SQLAlchemy models (flows, runs, steps, events, credentials, …).                                                                                              |
 | `saz.db.unit_of_work`                                              | Transactional unit-of-work wrapper.                                                                                                                          |
 
 ### Database
 
 - SQLAlchemy 2.x models in `saz/db/models.py`.
-- Migrations in `backend/alembic/`. Single baseline: `001_initial_schema.py`.
-- Default URL is SQLite (`sqlite:///./saz.db`). PostgreSQL is supported via a
-  `postgresql://...` URL. CI runs against `sqlite:///:memory:`.
+- Migrations in `backend/alembic/` (`001_initial_schema.py` through the current
+  head — run `uv run alembic upgrade head`).
+- **PostgreSQL only** — there is no SQLite fallback. `DATABASE_URL` must be a
+  `postgresql+psycopg2://...` URL. The app and tests rely on PostgreSQL
+  semantics (foreign-key enforcement, JSON, transactional DDL); CI runs against
+  a `postgres:16` service container.
 
 ## Install
 
@@ -87,7 +92,7 @@ cp .env.example .env
 uv run alembic upgrade head
 ```
 
-To reset the local SQLite database:
+To reset the local database:
 
 ```bash
 uv run alembic downgrade base && uv run alembic upgrade head
@@ -114,6 +119,10 @@ Mounted routers and prefixes:
 | Prefix                     | Source                                                                |
 | -------------------------- | --------------------------------------------------------------------- |
 | `/`                        | `saz/api/routes/health.py` (root, `/health`)                          |
+| `/api/v1/auth`             | `saz/api/routes/auth.py` (login, refresh, logout, sessions, me, change_password, public providers) |
+| `/api/v1/auth/oidc`        | `saz/api/routes/oidc.py` (OIDC SSO start + callback)                  |
+| `/api/v1/admin/users`      | `saz/api/routes/admin.py` (admin-only user + session management)      |
+| `/api/v1/admin/auth`       | `saz/api/routes/admin_auth.py` (admin-only OIDC provider config)      |
 | `/api/v1/flows`            | `saz/api/routes/flows.py`                                             |
 | `/api/v1/runs`             | `saz/api/routes/runs.py`                                              |
 | `/api/v1/credentials`      | `saz/api/routes/credentials.py`                                       |
@@ -122,6 +131,12 @@ Mounted routers and prefixes:
 | `/api/templates`           | `saz/api/routes/templates.py` (read-only bundled examples)            |
 
 ## Run tests
+
+Tests run against **PostgreSQL** (there is no SQLite fallback). Point
+`TEST_DATABASE_URL` at a reachable cluster (default
+`postgresql+psycopg2://saz:saz@localhost:5433/saz_test`); `conftest.py` creates
+one isolated database per pytest-xdist worker, builds the schema from the ORM
+models, truncates + reseeds between tests, and drops the databases at the end.
 
 Always use `-n auto` for the full suite.
 
@@ -143,9 +158,9 @@ uv run pytest -n auto tests/regression
 uv run pytest -n auto tests/unit/test_executor.py
 ```
 
-CI (`.github/workflows/ci.yaml`) runs `uv run pytest -n auto -q` against an
-in-memory SQLite (`DATABASE_URL=sqlite:///:memory:`) with the suspension
-sweeper disabled.
+CI (`.github/workflows/ci.yaml`) runs `uv run pytest -n auto -q` against a
+`postgres:16` service container (`TEST_DATABASE_URL` points at it) with the
+suspension sweeper disabled.
 
 ### Coverage
 
@@ -256,13 +271,12 @@ Without a key, those steps fail with a clear, structured error.
 
 ## Limitations
 
-- Username/password authentication with JWT is implemented. Admins
-  can create, disable, reactivate, promote/demote, and reset other
-  users' passwords from `/api/v1/admin/users`; admin password resets
-  force the user to change their password on next login. RBAC,
-  multi-tenant isolation, SSO/OIDC, public registration, and
-  forgot-password flows are intentionally not implemented — every
-  authenticated non-admin user has the same application-level access.
+- Authentication supports local password and OIDC SSO, authorized by a
+  three-tier role (`viewer` read-only / `operator` / `admin`) enforced in the
+  dependency layer. Access tokens are backed by server-side refresh sessions
+  with immediate revocation. Admins manage users and SSO providers from
+  `/api/v1/admin/*`. Multi-tenant isolation, public registration, and
+  forgot-password flows are intentionally not implemented.
 - Scheduler and suspension sweeper run in-process; restart loses any
   in-memory state.
 - The Ansible tool is fail-closed: an empty allowlist denies every playbook,

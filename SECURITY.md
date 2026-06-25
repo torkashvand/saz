@@ -64,19 +64,28 @@ it lands on a public branch.
 traces when explicitly requested. Keep it `false` everywhere except
 local debugging.
 
-## Out of scope
+## Authentication and authorization
 
-- Multi-tenant isolation is not implemented. Authentication
-  (username/password + JWT) and an admin role are in place, but
-  authenticated users share a single resource namespace — any logged-in
-  user can see and act on all flows, runs, credentials, and templates.
-  Treat any deployment as single-tenant.
-- JWT refresh and revocation are not implemented. Access tokens are
-  valid until `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` elapses; there is no
-  server-side logout or token blocklist.
-- CORS is allow-listed for `http://localhost:3000` and
-  `http://127.0.0.1:3000` by default. Do not expose the API to the
-  public internet without an upstream gateway.
-- The Ansible tool's allowlist (`SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS`) is
-  empty by default, which permits any playbook path. Set this before
-  running playbooks you do not fully control.
+- Authentication is local password or OIDC SSO. Authorization is a three-tier
+  role per user — `viewer` (read-only), `operator`, `admin` — enforced in the
+  backend dependency layer, not just the UI.
+- Sessions are server-side: the access JWT carries a session id checked on every
+  request, and a rotating HttpOnly refresh cookie keeps it alive. Logout,
+  `logout_all`, disabling a user, password resets, and self password changes
+  **revoke sessions immediately**.
+- Run access is authorized per owner across REST and the WebSocket stream
+  (admins see all). There is no multi-tenant isolation beyond per-run ownership
+  and the role tiers; treat a deployment as single-tenant and single-team.
+
+## Out of scope / operational cautions
+
+- CORS is allow-listed via `ALLOWED_ORIGINS` (default `http://localhost:3000`,
+  `http://127.0.0.1:3000`). Do not expose the API to the public internet without
+  an upstream gateway, and set `COOKIE_SECURE=true` behind HTTPS.
+- The Ansible tool is **fail-closed**: with no
+  `SAZ_ANSIBLE_ALLOWED_PLAYBOOK_ROOTS` configured, every playbook is denied. The
+  default registry scopes the allowlist to the bundled `examples/ansible` demo;
+  set the variable (or `*` to allow all) only for playbooks you fully control.
+- OIDC client secrets and stored credentials are encrypted at rest with
+  `CREDENTIALS_ENCRYPTION_KEY`; without it those features refuse to operate
+  rather than fall back to plaintext.

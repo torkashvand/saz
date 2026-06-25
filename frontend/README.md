@@ -15,8 +15,11 @@ frontend/
 │   ├── flows/          # List, detail, new flow
 │   ├── runs/           # List, detail (with step timeline + event stream)
 │   ├── credentials/    # Credential management UI
+│   ├── login/          # Local + SSO login
+│   ├── change-password/# Forced/self password change
+│   ├── admin/          # Admin: users + sessions (users/), SSO providers (auth/)
 │   ├── layout.tsx      # Root layout + providers
-│   ├── providers.tsx   # React Query client
+│   ├── providers.tsx   # React Query client + global auth-error handling
 │   └── globals.css     # Tailwind
 ├── components/
 │   ├── ui/             # Low-level primitives (button, tabs, switch, toast, ...)
@@ -83,10 +86,9 @@ requires updating that allow-list in `backend/saz/api/__init__.py`.
 ## Tests
 
 Vitest is configured (`vitest.config.ts`) and tests live under `__tests__/`.
-There is no `npm test` script yet; run Vitest directly:
 
 ```bash
-npx vitest run            # run once
+npm run test              # vitest run (one-shot)
 npx vitest                # watch mode
 npx vitest run __tests__/runs/step-mapping.test.ts
 ```
@@ -115,6 +117,9 @@ These are the same scripts CI runs.
 | `app/flows/`            | Browse, create, and inspect flows. Uses Monaco for YAML editing.                    |
 | `app/runs/`             | Run list and run detail (steps, events, approval, callback).                        |
 | `app/credentials/`      | Credential CRUD UI.                                                                 |
+| `app/login/`            | Local + SSO login and the post-OIDC redirect handling.                              |
+| `app/admin/`            | Admin user/session management (`users/`) and SSO-provider config (`auth/`).         |
+| `lib/auth.tsx`          | Auth context: token storage, current user/role, login/logout, SSO completion.       |
 | `components/runs/`      | Approval panel, webhook callback panel, step timeline, retry/replay UI.             |
 | `components/workflows/` | Graph view (`@xyflow/react`) with live-event overlay.                               |
 | `lib/api.ts`            | Single source of truth for backend HTTP calls.                                      |
@@ -140,8 +145,9 @@ leave legacy aliases unless they are explicitly needed and covered by tests.
 
 ## Limitations
 
-- No authentication UI; the app assumes the backend is reachable and trusted
-  on `localhost`.
+- The UI authenticates against the backend (local password or OIDC SSO) and
+  gates pages by role; admin screens (`app/admin/`) require an admin account.
+  There is no public sign-up or forgot-password screen by design.
 - Live overlay relies on the backend WebSocket at
   `/api/v1/runs/{id}/stream`; if the socket drops, polling fallback is used
   to refresh canonical state from the DB.

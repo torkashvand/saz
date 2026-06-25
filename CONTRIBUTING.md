@@ -5,7 +5,9 @@ we keep contributions easy to review.
 
 ## Local setup
 
-You will usually need both halves of the stack:
+You will usually need both halves of the stack, plus a reachable **PostgreSQL**
+database (Saz is PostgreSQL-only — set `DATABASE_URL` to a `postgresql+psycopg2://`
+URL in `.env`):
 
 ```bash
 # Backend
@@ -50,8 +52,10 @@ Every meaningful code change ships with tests in the same PR.
 - For new behavior, add success, validation-failure, and runtime-failure
   cases. Cover the negative paths (blocked tools, malformed input, late
   callbacks, suspension timeouts) where they apply.
-- Backend: `cd backend && uv run pytest -n auto` (always `-n auto`).
-- Frontend: `cd frontend && npx vitest run`.
+- Backend: `cd backend && uv run pytest -n auto` (always `-n auto`). Tests run
+  against PostgreSQL; each xdist worker creates its own isolated database from
+  `TEST_DATABASE_URL` (see `backend/README.md`).
+- Frontend: `cd frontend && npm run test`.
 
 See `backend/README.md` for the test layout and assertion expectations.
 

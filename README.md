@@ -58,7 +58,7 @@ saz/
 │   ├── tests/                # Pytest suite (unit/services/integration/api/...)
 │   └── pyproject.toml
 ├── frontend/                 # Next.js 14 + TypeScript app
-│   ├── app/                  # App Router pages (flows, runs, credentials)
+│   ├── app/                  # App Router pages (flows, runs, credentials, login, admin)
 │   ├── components/           # UI components
 │   ├── lib/                  # API client, hooks, types
 │   └── __tests__/            # Vitest tests
@@ -68,7 +68,8 @@ saz/
 
 ## Quick start — backend
 
-Requirements: Python 3.12+, [uv], and either SQLite (default) or PostgreSQL.
+Requirements: Python 3.12+, [uv], and a reachable **PostgreSQL** database (Saz
+is PostgreSQL-only — there is no SQLite fallback).
 
 ```bash
 cd backend
@@ -76,7 +77,7 @@ uv sync                                  # install pinned dependencies
 cp .env.example .env                     # set DATABASE_URL, JWT_SECRET_KEY, ...
 uv run alembic upgrade head              # apply migrations
 uv run python -m saz.scripts.create_user \
-    --username alice --email alice@example.com   # create the first user
+    --username alice --email alice@example.com   # create the first admin
 uv run uvicorn saz.api.app:app --reload --port 8000
 ```
 
@@ -86,8 +87,10 @@ Generate one with `openssl rand -hex 32` or
 
 API docs: <http://localhost:8000/api/v1/docs>
 
-The default `DATABASE_URL` is `sqlite:///./saz.db`. Postgres is supported via a
-`postgresql://...` URL.
+`DATABASE_URL` must be a PostgreSQL URL (e.g.
+`postgresql+psycopg2://saz:saz@localhost:5432/saz_db`). The application and the
+test suite both rely on PostgreSQL semantics (foreign-key enforcement, JSON,
+transactional DDL).
 
 ## Quick start — frontend
 
@@ -108,13 +111,14 @@ allow-listed for `http://localhost:3000` in `backend/saz/api/__init__.py`.
 ## Tests
 
 ```bash
-# Backend
+# Backend (requires a reachable PostgreSQL cluster; each xdist worker
+# creates and drops its own isolated database — see backend/README.md)
 cd backend
 uv run pytest -n auto
 
-# Frontend (vitest is installed; there is no npm script yet)
+# Frontend
 cd frontend
-npx vitest run
+npm run test            # vitest run
 ```
 
 Type checks, lint, format:
@@ -153,19 +157,24 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch/PR/test expectations.
 
 Backend env vars (see `backend/.env.example`):
 
-| Variable                                       | Default                       | Purpose                                                                                                       |
-| ---------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                 | `sqlite:///./saz.db`          | SQLAlchemy connection URL.                                                                                    |
-| `OPENAI_API_KEY`                               | (empty)                       | Used by LiteLLM when calling OpenAI models.                                                                   |
-| `LLM_MODEL` / `PLANNER_MODEL` / `CRITIC_MODEL` | gpt-4o-mini / gpt-4o / gpt-4o | Default models for AI ops, planner, critic.                                                                   |
-| `CREDENTIALS_ENCRYPTION_KEY`                   | (empty)                       | Symmetric key for stored credentials. Required for credential features.                                       |
-| `ALLOW_SENSITIVE_DATA`                         | `false`                       | If `true`, the API may include stack traces when explicitly requested. Leave `false` outside local debugging. |
-| `SUSPENSION_SWEEP_ENABLED`                     | `true`                        | Background sweeper that fails suspended runs past their deadline. Tests set this to `false`.                  |
-| `SUSPENSION_SWEEP_INTERVAL_SECONDS`            | `60`                          | Sweep cadence.                                                                                                |
-| `SUSPENSION_SWEEP_BATCH_LIMIT`                 | `100`                         | Max rows per sweep.                                                                                           |
-| `JWT_SECRET_KEY`                               | (empty)                       | HMAC secret used to sign access tokens. **Required** — login fails closed when empty.                          |
-| `JWT_ALGORITHM`                                | `HS256`                       | JWT signing algorithm.                                                                                        |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`              | `720`                         | Access-token lifetime in minutes. No refresh tokens — users log in again after expiry.                        |
+| Variable                                       | Default                                              | Purpose                                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                 | `postgresql+psycopg2://saz:saz@localhost:5432/saz_db` | SQLAlchemy connection URL. Must be PostgreSQL.                                                               |
+| `OPENAI_API_KEY`                               | (empty)                                              | Used by LiteLLM when calling OpenAI models.                                                                   |
+| `LLM_MODEL` / `PLANNER_MODEL` / `CRITIC_MODEL` | gpt-4o-mini / gpt-4o / gpt-4o                        | Default models for AI ops, planner, critic.                                                                   |
+| `CREDENTIALS_ENCRYPTION_KEY`                   | (empty)                                              | Fernet key for stored credentials **and** encrypted OIDC client secrets. Required for those features.        |
+| `ALLOW_SENSITIVE_DATA`                         | `false`                                              | If `true`, the API may include stack traces when explicitly requested. Leave `false` outside local debugging. |
+| `ALLOWED_ORIGINS`                              | `http://localhost:3000,http://127.0.0.1:3000`        | Comma-separated browser origins permitted to call the API (CORS).                                            |
+| `SUSPENSION_SWEEP_ENABLED`                     | `true`                                               | Background sweeper that fails suspended runs past their deadline. Tests set this to `false`.                  |
+| `SUSPENSION_SWEEP_INTERVAL_SECONDS`            | `60`                                                 | Sweep cadence.                                                                                                |
+| `SUSPENSION_SWEEP_BATCH_LIMIT`                 | `100`                                                | Max rows per sweep.                                                                                           |
+| `JWT_SECRET_KEY`                               | (empty)                                              | HMAC secret used to sign access tokens. **Required** — login fails closed when empty.                          |
+| `JWT_ALGORITHM`                                | `HS256`                                              | JWT signing algorithm.                                                                                        |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`              | `720`                                                | Access-token lifetime in minutes. A rotating HttpOnly refresh cookie keeps the session alive past this.       |
+| `REFRESH_COOKIE_NAME`                          | `saz_refresh`                                        | Name of the HttpOnly refresh-session cookie.                                                                  |
+| `SESSION_IDLE_TIMEOUT_DAYS` / `SESSION_ABSOLUTE_TIMEOUT_DAYS` | `7` / `30`                             | Refresh-session idle and absolute lifetimes.                                                                 |
+| `COOKIE_SECURE` / `COOKIE_SAMESITE`            | `false` / `lax`                                      | Refresh-cookie flags. Set `COOKIE_SECURE=true` behind HTTPS.                                                  |
+| `BACKEND_BASE_URL` / `FRONTEND_BASE_URL`       | `http://localhost:8000` / `http://localhost:3000`    | Public base URLs, used to build the OIDC redirect URI and post-login redirects.                              |
 
 LiteLLM picks up provider credentials from the standard environment variables
 (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). Without a configured provider, any
@@ -182,70 +191,103 @@ Frontend env vars (see `frontend/.env.example`):
 
 ## Authentication and user management
 
-Saz uses username/password login with JWT-based bearer tokens. User
-creation and password recovery are intentionally admin-driven: there is
-**no public registration** and **no public forgot-password flow**.
+Saz authenticates with either a local username/password or **OIDC single
+sign-on**, and authorizes every request against a per-user **role**. Account
+creation and password recovery are intentionally admin-driven: there is **no
+public registration** and **no public forgot-password flow**.
 
-**Account model**
+**Roles (RBAC)**
 
-- Every account has two binary capability flags: `is_active` (can the
-  user log in) and `is_admin` (can the user reach the admin user-
-  management API/UI). There are no roles, no permission matrices, no
-  teams, and no tenants.
-- A `must_change_password` flag is flipped whenever an admin resets a
-  user's password. While set, the backend blocks every operational
-  endpoint for that user with HTTP 403 + `X-Password-Change-Required:
-  true`; only `/auth/me` and `/auth/change_password` remain reachable.
-  The frontend reads the flag and redirects the user to the
-  change-password screen.
+Every account has one `role`, the single source of truth for what it may do,
+enforced in the FastAPI dependency layer (not just the UI):
 
-**Endpoints**
+- `viewer` — read-only. May reach GET endpoints; mutating endpoints return
+  HTTP 403 (`write access required`).
+- `operator` — the default tier. Run and manage workflows.
+- `admin` — everything `operator` can do, plus user management and SSO-provider
+  configuration.
 
-- `POST /api/v1/auth/login` — username-or-email + password → JWT.
-- `GET  /api/v1/auth/me` — current user (allowed even while
-  `must_change_password=true`).
-- `POST /api/v1/auth/change_password` — self-service. Requires the
-  current password so a stolen token alone cannot rotate it.
-- `GET /POST /PATCH /api/v1/admin/users[/{id}/…]` — admin-only user
-  management. Includes `set_active`, `set_admin`, and `reset_password`.
+`is_active` (can the user log in) is independent of role. A
+`must_change_password` flag is flipped whenever an admin resets a password;
+while set, the backend blocks every operational endpoint with HTTP 403 +
+`X-Password-Change-Required: true`, leaving only `/auth/me` and
+`/auth/change_password` reachable, and the frontend redirects to the
+change-password screen.
+
+**Sessions and tokens**
+
+Login returns a short-lived access JWT and sets a rotating **HttpOnly refresh
+cookie** bound to a server-side `auth_sessions` row:
+
+- The access token carries a `sid` claim checked against the session row on
+  every request, so a revoked session is rejected immediately even before the
+  access token expires.
+- `POST /auth/refresh` rotates the refresh secret; replaying an already-rotated
+  secret is treated as theft and revokes the whole session.
+- Sessions are revoked on logout, on `logout_all`, when an admin disables a
+  user or resets their password, and on a self password change (other devices).
+- A user can list and revoke their own sessions (`/auth/sessions`); an admin
+  can list and revoke any user's sessions (`/admin/users/{id}/sessions`).
+
+**OIDC single sign-on**
+
+Identity providers are stored in the database and managed under **Admin → SSO**
+(`/api/v1/admin/auth/providers`). The flow is Authorization Code + PKCE:
+
+- The client secret is optional (public/PKCE clients) and, when present, stored
+  Fernet-encrypted and write-only (never returned).
+- Profile/email are read from the provider's UserInfo endpoint; a per-provider
+  `trust_email_verified` flag covers IdPs (e.g. GEANT/eduGAIN) that release an
+  email but never set `email_verified`.
+- Just-in-time provisioning (optional, per provider) creates a new account at a
+  configurable default tier (`viewer` or `operator`) — it can never mint an
+  admin. Local password login always remains available as a break-glass path.
+
+**Key endpoints**
+
+- `POST /api/v1/auth/login` — username-or-email + password → access token + refresh cookie.
+- `POST /api/v1/auth/refresh` · `POST /api/v1/auth/logout` · `POST /api/v1/auth/logout_all`
+- `GET /DELETE /api/v1/auth/sessions[/{id}]` — the caller's own sessions.
+- `GET  /api/v1/auth/me` · `POST /api/v1/auth/change_password` (requires the current password).
+- `GET  /api/v1/auth/providers` — public list of enabled SSO providers for the login screen.
+- `GET  /api/v1/auth/oidc/{provider}/start` · `GET /api/v1/auth/oidc/callback` — the SSO flow.
+- `GET /POST /PATCH /api/v1/admin/users[/{id}/…]` — admin-only user management
+  (`set_active`, `set_role`, `reset_password`, `sessions`).
+- `GET /POST /PATCH /DELETE /api/v1/admin/auth/providers[/{id}/test]` — admin-only SSO config.
 
 **Password recovery is admin-driven**
 
-If a user forgets their password, an admin resets it from the admin
-panel (or via `POST /api/v1/admin/users/{id}/reset_password`). The
-admin hands the temporary password to the user out-of-band. The
-backend marks the user as `must_change_password`; on next login the
-user is forced to choose a new password before they can use Saz.
+If a user forgets their password, an admin resets it (`POST
+/api/v1/admin/users/{id}/reset_password`) and hands the temporary password over
+out-of-band; the user is marked `must_change_password` and must choose a new one
+on next login. There is **no** "Forgot password?" link, no email reset, and no
+reset token.
 
-There is **no** "Forgot password?" link, no email reset, and no reset
-token. The only paths to a working account are: ask an admin, or be
-the admin (and the first admin is created via the CLI below).
-
-**Other product non-goals (intentional):** no RBAC, no roles, no
-permissions, no teams, no organizations, no tenants, no SSO/OIDC, no
-OAuth, no invitation workflow, no billing, no enterprise IdP
-integration. Do not market this as enterprise-identity-ready.
+**Product non-goals (intentional):** no public registration, no
+forgot-password flow, no multi-tenancy/teams/organizations, no per-resource
+ACLs beyond the three role tiers, no billing. Authorization is a single role
+tier per user, not a permissions matrix.
 
 **Bootstrap the first admin (CLI)**
 
 ```bash
 uv run python -m saz.scripts.create_user \
     --username alice --email alice@example.com
-# password prompted interactively; defaults to creating an admin
+# password prompted interactively; creates an admin by default
 ```
 
 After this admin exists, every subsequent user is created from the
-**Admin → Users** screen (or `POST /api/v1/admin/users`). The CLI also
-supports `--no-admin` and `--password` if you need it for scripted
-deployments — but most operators should not use those.
+**Admin → Users** screen (or `POST /api/v1/admin/users`), or provisioned via
+SSO. The CLI also supports `--no-admin` and `--password` for scripted
+deployments.
 
 **Operational notes**
 
 - Passwords are stored as bcrypt hashes (cost 12). Plaintext passwords
   are never logged or returned by any endpoint.
-- Token lifetime defaults to 12 hours. There are no refresh tokens or
-  server-side session revocation yet — when the token expires the user
-  signs in again.
+- Access-token lifetime defaults to 12 hours; the rotating refresh cookie keeps
+  a session alive (subject to the idle/absolute timeouts) and revocation is
+  immediate via the per-request session check.
 - Run access is authorized per run across both transports: the REST run
   endpoints (`GET /runs`, `/runs/{id}`, `/runs/{id}/events`, `/steps`,
   `/graph`, `/summary`, `/compliance`, retry) and the WebSocket event stream
@@ -279,13 +321,13 @@ deployments — but most operators should not use those.
 
 Public prototype. Practical limitations to be aware of:
 
-- Username/password authentication with JWT is available; admins
-  create and manage users from an Admin panel and can reset another
-  user's password (forcing the recipient to change it on next login).
-  RBAC, multi-tenancy, SSO/OIDC, public registration, and
-  forgot-password flows are intentionally not supported. All non-admin
-  authenticated users currently have the same application-level access.
-- CORS is hard-coded to `http://localhost:3000`.
+- Authentication supports local password and OIDC SSO, with a three-tier role
+  model (`viewer` / `operator` / `admin`), server-side refresh sessions with
+  immediate revocation, and admin-driven user and SSO-provider management.
+  Multi-tenancy, public registration, and forgot-password flows are
+  intentionally not supported.
+- CORS origins are configured via `ALLOWED_ORIGINS` (default
+  `http://localhost:3000`, `http://127.0.0.1:3000`).
 - Background scheduler and suspension sweeper run in-process; there is no
   separate worker pool.
 - The Ansible tool is fail-closed: by default only the bundled

@@ -3,13 +3,11 @@
 // flat all-string `{ data: {...} }` map is reported unsupported so the editor
 // can fall back to a raw JSON view without losing structure.
 
+import { isPlainObject } from '../utils';
+
 export interface InputDataReadResult {
   supported: boolean;
   values: Record<string, string>;
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 export function readInputData(params: Record<string, unknown> | undefined): InputDataReadResult {

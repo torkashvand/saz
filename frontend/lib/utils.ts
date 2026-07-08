@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Narrow to a plain object (not null, not an array). */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Validate a post-login redirect target. Only same-origin paths are allowed:
  * '//evil.com' is protocol-relative and '/\evil.com' is normalized to it by

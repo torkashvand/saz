@@ -5,7 +5,7 @@ import type { StepEditorProps } from '../step-editors/step-editor-shell';
 import { StaticField } from '../step-editors/step-editor-shell';
 import { JsonObjectEditor } from '../json-object-editor';
 import { MappingRows, readStringMap } from './mapping-rows';
-import type { BindingContext } from '@/lib/flows/bindings';
+import { bindingContextFor } from '@/lib/flows/business-step-metadata';
 
 function asParams(step: StepEditorProps['step']): Record<string, unknown> {
   return (step.params as Record<string, unknown>) ?? {};
@@ -22,13 +22,7 @@ export function AuditTrailEditor({ step, draft, priorStepIds, onChange }: StepEd
   const params = asParams(step);
   const { supported: contentSupported, values: content } = readStringMap(params.content);
 
-  const context: BindingContext = {
-    formFields: draft.form?.fields ?? [],
-    steps: priorStepIds.map((id) => ({
-      id,
-      name: draft.workflow.steps.find((s) => s.id === id)?.name,
-    })),
-  };
+  const context = bindingContextFor(draft.form?.fields, priorStepIds, draft.workflow.steps);
 
   const setParam = (key: string, value: unknown) => {
     const next = { ...params };

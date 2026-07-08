@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useRunDetails, useResumeRun } from '@/lib/hooks';
-import { api } from '@/lib/api';
+import { api, API_BASE_URL } from '@/lib/api';
 import { useErrorToast } from '@/lib/use-error-toast';
 import { useAuth } from '@/lib/auth';
 import type { HumanApprovalError, WebhookWaitError } from '@/lib/types';
@@ -81,7 +81,7 @@ export default function RunDetailPageRedesign() {
   const webhookError: WebhookWaitError | null =
     isSuspended && run?.error?.type === 'WebhookWait' ? (run.error as WebhookWaitError) : null;
   const webhookCallbackUrl = webhookError
-    ? `${(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/v1/webhooks/callback/${webhookError.callback_id}`
+    ? `${API_BASE_URL.replace(/\/$/, '')}/api/v1/webhooks/callback/${webhookError.callback_id}`
     : '';
 
   // Resume mutation

@@ -4,7 +4,7 @@ import type { StepEditorProps } from '../step-editor-shell';
 import { MappingRows } from '../../business-step-editors/mapping-rows';
 import { JsonObjectEditor } from '../../json-object-editor';
 import { readInputData, writeInputData } from '@/lib/flows/ai-input-data';
-import type { BindingContext } from '@/lib/flows/bindings';
+import { bindingContextFor } from '@/lib/flows/business-step-metadata';
 
 /**
  * Friendly editor for an AI step's `params.data` — a flat map of input field
@@ -16,13 +16,7 @@ export function InputDataMapping({ step, draft, priorStepIds, onChange }: StepEd
   const params = (step.params as Record<string, unknown>) ?? undefined;
   const { supported, values } = readInputData(params);
 
-  const context: BindingContext = {
-    formFields: draft.form?.fields ?? [],
-    steps: priorStepIds.map((id) => ({
-      id,
-      name: draft.workflow.steps.find((s) => s.id === id)?.name,
-    })),
-  };
+  const context = bindingContextFor(draft.form?.fields, priorStepIds, draft.workflow.steps);
 
   if (!supported) {
     return (

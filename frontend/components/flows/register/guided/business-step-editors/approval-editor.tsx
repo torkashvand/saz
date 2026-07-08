@@ -7,10 +7,10 @@ import { StaticField } from '../step-editors/step-editor-shell';
 import { JsonObjectEditor } from '../json-object-editor';
 import { BindingPicker } from '../binding-picker';
 import { MappingRows, readStringMap } from './mapping-rows';
+import { bindingContextFor } from '@/lib/flows/business-step-metadata';
 import {
   bindingToExpression,
   expressionToBinding,
-  type BindingContext,
   type FriendlyBinding,
 } from '@/lib/flows/bindings';
 
@@ -35,13 +35,7 @@ export function ApprovalEditor({ step, draft, priorStepIds, onChange }: StepEdit
   const approvers = asStringArray(params.approvers);
   const { supported: payloadSupported, values: payload } = readStringMap(params.payload);
 
-  const context: BindingContext = {
-    formFields: draft.form?.fields ?? [],
-    steps: priorStepIds.map((id) => ({
-      id,
-      name: draft.workflow.steps.find((s) => s.id === id)?.name,
-    })),
-  };
+  const context = bindingContextFor(draft.form?.fields, priorStepIds, draft.workflow.steps);
 
   const setParam = (key: string, value: unknown) => {
     const next = { ...params };

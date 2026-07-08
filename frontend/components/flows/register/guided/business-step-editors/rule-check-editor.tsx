@@ -4,10 +4,10 @@ import { useState } from 'react';
 import type { StepEditorProps } from '../step-editors/step-editor-shell';
 import { StaticField } from '../step-editors/step-editor-shell';
 import { BindingPicker } from '../binding-picker';
+import { bindingContextFor } from '@/lib/flows/business-step-metadata';
 import {
   bindingToExpression,
   expressionToBinding,
-  type BindingContext,
   type FriendlyBinding,
 } from '@/lib/flows/bindings';
 
@@ -56,13 +56,7 @@ export function RuleCheckEditor({ step, draft, priorStepIds, onChange }: StepEdi
   const [showAdvanced, setShowAdvanced] = useState(false);
   const parsed = parseRule(step.if);
 
-  const context: BindingContext = {
-    formFields: draft.form?.fields ?? [],
-    steps: priorStepIds.map((id) => ({
-      id,
-      name: draft.workflow.steps.find((s) => s.id === id)?.name,
-    })),
-  };
+  const context = bindingContextFor(draft.form?.fields, priorStepIds, draft.workflow.steps);
 
   const compile = (rule: ParsedRule) => {
     if (!rule.subject || !rule.subject.sourceField) {

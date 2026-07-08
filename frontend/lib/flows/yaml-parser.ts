@@ -13,6 +13,7 @@ import type {
   WorkflowStepDraft,
 } from './types';
 import { STEP_TYPES } from './types';
+import { isPlainObject as isObject } from '../utils';
 import type { CompileFlowResponse } from '../types';
 import { api } from '../api';
 
@@ -426,10 +427,6 @@ function checkForAdvancedFeatures(raw: unknown): { supported: boolean; reasons: 
     }
   }
   return { supported: reasons.length === 0, reasons };
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function asString(value: unknown): string | undefined {

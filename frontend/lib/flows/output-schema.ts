@@ -4,6 +4,8 @@
 // "unsupported" so the editor can fall back to a raw view without ever
 // rewriting or dropping fields it does not understand.
 
+import { isPlainObject } from '../utils';
+
 export type OutputScalarType = 'string' | 'number' | 'integer' | 'boolean';
 export type OutputFieldType = OutputScalarType | 'array';
 
@@ -39,10 +41,6 @@ const SCALARS: ReadonlySet<string> = new Set(['string', 'number', 'integer', 'bo
 
 export function emptyOutputSchema(): FriendlyOutputSchema {
   return { fields: [], additionalProperties: false };
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 function coerceEnum(type: OutputFieldType | OutputScalarType, values: string[]): unknown[] {

@@ -8,12 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { useAuth } from '@/lib/auth';
-import { api } from '@/lib/api';
+import { api, API_BASE_URL } from '@/lib/api';
 import { sanitizeNextPath } from '@/lib/utils';
 import type { AppError } from '@/lib/errors';
 import type { PublicProvider } from '@/lib/types';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 function LoginForm() {
   const router = useRouter();

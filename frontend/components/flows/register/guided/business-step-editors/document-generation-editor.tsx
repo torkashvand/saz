@@ -8,7 +8,11 @@ import { BindingPicker } from '../binding-picker';
 import { MappingRows, readStringMap } from './mapping-rows';
 import { DocumentConfigPreview } from './document-config-preview';
 import { getActiveDomainPack } from '@/lib/flows/domain-packs/registry';
-import { getFieldLabel, getFieldOptions } from '@/lib/flows/business-step-metadata';
+import {
+  bindingContextFor,
+  getFieldLabel,
+  getFieldOptions,
+} from '@/lib/flows/business-step-metadata';
 import {
   bindingToExpression,
   expressionToBinding,
@@ -36,13 +40,7 @@ export function DocumentGenerationEditor({ step, draft, priorStepIds, onChange }
   const params = asParams(step);
   const { supported: valuesSupported, values } = readStringMap(params.values);
 
-  const context: BindingContext = {
-    formFields: draft.form?.fields ?? [],
-    steps: priorStepIds.map((id) => ({
-      id,
-      name: draft.workflow.steps.find((s) => s.id === id)?.name,
-    })),
-  };
+  const context = bindingContextFor(draft.form?.fields, priorStepIds, draft.workflow.steps);
 
   const setParam = (key: string, value: unknown) => {
     const next = { ...params };

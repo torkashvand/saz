@@ -22,6 +22,7 @@ import {
   isEmptyValue,
 } from '@/components/common/json-view';
 import { CallbackUrlBlock } from '@/components/runs/callback-url-block';
+import { API_BASE_URL } from '@/lib/api';
 import type {
   ApprovalBrief,
   ApprovalCheck,
@@ -100,8 +101,7 @@ function stepTypeLabel(stepType: string | null): string {
 }
 
 function buildApprovalCallbackUrl(callbackId: string): string {
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
-  return `${base}/api/v1/webhooks/callback/${callbackId}`;
+  return `${API_BASE_URL.replace(/\/$/, '')}/api/v1/webhooks/callback/${callbackId}`;
 }
 
 // ---------------------------------------------------------------------------

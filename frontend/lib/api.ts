@@ -58,7 +58,9 @@ import { fromHttpError, fromNetworkError, fromUnknownError } from './errors';
 import { captureAppError } from './monitoring';
 import { getAccessToken, _internalAuth } from './auth';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+// Single client-side home for the API origin. (The OIDC route handler keeps
+// its own copy — it runs server-side and must not import this client module.)
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 

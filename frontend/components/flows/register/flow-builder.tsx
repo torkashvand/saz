@@ -68,7 +68,6 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
   const directCompileTimer = useRef<NodeJS.Timeout | null>(null);
   const lintTimer = useRef<NodeJS.Timeout | null>(null);
   const isUpdating = useRef(false);
-  const initialLoadComplete = useRef(!!initialYaml);
   const initialParseRan = useRef(false);
 
   // Edit mode: parse the initial YAML once into the semantic draft.
@@ -98,11 +97,12 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
   }, [initialYaml]);
 
   useEffect(() => {
-    if (initialLoadComplete.current || !isEditMode) {
-      const isDirty = yaml !== lastSavedYaml && yaml.trim() !== '';
-      setDirty(isDirty);
-    }
-  }, [yaml, lastSavedYaml, isEditMode]);
+    // A pristine page (no user edit yet → lastUpdatedBy null) must never be
+    // dirty, even though the mount-time regenerate effect fills `yaml` from
+    // emptyDraft(). Only a real edit sets lastUpdatedBy to 'builder'/'yaml'.
+    const isDirty = lastUpdatedBy !== null && yaml !== lastSavedYaml && yaml.trim() !== '';
+    setDirty(isDirty);
+  }, [yaml, lastSavedYaml, lastUpdatedBy]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -243,7 +243,7 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
     }
   };
 
-  const handleModeChange = (newMode: FlowBuilderMode) => {
+  const handleModeChange = async (newMode: FlowBuilderMode) => {
     // Only re-serialize the draft to YAML when the guided builder has actually
     // changed something (lastUpdatedBy === 'builder' — in which case the
     // regenerate effect has already kept `yaml` in sync). Re-serializing on a
@@ -253,6 +253,14 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
     if (newMode === 'yaml' && mode === 'guided' && lastUpdatedBy === 'builder') {
       const generated = draftToUnifiedYaml(draft);
       setYaml(generated);
+    }
+    // Switching to guided while YAML edits are pending: flush the debounced
+    // parse synchronously first. Otherwise the guided view renders a STALE
+    // draft, and the first guided edit regenerates YAML from it — silently
+    // overwriting the user's YAML changes.
+    if (newMode === 'guided' && mode === 'yaml' && lastUpdatedBy === 'yaml') {
+      if (autoValidateTimer.current) clearTimeout(autoValidateTimer.current);
+      await syncYamlToDraft();
     }
     setMode(newMode);
   };

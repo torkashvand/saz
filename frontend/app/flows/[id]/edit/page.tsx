@@ -1,25 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { FlowBuilder } from '@/components/flows/register/flow-builder';
 
 export default function FlowEditPage({ params }: { params: { id: string } }) {
-  const [initialYaml, setInitialYaml] = useState<string | null>(null);
-
-  const { data: flow, isLoading } = useQuery({
+  const {
+    data: flow,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['flow', params.id],
     queryFn: () => api.getFlow(params.id),
   });
 
-  useEffect(() => {
-    if (flow && !initialYaml) {
-      setInitialYaml(flow.original_yaml || '');
-    }
-  }, [flow, initialYaml]);
-
-  if (isLoading || !initialYaml) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-slate-600">Loading workflow...</div>
@@ -27,7 +22,7 @@ export default function FlowEditPage({ params }: { params: { id: string } }) {
     );
   }
 
-  if (!flow) {
+  if (isError || !flow) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-slate-600">Workflow not found</div>
@@ -35,5 +30,7 @@ export default function FlowEditPage({ params }: { params: { id: string } }) {
     );
   }
 
-  return <FlowBuilder initialYaml={initialYaml} flowId={params.id} isEditMode={true} />;
+  return (
+    <FlowBuilder initialYaml={flow.original_yaml || ''} flowId={params.id} isEditMode={true} />
+  );
 }

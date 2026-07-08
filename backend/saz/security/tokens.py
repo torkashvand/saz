@@ -100,3 +100,52 @@ def decode_access_token(token: str) -> dict[str, Any]:
     if "sub" not in claims:
         raise InvalidTokenError("token missing 'sub' claim")
     return dict(claims)
+
+
+# Browsers cannot set Authorization headers on a WebSocket upgrade, so the
+# stream endpoint authenticates via a query parameter. Query strings end up in
+# proxy/server logs, so instead of the long-lived access token the client
+# exchanges it (over the authed HTTP channel) for a short-lived ticket scoped
+# to ONE run. A leaked ticket is useless within a minute and never grants
+# anything beyond that run's event stream.
+STREAM_TICKET_TTL_SECONDS = 60
+
+
+def create_stream_ticket(user_id: str, run_id: str) -> str:
+    """Mint a short-lived ticket authorizing a WS stream for one run."""
+    secret = _require_secret()
+    now = datetime.now(UTC)
+    claims: dict[str, Any] = {
+        "sub": user_id,
+        "run_id": run_id,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=STREAM_TICKET_TTL_SECONDS)).timestamp()),
+        "type": "stream_ticket",
+    }
+    return jwt.encode(claims, secret, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_stream_ticket(ticket: str, run_id: str) -> str:
+    """Validate a stream ticket for ``run_id`` and return the user id.
+
+    Raises:
+        TokenExpiredError: ticket's ``exp`` is in the past.
+        InvalidTokenError: signature mismatch, wrong token type (an access
+            token is NOT accepted here), or run mismatch.
+    """
+    secret = _require_secret()
+    try:
+        claims = jwt.decode(ticket, secret, algorithms=[settings.JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError as exc:
+        raise TokenExpiredError("ticket has expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise InvalidTokenError(f"invalid ticket: {exc}") from exc
+
+    if not isinstance(claims, dict) or claims.get("type") != "stream_ticket":
+        raise InvalidTokenError("token is not a stream ticket")
+    sub = claims.get("sub")
+    if not isinstance(sub, str):
+        raise InvalidTokenError("ticket missing 'sub' claim")
+    if claims.get("run_id") != run_id:
+        raise InvalidTokenError("ticket is for a different run")
+    return sub

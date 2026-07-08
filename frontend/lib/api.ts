@@ -18,6 +18,7 @@ import type {
   ResumeRunRequest,
   ResumeRunResponse,
   RetryRunResponse,
+  StreamTicketResponse,
   WebhookCallbackRequest,
   WebhookCallbackResponse,
   // Events
@@ -534,20 +535,26 @@ export const api = {
   // ========== WebSocket ==========
 
   /**
-   * Connect to WebSocket for live run event stream
+   * Connect to WebSocket for live run event stream.
+   *
+   * Browsers can't set Authorization headers on a WS upgrade, and query
+   * strings land in proxy/server logs — so instead of the long-lived access
+   * token, the authed HTTP channel is used to mint a short-lived ticket
+   * scoped to this one run, and THAT rides the URL.
    */
-  connectRunEventStream: (
+  connectRunEventStream: async (
     runId: string,
     onEvent: (event: Event) => void,
     onError?: (error: globalThis.Event) => void,
     onClose?: () => void,
     onGap?: () => void,
-  ): WebSocket => {
-    // Browsers can't set Authorization headers on a WebSocket upgrade, so
-    // the backend accepts the JWT via a query parameter instead.
-    const token = getAccessToken();
-    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
-    const ws = new WebSocket(`${WS_BASE_URL}/api/v1/runs/${runId}/stream${tokenQuery}`);
+  ): Promise<WebSocket> => {
+    const { ticket } = await fetchApi<StreamTicketResponse>(`/api/v1/runs/${runId}/stream_ticket`, {
+      method: 'POST',
+    });
+    const ws = new WebSocket(
+      `${WS_BASE_URL}/api/v1/runs/${runId}/stream?ticket=${encodeURIComponent(ticket)}`,
+    );
 
     ws.onmessage = (message) => {
       try {

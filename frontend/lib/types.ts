@@ -334,6 +334,11 @@ export interface WebhookCallbackResponse {
   message: string;
 }
 
+export interface StreamTicketResponse {
+  ticket: string;
+  expires_in: number;
+}
+
 export interface RetryRunResponse {
   run_id: string;
   status: string;

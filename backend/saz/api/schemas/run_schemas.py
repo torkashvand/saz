@@ -218,6 +218,13 @@ class RetryRunResponse(BaseModel):
     status: RunStatus
 
 
+class StreamTicketResponse(BaseModel):
+    """Short-lived ticket authorizing a WebSocket stream for one run."""
+
+    ticket: str
+    expires_in: int
+
+
 class ComplianceReport(BaseModel):
     """Compliance and audit report for a run."""
 

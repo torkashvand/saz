@@ -98,6 +98,11 @@ export function useRunEvents(runId: string) {
     [runId, queryClient],
   );
 
+  // True while a ticket fetch + socket open is in flight. During the ticket
+  // fetch wsRef is still null, so the readyState guard alone can't prevent a
+  // concurrent connect from starting a second handshake.
+  const connectingRef = useRef(false);
+
   const connect = useCallback(() => {
     // Bail if a socket is already OPEN or still CONNECTING. Without the
     // CONNECTING guard, a reconnect timer (or the exported retry()) firing
@@ -105,8 +110,9 @@ export function useRunEvents(runId: string) {
     // then schedules yet another reconnect), and multiply connections.
     const existing = wsRef.current;
     if (
-      existing &&
-      (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+      connectingRef.current ||
+      (existing &&
+        (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING))
     ) {
       return;
     }
@@ -119,64 +125,87 @@ export function useRunEvents(runId: string) {
 
     // Fresh connection attempt — not a teardown.
     intentionalCloseRef.current = false;
+    connectingRef.current = true;
 
-    const ws = api.connectRunEventStream(
-      runId,
-      handleEvent,
-      (error) => {
-        // Suppress errors from an intentional teardown: closing a still-
-        // CONNECTING socket is not a real failure and must not surface a
-        // connection error or page Sentry.
-        if (intentionalCloseRef.current) {
-          return;
-        }
-        console.error('[RunEvents] WebSocket error:', error);
-        const appError = fromNetworkError(
-          new Error('Failed to connect to event stream. Please check your connection.'),
-        );
-        setConnectionError(appError);
-        setIsConnected(false);
-
-        // Capture to Sentry
-        captureException(error as any, {
-          context: 'websocket',
+    void (async () => {
+      let ws: WebSocket;
+      try {
+        // Exchanges the access token for a short-lived run-scoped ticket
+        // before opening the socket (the token itself never rides the URL).
+        ws = await api.connectRunEventStream(
           runId,
-          errorType: 'connection',
-        });
-      },
-      () => {
+          handleEvent,
+          (error) => {
+            // Suppress errors from an intentional teardown: closing a still-
+            // CONNECTING socket is not a real failure and must not surface a
+            // connection error or page an error tracker.
+            if (intentionalCloseRef.current) {
+              return;
+            }
+            console.error('[RunEvents] WebSocket error:', error);
+            const appError = fromNetworkError(
+              new Error('Failed to connect to event stream. Please check your connection.'),
+            );
+            setConnectionError(appError);
+            setIsConnected(false);
+
+            captureException(error as any, {
+              context: 'websocket',
+              runId,
+              errorType: 'connection',
+            });
+          },
+          () => {
+            setIsConnected(false);
+            // Do not reconnect after an intentional teardown (unmount/navigation).
+            if (intentionalCloseRef.current) {
+              return;
+            }
+            console.log('[RunEvents] Disconnected, reconnecting in 2s...');
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = setTimeout(connect, 2000);
+          },
+          () => {
+            // Server signalled a gap (dropped events for a slow consumer). Treat
+            // REST/DB as canonical and refetch the historical timeline.
+            console.warn('[RunEvents] Event gap signalled; refetching from REST');
+            queryClient.invalidateQueries({ queryKey: ['run-events', runId] });
+            queryClient.invalidateQueries({ queryKey: ['run', runId] });
+          },
+        );
+      } catch (error) {
+        // Ticket fetch failed (network, auth). Surface it and retry on the
+        // same cadence as a dropped socket — unless we're tearing down.
+        connectingRef.current = false;
+        if (intentionalCloseRef.current) return;
+        console.error('[RunEvents] Failed to obtain stream ticket:', error);
+        setConnectionError(
+          fromNetworkError(
+            new Error('Failed to connect to event stream. Please check your connection.'),
+          ),
+        );
         setIsConnected(false);
-        // Do not reconnect after an intentional teardown (unmount/navigation).
-        if (intentionalCloseRef.current) {
-          return;
-        }
-        console.log('[RunEvents] Disconnected, reconnecting in 2s...');
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(connect, 2000);
-      },
-      () => {
-        // Server signalled a gap (dropped events for a slow consumer). Treat
-        // REST/DB as canonical and refetch the historical timeline.
-        console.warn('[RunEvents] Event gap signalled; refetching from REST');
-        queryClient.invalidateQueries({ queryKey: ['run-events', runId] });
-        queryClient.invalidateQueries({ queryKey: ['run', runId] });
-      },
-    );
-
-    wsRef.current = ws;
-
-    ws.addEventListener('open', () => {
-      // The component unmounted while the socket was still connecting — close
-      // it cleanly now (rather than calling close() on a CONNECTING socket,
-      // which the browser warns about) and stay silent.
-      if (intentionalCloseRef.current) {
-        ws.close();
         return;
       }
-      console.log('[RunEvents] Connected to event stream for run:', runId);
-      setIsConnected(true);
-      setConnectionError(null); // Clear any previous connection errors
-    });
+
+      connectingRef.current = false;
+      wsRef.current = ws;
+
+      ws.addEventListener('open', () => {
+        // The component unmounted while the socket was still connecting — close
+        // it cleanly now (rather than calling close() on a CONNECTING socket,
+        // which the browser warns about) and stay silent.
+        if (intentionalCloseRef.current) {
+          ws.close();
+          return;
+        }
+        console.log('[RunEvents] Connected to event stream for run:', runId);
+        setIsConnected(true);
+        setConnectionError(null); // Clear any previous connection errors
+      });
+    })();
   }, [runId, handleEvent, queryClient]);
 
   useEffect(() => {

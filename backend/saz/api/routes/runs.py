@@ -29,6 +29,7 @@ from saz.api.schemas.run_schemas import (
     RunStepsResponse,
     RunSummary,
     StepSummary,
+    StreamTicketResponse,
     TriggeredBySchema,
 )
 from saz.audit.event_emitter import EventEmitter
@@ -37,6 +38,7 @@ from saz.domain.error_enrichment import ErrorEnrichmentService
 from saz.domain.event_schema import EventType
 from saz.domain.literals import PlannerMode, Role, RunStatus, StepStatus
 from saz.engine.scheduler import get_scheduler
+from saz.security.tokens import STREAM_TICKET_TTL_SECONDS, create_stream_ticket
 from saz.settings import settings
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -331,6 +333,31 @@ async def get_run_events(
         total=len(events),
         cursor=next_cursor,
         has_more=next_cursor is not None,
+    )
+
+
+@router.post("/{run_id}/stream_ticket", response_model=StreamTicketResponse)
+async def create_run_stream_ticket(
+    run_id: str,
+    service: RunServiceDep,
+    user: CurrentUserDep,
+) -> StreamTicketResponse:
+    """Mint a short-lived ticket for the run's WebSocket event stream.
+
+    Browsers can't set Authorization headers on a WS upgrade, so the stream
+    authenticates via a query parameter. This exchanges the caller's access
+    token (sent normally, over headers) for a ~1-minute ticket scoped to this
+    run, so the long-lived token never appears in a URL or proxy log.
+    """
+    assert service.uow.runs is not None
+    run = service.uow.runs.get(run_id)
+    if not run:
+        raise NotFoundError(f"Run not found: {run_id}")
+    _authorize_run_access(run, user)
+
+    return StreamTicketResponse(
+        ticket=create_stream_ticket(user.id, run_id),
+        expires_in=STREAM_TICKET_TTL_SECONDS,
     )
 
 

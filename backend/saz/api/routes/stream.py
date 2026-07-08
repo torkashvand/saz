@@ -11,7 +11,7 @@ from saz.db.dependencies import get_uow
 from saz.db.unit_of_work import UnitOfWork
 from saz.domain.event_schema import Event
 from saz.domain.literals import Role
-from saz.services.auth_service import AuthError, AuthService
+from saz.security.tokens import TokenError, decode_stream_ticket
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ router = APIRouter()
 async def stream_run_events(
     websocket: WebSocket,
     run_id: str,
-    token: str | None = Query(default=None),
+    ticket: str | None = Query(default=None),
     uow: UnitOfWork = Depends(get_uow),
 ) -> None:
     """
@@ -59,22 +59,30 @@ async def stream_run_events(
         }
     """
     # Authenticate before accepting the WebSocket. Browsers cannot set
-    # Authorization headers on a WS upgrade, so we accept the JWT via a
-    # query parameter. Reject (close before accept) if missing/invalid so
-    # an unauthenticated client never sees a single event.
-    if not token:
+    # Authorization headers on a WS upgrade, so authentication rides a query
+    # parameter — which lands in proxy/server logs. That's why this endpoint
+    # accepts only a SHORT-LIVED, run-scoped ticket (minted via
+    # POST /runs/{id}/stream_ticket over the authed HTTP channel), never the
+    # long-lived access token. Reject (close before accept) if missing/invalid
+    # so an unauthenticated client never sees a single event.
+    if not ticket:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     try:
-        user = AuthService(uow).user_from_token(token)
-    except AuthError:
+        user_id = decode_stream_ticket(ticket, run_id)
+    except TokenError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Per-run authorization: a valid token is not enough — the user must own
-    # the run (or be an admin). Otherwise any authenticated user could stream
-    # any run's events. Close before accept so an unauthorized client never
-    # sees a single event (and cannot distinguish "not found" from "forbidden").
+    # The mint endpoint already verified ownership, but re-check against live
+    # state: the user may have been disabled within the ticket's lifetime.
+    # Close before accept so an unauthorized client never sees a single event
+    # (and cannot distinguish "not found" from "forbidden").
+    assert uow.users is not None
+    user = uow.users.get(user_id)
+    if user is None or not user.is_active:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
     assert uow.runs is not None
     run = uow.runs.get(run_id)
     if run is None or (run.created_by_user_id != user.id and user.role != Role.ADMIN):

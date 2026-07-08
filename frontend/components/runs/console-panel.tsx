@@ -45,6 +45,30 @@ function getEventLevel(event: Event): string {
 }
 
 /**
+ * Search highlight rendered as React elements. Event text comes from the
+ * backend (and transitively from external tools), so it must never reach
+ * innerHTML — only the matched search term is wrapped in <mark>.
+ */
+function HighlightedMessage({ message, highlight }: { message: string; highlight: string }) {
+  if (!highlight) return <>{message}</>;
+  const escaped = highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = message.split(new RegExp(`(${escaped})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="bg-yellow-300 text-yellow-900">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+/**
  * Individual log line component.
  *
  * UX decisions:
@@ -66,14 +90,6 @@ function LogLine({
 }) {
   const level = getEventLevel(event);
   const message = event.summary || JSON.stringify(event.payload);
-
-  // Highlight search term
-  const highlightedMessage = highlight
-    ? message.replace(
-        new RegExp(highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
-        (match) => `<mark class="bg-yellow-300 text-yellow-900">${match}</mark>`,
-      )
-    : message;
 
   // Level-specific styling with icons
   const levelConfig = {
@@ -115,10 +131,9 @@ function LogLine({
       </div>
 
       {/* Message */}
-      <span
-        className="text-slate-200 flex-1 break-words leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: highlightedMessage }}
-      />
+      <span className="text-slate-200 flex-1 break-words leading-relaxed">
+        <HighlightedMessage message={message} highlight={highlight} />
+      </span>
     </div>
   );
 }

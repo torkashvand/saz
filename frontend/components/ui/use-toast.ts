@@ -18,21 +18,24 @@ function genId() {
 const listeners: Array<(state: { toasts: ToasterToast[] }) => void> = [];
 let memoryState: { toasts: ToasterToast[] } = { toasts: [] };
 
+// Listeners are React setState functions, which bail out when handed the same
+// object reference — state must be REASSIGNED, never mutated in place.
+function setState(toasts: ToasterToast[]) {
+  memoryState = { toasts };
+  listeners.forEach((listener) => listener(memoryState));
+}
+
+function removeToast(id: string) {
+  setState(memoryState.toasts.filter((t) => t.id !== id));
+}
+
 function dispatch(toast: Omit<ToasterToast, 'id'>) {
   const id = genId();
-  const newToast = { ...toast, id, open: true };
-  memoryState.toasts = [newToast, ...memoryState.toasts].slice(0, 1);
+  setState([{ ...toast, id }, ...memoryState.toasts].slice(0, 1));
 
-  listeners.forEach((listener) => {
-    listener(memoryState);
-  });
+  setTimeout(() => removeToast(id), 3000);
 
-  setTimeout(() => {
-    memoryState.toasts = memoryState.toasts.filter((t) => t.id !== id);
-    listeners.forEach((listener) => listener(memoryState));
-  }, 3000);
-
-  return { id, dismiss: () => {} };
+  return { id, dismiss: () => removeToast(id) };
 }
 
 export function toast(props: Omit<Toast, 'id'>) {
@@ -40,12 +43,12 @@ export function toast(props: Omit<Toast, 'id'>) {
 }
 
 export function useToast() {
-  const [state, setState] = React.useState(memoryState);
+  const [state, setLocalState] = React.useState(memoryState);
 
   React.useEffect(() => {
-    listeners.push(setState);
+    listeners.push(setLocalState);
     return () => {
-      const index = listeners.indexOf(setState);
+      const index = listeners.indexOf(setLocalState);
       if (index > -1) {
         listeners.splice(index, 1);
       }

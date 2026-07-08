@@ -10,8 +10,8 @@ import {
   Settings,
   PauseCircle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import type { RunDetailResponse } from '@/lib/types';
+import { runStatusStyle } from '@/lib/runs/status-display';
 
 interface RunHeaderProps {
   run: RunDetailResponse;
@@ -20,11 +20,18 @@ interface RunHeaderProps {
   isRetrying?: boolean;
 }
 
+const STATUS_ICON = {
+  completed: CheckCircle2,
+  failed: AlertCircle,
+  running: Clock,
+  suspended: PauseCircle,
+  queued: Clock,
+} as const;
+
 export function RunHeader({ run, onRetry, onConfigureCredential, isRetrying }: RunHeaderProps) {
   const isFailed = run.status === 'failed';
-  const isRunning = run.status === 'running' || run.status === 'pending';
-  const isCompleted = run.status === 'completed' || run.status === 'success';
-  const isSuspended = run.status === 'suspended';
+  const style = runStatusStyle(run.status);
+  const Icon = STATUS_ICON[run.status] ?? Clock;
 
   const errorSummary = run.error_summary;
   const failedStepName = errorSummary?.failed_step_name;
@@ -34,24 +41,12 @@ export function RunHeader({ run, onRetry, onConfigureCredential, isRetrying }: R
     <div className="space-y-3">
       {/* Status badge */}
       <div className="flex items-center gap-3">
-        {isCompleted && <CheckCircle2 className="h-5 w-5 text-green-600" />}
-        {isFailed && <AlertCircle className="h-5 w-5 text-red-600" />}
-        {isRunning && <Clock className="h-5 w-5 text-blue-600 animate-pulse" />}
-        {isSuspended && <PauseCircle className="h-5 w-5 text-amber-600" />}
+        <Icon
+          className={`h-5 w-5 ${style.accent} ${run.status === 'running' ? 'animate-pulse' : ''}`}
+        />
 
-        <span
-          className={cn(
-            'px-3 py-1 rounded-md text-sm font-medium',
-            isCompleted && 'bg-green-50 text-green-700 border border-green-200',
-            isFailed && 'bg-red-50 text-red-700 border border-red-200',
-            isRunning && 'bg-blue-50 text-blue-700 border border-blue-200',
-            isSuspended && 'bg-amber-50 text-amber-700 border border-amber-200',
-          )}
-        >
-          {isCompleted && 'Completed'}
-          {isFailed && 'Failed'}
-          {isRunning && 'Running'}
-          {isSuspended && 'Awaiting Approval'}
+        <span className={`px-3 py-1 rounded-md text-sm font-medium border ${style.pill}`}>
+          {style.label}
         </span>
 
         <span className="text-xs text-slate-500 font-mono">{run.id}</span>

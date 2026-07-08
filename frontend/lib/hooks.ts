@@ -61,12 +61,15 @@ export function useDslMetadata() {
   });
 }
 
-export function useRunDetails(runId: string | null) {
+export function useRunDetails(runId: string | null, refetchInterval: number | false = false) {
   return useQuery({
     queryKey: ['run', runId],
     queryFn: () => api.getRunDetails(runId!),
     enabled: !!runId,
-    // No polling - WebSocket events handle all updates
+    // WebSocket events drive updates in the normal case. The caller passes a
+    // refetchInterval as a fallback when the live stream is disconnected, so a
+    // frozen socket can't leave the run page permanently stale.
+    refetchInterval,
   });
 }
 

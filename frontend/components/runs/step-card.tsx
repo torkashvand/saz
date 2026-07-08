@@ -116,13 +116,6 @@ export function CompactStepCard({
     }
   };
 
-  // Count log levels (if available from step metadata)
-  const logCounts = {
-    info: 0,
-    warning: 0,
-    error: isFailed ? 1 : 0,
-  };
-
   const formatDuration = (ms?: number) => {
     if (!ms) return '-';
     if (ms < 1000) return `${ms}ms`;
@@ -291,10 +284,8 @@ export function CompactStepCard({
               >
                 <FileText className="h-4 w-4 text-slate-600" />
                 <span className="text-xs font-medium text-slate-700">
-                  Logs: {logCounts.info + logCounts.warning + logCounts.error}
-                  {logCounts.error > 0 && (
-                    <span className="text-red-600 ml-0.5">({logCounts.error} error)</span>
-                  )}
+                  View logs
+                  {isFailed && <span className="text-red-600 ml-0.5">(error)</span>}
                 </span>
               </button>
             ) : isPlanned ? (

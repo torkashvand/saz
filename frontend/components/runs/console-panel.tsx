@@ -9,8 +9,12 @@ import type { Event, RunStep } from '@/lib/types';
 interface EnhancedConsolePanelProps {
   events: Event[];
   steps: RunStep[];
-  selectedStepIndex: number | null; // Use step number as the filter
-  onSelectStep: (stepIndex: number) => void;
+  // Filter by canonical step ID (resolved by the parent). Filtering by step
+  // NUMBER is unsafe: after a resume the segment-local step_number restarts at
+  // 0, so a number no longer uniquely identifies a step and the console would
+  // show a different step's logs than the one the operator selected.
+  selectedStepId: string | null;
+  onSelectStep: (stepId: string) => void;
   onClearStepFilter: () => void;
 }
 
@@ -141,7 +145,7 @@ function LogLine({
 export function EnhancedConsolePanel({
   events,
   steps,
-  selectedStepIndex,
+  selectedStepId,
   onSelectStep,
   onClearStepFilter,
 }: EnhancedConsolePanelProps) {
@@ -156,20 +160,17 @@ export function EnhancedConsolePanel({
 
   // Get the selected step info for display
   const selectedStep = useMemo(() => {
-    if (selectedStepIndex === null) return null;
-    return steps.find((s) => s.number === selectedStepIndex);
-  }, [steps, selectedStepIndex]);
+    if (selectedStepId === null) return null;
+    return steps.find((s) => s.id === selectedStepId);
+  }, [steps, selectedStepId]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
     let result = events;
 
-    // Filter by selected step (use step number)
-    if (selectedStepIndex !== null) {
-      const selectedStepId = steps.find((s) => s.number === selectedStepIndex)?.id;
-      if (selectedStepId) {
-        result = result.filter((e) => e.step_id === selectedStepId);
-      }
+    // Filter by selected step (by canonical step id)
+    if (selectedStepId !== null) {
+      result = result.filter((e) => e.step_id === selectedStepId);
     }
 
     // Filter by level
@@ -190,7 +191,7 @@ export function EnhancedConsolePanel({
     }
 
     return result;
-  }, [events, selectedStepIndex, steps, levelFilter, search]);
+  }, [events, selectedStepId, levelFilter, search]);
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -332,7 +333,7 @@ export function EnhancedConsolePanel({
         )}
 
         {/* Filter results info */}
-        {(search || selectedStepIndex !== null || levelFilter !== 'all') && (
+        {(search || selectedStepId !== null || levelFilter !== 'all') && (
           <div className="text-xs text-slate-400">
             Showing {filteredEvents.length} of {events.length} events
           </div>
@@ -348,7 +349,7 @@ export function EnhancedConsolePanel({
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-slate-500">
               <p className="text-sm">No logs match the current filters</p>
-              {(search || selectedStepIndex !== null || levelFilter !== 'all') && (
+              {(search || selectedStepId !== null || levelFilter !== 'all') && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -374,7 +375,7 @@ export function EnhancedConsolePanel({
                   event={event}
                   stepInfo={stepInfo}
                   highlight={search}
-                  onClickStep={() => stepInfo && onSelectStep(stepInfo.number)}
+                  onClickStep={() => event.step_id && onSelectStep(event.step_id)}
                 />
               );
             })}

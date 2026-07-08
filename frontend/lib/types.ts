@@ -142,15 +142,20 @@ export interface FlowDetailResponse {
 
 // --- Runs ---
 
+// Mirrors backend RunStatus (saz.domain.literals.RunStatus). No 'pending',
+// 'success', or 'waiting_approval' — those were never emitted.
+export type RunStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed';
+
 export interface RunListItem {
   id: string;
   flow_id: string;
   flow_name: string;
-  status: string;
+  status: RunStatus;
   created_at: string;
   completed_at?: string;
   total_tokens: number;
   total_cost_usd: number;
+  error?: any;
 }
 
 export interface RunListResponse {
@@ -173,8 +178,8 @@ export interface RunDetailResponse {
   id: string;
   flow_id: string;
   flow_name: string;
-  status: string;
-  planner_mode: string;
+  status: RunStatus;
+  planner_mode: PlannerMode;
   payload: Record<string, any>;
   error?: any;
   created_at: string;

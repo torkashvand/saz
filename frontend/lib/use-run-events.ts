@@ -107,8 +107,22 @@ export function useRunEvents(runId: string) {
   );
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    // Bail if a socket is already OPEN or still CONNECTING. Without the
+    // CONNECTING guard, a reconnect timer (or the exported retry()) firing
+    // mid-handshake would spawn a second socket, orphan the first (its onclose
+    // then schedules yet another reconnect), and multiply connections.
+    const existing = wsRef.current;
+    if (
+      existing &&
+      (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+    ) {
       return;
+    }
+
+    // A pending reconnect timer is about to be superseded by this attempt.
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
     }
 
     // Fresh connection attempt — not a teardown.
@@ -145,6 +159,7 @@ export function useRunEvents(runId: string) {
           return;
         }
         console.log('[RunEvents] Disconnected, reconnecting in 2s...');
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(connect, 2000);
       },
       () => {

@@ -10,6 +10,7 @@ import { RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import type { RunListItem, FlowListItem } from '@/lib/types';
 import { useAuth } from '@/lib/auth';
+import { runStatusStyle, RUN_STATUS_FILTERS } from '@/lib/runs/status-display';
 
 export default function RunsPage() {
   const router = useRouter();
@@ -85,10 +86,11 @@ export default function RunsPage() {
           className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="all">All Statuses</option>
-          <option value="running">Running</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="waiting_approval">Waiting Approval</option>
+          {RUN_STATUS_FILTERS.map((s) => (
+            <option key={s} value={s}>
+              {runStatusStyle(s).label}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -189,18 +191,10 @@ export default function RunsPage() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    running: 'bg-blue-100 text-blue-700 border-blue-300',
-    completed: 'bg-green-100 text-green-700 border-green-300',
-    failed: 'bg-red-100 text-red-700 border-red-300',
-    waiting_approval: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-  };
-
+  const style = runStatusStyle(status);
   return (
-    <span
-      className={`inline-block px-2 py-1 text-xs rounded border ${colors[status] || 'bg-slate-100 text-slate-700 border-slate-300'}`}
-    >
-      {status.replace('_', ' ')}
+    <span className={`inline-block px-2 py-1 text-xs rounded border ${style.pill}`}>
+      {style.label}
     </span>
   );
 }

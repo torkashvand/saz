@@ -44,10 +44,14 @@ function NewRunPageContent() {
   });
 
   useEffect(() => {
-    if (flowIdParam && flowIdParam !== selectedFlowId) {
+    // Keep the selected flow in sync with the URL in BOTH directions, so
+    // browser Back from /runs/new?flow=X to /runs/new returns to the workflow
+    // picker instead of leaving the launch form on screen.
+    if (flowIdParam !== selectedFlowId) {
       setSelectedFlowId(flowIdParam);
       setFormData({});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flowIdParam]);
 
   const filtered = useMemo(() => {
@@ -217,11 +221,18 @@ function NewRunPageContent() {
                               step={fieldType === 'number' ? numStep : undefined}
                               value={formData[field.name] ?? ''}
                               onChange={(e) => {
-                                const value =
-                                  fieldType === 'number'
-                                    ? parseFloat(e.target.value)
-                                    : e.target.value;
-                                setFormData({ ...formData, [field.name]: value });
+                                // Clearing a numeric field yields '' → parseFloat
+                                // is NaN, which serializes to null in the payload.
+                                // Drop the key instead so the field reads as unset.
+                                const raw = e.target.value;
+                                const next = { ...formData };
+                                if (fieldType === 'number') {
+                                  if (raw === '') delete next[field.name];
+                                  else next[field.name] = parseFloat(raw);
+                                } else {
+                                  next[field.name] = raw;
+                                }
+                                setFormData(next);
                               }}
                               required={isRequired}
                               placeholder={field.description}

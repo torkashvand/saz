@@ -34,8 +34,10 @@ export default function RunDetailPageRedesign() {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useErrorToast();
   const { canWrite } = useAuth();
-  const { data: run, isLoading, error } = useRunDetails(runId);
-  const { events } = useRunEvents(runId);
+  const { events, isConnected, connectionError, retry: retryStream } = useRunEvents(runId);
+  // Fall back to polling while the live stream is down so the page can't freeze
+  // on a stale snapshot when the WebSocket silently dies.
+  const { data: run, isLoading, error } = useRunDetails(runId, isConnected ? false : 5000);
   const metrics = useRunMetrics(run);
 
   const [viewMode, setViewMode] = useState<ViewMode>('steps');
@@ -46,7 +48,7 @@ export default function RunDetailPageRedesign() {
   // Canonical run.status may still be "queued" for a brief period after
   // execution starts (until the cache invalidation refetch completes).
   // The live event stream tells us immediately that the run is active.
-  const isRunningCanonical = run?.status === 'running' || run?.status === 'pending';
+  const isRunningCanonical = run?.status === 'running';
   const isRunningFromEvents = useMemo(() => {
     // Walk events in order; the last run-lifecycle event determines state.
     let active = false;
@@ -184,7 +186,7 @@ export default function RunDetailPageRedesign() {
     if (runningStepNumbers.size > 0 || !isRunningFromEvents || !run) {
       return runningStepNumbers;
     }
-    const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
+    const steps = buildDisplaySteps(run.planner_mode, run.planned_steps, run.steps);
     const nextStep = steps.find(
       (s) => s.kind === 'planned' || (s.kind === 'executed' && s.step.status === 'failed'),
     );
@@ -198,7 +200,7 @@ export default function RunDetailPageRedesign() {
 
   const displaySteps = useMemo(() => {
     if (!run) return [];
-    const steps = buildDisplaySteps(run.planner_mode as any, run.planned_steps, run.steps);
+    const steps = buildDisplaySteps(run.planner_mode, run.planned_steps, run.steps);
 
     // Enhance with real-time running status from WebSocket
     // (effectiveRunningIndexes includes both confirmed step.started
@@ -249,7 +251,6 @@ export default function RunDetailPageRedesign() {
     onSuccess: () => {
       showSuccess('Retrying from failing step...');
       queryClient.invalidateQueries({ queryKey: ['run', runId] });
-      queryClient.invalidateQueries({ queryKey: ['runGraph', runId] });
     },
     onError: showError,
   });
@@ -274,12 +275,39 @@ export default function RunDetailPageRedesign() {
     );
   };
 
+  // Resolve a canonical display index to the executed step's DB id (if any).
+  // buildDisplaySteps already maps canonical positions to the latest attempt,
+  // so this is safe across resume — unlike run.steps.find(s.number === index),
+  // where the segment-local number diverges from the canonical index.
+  const executedStepIdByIndex = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const ds of displaySteps) {
+      if (ds.kind === 'executed') map.set(ds.index, ds.step.id);
+    }
+    return map;
+  }, [displaySteps]);
+
+  // The console filters by step id; resolve the selected canonical index to it.
+  const selectedStepId = useMemo(
+    () =>
+      selectedStepIndex === null ? null : (executedStepIdByIndex.get(selectedStepIndex) ?? null),
+    [selectedStepIndex, executedStepIdByIndex],
+  );
+
+  // A console step badge reports the step id; map it back to the canonical index.
+  const handleConsoleSelectStep = (stepId: string) => {
+    for (const [index, id] of executedStepIdByIndex) {
+      if (id === stepId) {
+        handleSelectStep(index);
+        return;
+      }
+    }
+  };
+
   // Scroll to step (handles both planned and executed)
   const scrollToStep = (index: number) => {
     setTimeout(() => {
-      // Try to find the executed step first
-      const executedStep = run?.steps.find((s) => s.number === index);
-      const stepId = executedStep?.id || `planned-${index}`;
+      const stepId = executedStepIdByIndex.get(index) || `planned-${index}`;
 
       const element = document.querySelector(`[data-step-id="${stepId}"]`);
       if (element) {
@@ -378,6 +406,21 @@ export default function RunDetailPageRedesign() {
           isRetrying={retryMutation.isPending}
         />
       </div>
+
+      {/* Live-stream disconnect notice. Without the stream the page relies on
+          the polling fallback, so tell the operator the view may lag and let
+          them force a reconnect. */}
+      {connectionError && !isConnected && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>Live updates disconnected — refreshing periodically instead.</span>
+          <button
+            onClick={retryStream}
+            className="rounded border border-amber-300 bg-amber-100 px-3 py-1 font-medium hover:bg-amber-200"
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
 
       {/* Downloadable artifacts (rendered documents, audit records) */}
       <div className="mb-6">
@@ -520,8 +563,8 @@ export default function RunDetailPageRedesign() {
               <EnhancedConsolePanel
                 events={events}
                 steps={run.steps}
-                selectedStepIndex={selectedStepIndex}
-                onSelectStep={handleSelectStep}
+                selectedStepId={selectedStepId}
+                onSelectStep={handleConsoleSelectStep}
                 onClearStepFilter={handleClearStepFilter}
               />
             }
@@ -552,7 +595,7 @@ export default function RunDetailPageRedesign() {
           <EnhancedConsolePanel
             events={events}
             steps={run.steps}
-            selectedStepIndex={drawerStep?.number ?? null}
+            selectedStepId={drawerStepId}
             onSelectStep={() => {}}
             onClearStepFilter={() => setDrawerStepId(null)}
           />

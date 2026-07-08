@@ -37,10 +37,19 @@ export function CostMetricsView({
       ? stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / stepsWithCost.length
       : 0;
 
-  const mostExpensiveStep = steps.reduce(
-    (max, step) => ((step.cost_usd || 0) > (max.cost_usd || 0) ? step : max),
-    steps[0] || { cost_usd: 0 },
-  );
+  const aiCost = stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0);
+  const hasCost = totalCost > 0 && stepsWithCost.length > 0;
+
+  // Percentage of a total, guarded against a zero total (which yields NaN and
+  // renders literally as "NaN%").
+  const pctOfTotal = (value: number) => (totalCost > 0 ? (value / totalCost) * 100 : 0);
+
+  const mostExpensiveStep =
+    stepsWithCost.length > 0
+      ? stepsWithCost.reduce((max, step) =>
+          (step.cost_usd || 0) > (max.cost_usd || 0) ? step : max,
+        )
+      : null;
 
   // Sorted steps
   const sortedSteps = useMemo(() => {
@@ -75,66 +84,64 @@ export function CostMetricsView({
 
   return (
     <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">Avg per AI Step</CardTitle>
-              <Zap className="h-4 w-4 text-slate-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-slate-900">{avgTokensPerStep.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-1">tokens • {formatCost(avgCostPerStep)}</p>
-          </CardContent>
-        </Card>
+      {/* Summary cards — only meaningful once at least one step has a cost. */}
+      {hasCost && mostExpensiveStep && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium text-slate-500">
+                  Avg per AI Step
+                </CardTitle>
+                <Zap className="h-4 w-4 text-slate-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-slate-900">
+                {avgTokensPerStep.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">tokens • {formatCost(avgCostPerStep)}</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">
-                Most Expensive Step
-              </CardTitle>
-              <TrendingUp className="h-4 w-4 text-slate-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-base font-bold text-slate-900 truncate">
-              Step {mostExpensiveStep.number + 1}: {mostExpensiveStep.name}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}
-              {(((mostExpensiveStep.cost_usd || 0) / totalCost) * 100).toFixed(1)}% of total
-            </p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium text-slate-500">
+                  Most Expensive Step
+                </CardTitle>
+                <TrendingUp className="h-4 w-4 text-slate-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-base font-bold text-slate-900 truncate">
+                Step {mostExpensiveStep.number + 1}: {mostExpensiveStep.name}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {formatCost(mostExpensiveStep.cost_usd || 0)} •{' '}
+                {pctOfTotal(mostExpensiveStep.cost_usd || 0).toFixed(1)}% of total
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-slate-500">
-                AI vs Non-AI Cost
-              </CardTitle>
-              <DollarSign className="h-4 w-4 text-slate-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-slate-900">
-              {(
-                (stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0) / totalCost) *
-                100
-              ).toFixed(0)}
-              %
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              {formatCost(stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0))} AI •{' '}
-              {formatCost(totalCost - stepsWithCost.reduce((sum, s) => sum + (s.cost_usd || 0), 0))}{' '}
-              other
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium text-slate-500">
+                  AI vs Non-AI Cost
+                </CardTitle>
+                <DollarSign className="h-4 w-4 text-slate-400" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-slate-900">{pctOfTotal(aiCost).toFixed(0)}%</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {formatCost(aiCost)} AI • {formatCost(Math.max(0, totalCost - aiCost))} other
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Sortable table */}
       <Card>
@@ -180,7 +187,7 @@ export function CostMetricsView({
               </thead>
               <tbody>
                 {sortedSteps.map((step) => {
-                  const percentage = ((step.cost_usd || 0) / totalCost) * 100;
+                  const percentage = pctOfTotal(step.cost_usd || 0);
                   return (
                     <tr
                       key={step.id}

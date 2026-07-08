@@ -49,7 +49,7 @@ describe('console panel step numbering', () => {
       <EnhancedConsolePanel
         events={[EVENT]}
         steps={[STEP]}
-        selectedStepIndex={0}
+        selectedStepId="step-abc"
         onSelectStep={() => {}}
         onClearStepFilter={() => {}}
       />,

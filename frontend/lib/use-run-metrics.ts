@@ -72,7 +72,7 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
       if (run.completed_at) {
         // Completed: use actual end time
         durationMs = new Date(run.completed_at).getTime() - new Date(run.started_at).getTime();
-      } else if (run.status === 'running' || run.status === 'pending') {
+      } else if (run.status === 'running') {
         // Running: calculate from now
         durationMs = Date.now() - new Date(run.started_at).getTime();
       }

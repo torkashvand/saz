@@ -36,7 +36,7 @@ function renderPanel(events: Event[]) {
     <EnhancedConsolePanel
       events={events}
       steps={[]}
-      selectedStepIndex={null}
+      selectedStepId={null}
       onSelectStep={() => {}}
       onClearStepFilter={() => {}}
     />,

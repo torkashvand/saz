@@ -31,13 +31,6 @@ function deriveStepStates(
   runStatus: string,
   liveRunningIndexes?: Set<number>,
 ): StepVisualStatus[] {
-  // Check if run has started
-  const runHasStarted =
-    runStatus === 'running' ||
-    runStatus === 'completed' ||
-    runStatus === 'failed' ||
-    runStatus === 'suspended';
-
   // Check if any step has started executing
   const anyStepStarted = executedSteps.some(
     (s) =>
@@ -68,8 +61,12 @@ function deriveStepStates(
       return 'not_started';
     }
 
-    // Special case: first step shows "running" when run started but no steps executed yet
-    if (index === 0 && runHasStarted && !anyStepStarted) {
+    // Special case: first step shows "running" when the run is actively
+    // running but no step has persisted yet. Restricted to runStatus ===
+    // 'running' so a run that failed/suspended before any step executed (e.g.
+    // a planner/compile failure) does NOT render a live blue pulse under a red
+    // "Failed" header — the live overlay must never contradict canonical state.
+    if (index === 0 && runStatus === 'running' && !anyStepStarted) {
       return 'running';
     }
 

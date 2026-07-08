@@ -32,7 +32,7 @@ async def test_planner_agent_generates_plan(mock_llm_with_plan):
         {
             "name": "http_request",
             "description": "Make HTTP request",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {"url": {"type": "string"}},
                 "required": ["url"],
@@ -153,7 +153,7 @@ def test_executor_agent_grounds_step():
     tool_registry = {
         "http_request": {
             "name": "http_request",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {"url": {"type": "string"}, "method": {"type": "string"}},
                 "required": ["url", "method"],
@@ -208,7 +208,7 @@ def test_executor_agent_missing_required_params():
     )
 
     tool_registry = {
-        "http_request": {"name": "http_request", "inputSchema": {"required": ["url", "method"]}}
+        "http_request": {"name": "http_request", "input_schema": {"required": ["url", "method"]}}
     }
 
     with pytest.raises(ValueError, match="Missing required parameters"):
@@ -227,7 +227,7 @@ def test_executor_agent_nested_variable_substitution():
         reasoning="Test nested",
     )
 
-    tool_registry = {"test_tool": {"name": "test_tool", "inputSchema": {"required": []}}}
+    tool_registry = {"test_tool": {"name": "test_tool", "input_schema": {"required": []}}}
 
     current_data = {
         "form_data": {

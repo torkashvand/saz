@@ -38,6 +38,7 @@ workflow:
       description: "Call test API endpoint"
       tool: http_request
       params:
+        method: GET
         url: "https://api.example.com/test"
     - id: step2
       type: ai.extract

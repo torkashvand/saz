@@ -125,8 +125,8 @@ def test_artifact_tool_specs_advertise_required_fields(tool: ArtifactTool) -> No
     ``artifact_id`` as required for retrieve."""
     store_spec = tool.store_spec
     assert store_spec["name"] == "artifact.store"
-    assert set(store_spec["inputSchema"]["required"]) == {"name", "content"}
+    assert set(store_spec["input_schema"]["required"]) == {"name", "content"}
 
     retrieve_spec = tool.retrieve_spec
     assert retrieve_spec["name"] == "artifact.retrieve"
-    assert retrieve_spec["inputSchema"]["required"] == ["artifact_id"]
+    assert retrieve_spec["input_schema"]["required"] == ["artifact_id"]

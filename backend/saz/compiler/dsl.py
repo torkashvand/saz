@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, cast
 
 import structlog
@@ -78,6 +79,50 @@ from pydantic import BaseModel, Field, create_model
 from .template_validator import validate_templates
 
 logger = structlog.get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _tool_input_schemas() -> dict[str, dict[str, Any]]:
+    """Input schemas of the default-registry tools, keyed by tool name.
+
+    Used to reject a ``tool.call`` step whose params are missing a required
+    argument at COMPILE time. The executor enforces the same schema at
+    grounding (``_validate_arguments``); without this check an invalid flow
+    passes /flows/compile and only fails mid-run. The default registry is the
+    deterministic catalog — unlike the runtime global registry it needs no
+    initialization, so compile results never depend on process state.
+    Imported lazily (and cached; the schemas are static) so the compiler
+    stays importable without constructing the tool stack.
+    """
+    from saz.tools.registry import create_default_registry
+
+    registry = create_default_registry()
+    schemas: dict[str, dict[str, Any]] = {}
+    for name in registry.list_tools():
+        spec = registry.get_tool_spec(name) or {}
+        schema = spec.get("input_schema")
+        if isinstance(schema, dict):
+            schemas[name] = schema
+    return schemas
+
+
+def _validate_tool_call_params(sid: str, tool_name: Any, params: dict[str, Any]) -> None:
+    """Fail compile when a known tool's required params are absent.
+
+    Tools outside the default catalog are left to the linter (which checks
+    the runtime registry and so sees custom tools) and to the executor's
+    grounding validation.
+    """
+    if not isinstance(tool_name, str):
+        return
+    schema = _tool_input_schemas().get(tool_name)
+    if not schema:
+        return
+    required = schema.get("required", [])
+    missing = [p for p in required if p not in params]
+    if missing:
+        raise ValueError(f"step '{sid}' tool '{tool_name}' missing required params: {missing}")
+
 
 # -------------------------------------------------------------------------------------- #
 # JSON Schema (draft 2020-12) — intentionally relaxed at the STEP level so compile-time
@@ -766,6 +811,7 @@ def _validate_and_normalize_steps(
                     f"step '{sid}' (type: tool.call) requires non-empty 'description' field "
                     "to document human intent"
                 )
+            _validate_tool_call_params(sid, step["tool"], step["params"])
         elif stype.startswith("ai."):
             # All AI operations require instruction
             if "instruction" not in step or not step["instruction"]:

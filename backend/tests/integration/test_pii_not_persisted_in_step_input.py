@@ -29,7 +29,7 @@ PII_EMAIL = "alice.requester@example.com"
 HTTP_SPEC = {
     "name": "http_request",
     "description": "Fake recorded HTTP",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {
             "method": {"type": "string"},

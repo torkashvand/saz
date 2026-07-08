@@ -69,7 +69,7 @@ def _run(db_engine, run_id, registry, critic=None):
 HTTP_SPEC = {
     "name": "http_request",
     "description": "fake",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {
             "method": {"type": "string"},
@@ -83,7 +83,7 @@ HTTP_SPEC = {
 ARTIFACT_SPEC = {
     "name": "artifact.store",
     "description": "fake artifact store",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {"name": {"type": "string"}, "content": {"type": "object"}},
         "required": ["name", "content"],

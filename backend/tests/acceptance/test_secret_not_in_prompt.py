@@ -32,7 +32,7 @@ SECRET_VALUE = "tok-super-secret-ABC12345"
 HTTP_SPEC = {
     "name": "http_request",
     "description": "Fake recorded HTTP",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {
             "method": {"type": "string"},

@@ -213,7 +213,10 @@ workflow:
       type: tool.call
       description: Execute deployment
       tool: ansible_run
-      params: {}
+      params:
+        mode: check
+        playbook: deploy.yml
+        inventory: hosts.ini
     - id: check
       type: condition
       description: Verify success

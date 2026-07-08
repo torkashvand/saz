@@ -35,7 +35,7 @@ from tests.fakes.tools import RecordingTool
 HTTP_SPEC = {
     "name": "http_request",
     "description": "Fake recorded HTTP",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {
             "method": {"type": "string"},

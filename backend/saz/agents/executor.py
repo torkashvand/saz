@@ -99,22 +99,19 @@ class ExecutorAgent:
         Validate grounded arguments against the tool's input schema.
 
         Checks required-field presence, enum membership, and unresolved
-        template strings. Tool specs in this repo are not consistent about
-        key casing — HttpTool/WebhookTool/ArtifactTool emit ``inputSchema``
-        (camelCase) while the AI-op spec factory and AnsibleTool emit
-        ``input_schema`` (snake_case). Look at both so validation fires for
-        every registered tool.
+        template strings. All tool specs carry their schema under the
+        canonical ``input_schema`` key (a registry parity test pins this).
 
         Args:
             arguments: Grounded arguments
-            tool_spec: Tool specification with inputSchema/input_schema
+            tool_spec: Tool specification with input_schema
 
         Raises:
             ValueError: If required parameters are missing, an enum value is
                 invalid, or a template reference was left unresolved.
         """
         name = tool_spec["name"]
-        input_schema = tool_spec.get("input_schema") or tool_spec.get("inputSchema") or {}
+        input_schema = tool_spec.get("input_schema") or {}
         required_params = input_schema.get("required", [])
 
         missing = [p for p in required_params if p not in arguments]

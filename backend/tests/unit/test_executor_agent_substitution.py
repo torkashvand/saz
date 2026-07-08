@@ -10,8 +10,8 @@ These tests pin:
   * nested $form / $step / $env resolution propagated into the ToolCall,
   * idempotency_key shape so dedup at the tool layer stays correct,
   * tool-not-in-registry errors,
-  * required-arg validation under both ``inputSchema`` and ``input_schema``
-    keys (the registry is inconsistent and the executor must accept both).
+  * required-arg validation against the canonical ``input_schema`` key
+    (a registry parity test pins that every spec uses it).
 """
 
 from typing import Any
@@ -52,7 +52,7 @@ def test_ground_resolves_form_values_in_nested_payload(agent: ExecutorAgent) -> 
     registry = {
         "http_request": {
             "name": "http_request",
-            "inputSchema": {"required": ["url", "method"]},
+            "input_schema": {"required": ["url", "method"]},
         }
     }
     step = _step(
@@ -83,7 +83,7 @@ def test_ground_resolves_step_outputs_in_nested_payload(agent: ExecutorAgent) ->
     registry = {
         "http_request": {
             "name": "http_request",
-            "inputSchema": {"required": ["url"]},
+            "input_schema": {"required": ["url"]},
         }
     }
     step = _step(
@@ -109,7 +109,7 @@ def test_ground_resolves_env_values(agent: ExecutorAgent, monkeypatch: pytest.Mo
     registry = {
         "http_request": {
             "name": "http_request",
-            "inputSchema": {"required": ["url"]},
+            "input_schema": {"required": ["url"]},
         }
     }
     step = _step("http_request", {"url": "{{ $env('MY_API') }}/x"})
@@ -126,7 +126,7 @@ def test_ground_builds_idempotency_key_from_run_id_and_step_id(
     registry = {
         "http_request": {
             "name": "http_request",
-            "inputSchema": {"required": []},
+            "input_schema": {"required": []},
         }
     }
     step = _step("http_request", {"url": "https://x.test"}, step_id="step-a")
@@ -144,11 +144,9 @@ def test_ground_raises_when_tool_not_in_registry(agent: ExecutorAgent) -> None:
         agent.ground(_step("ghost"), tool_registry={}, current_data={}, run_id="r1")
 
 
-def test_ground_validates_required_fields_under_input_schema_snake_case(
+def test_ground_validates_required_fields_from_input_schema(
     agent: ExecutorAgent,
 ) -> None:
-    """Snake-case ``input_schema`` is what the AI-ops and Ansible specs use.
-    The validator must read it the same way it reads camelCase."""
     registry = {
         "snake": {
             "name": "snake",
@@ -157,20 +155,6 @@ def test_ground_validates_required_fields_under_input_schema_snake_case(
     }
     step = _step("snake", {"some_other_field": 1})
     with pytest.raises(ValueError, match="essential"):
-        agent.ground(step, registry, current_data={}, run_id="r1")
-
-
-def test_ground_validates_required_fields_under_inputSchema_camel_case(
-    agent: ExecutorAgent,
-) -> None:
-    registry = {
-        "camel": {
-            "name": "camel",
-            "inputSchema": {"required": ["url"]},
-        }
-    }
-    step = _step("camel", {"method": "GET"})
-    with pytest.raises(ValueError, match="url"):
         agent.ground(step, registry, current_data={}, run_id="r1")
 
 

@@ -175,7 +175,7 @@ def test_compile_dsl_rejects_tool_call_without_description() -> None:
                 "    - id: s1\n"
                 "      type: tool.call\n"
                 "      tool: http_request\n"
-                "      params: { url: 'https://example.com' }\n"
+                "      params: { method: GET, url: 'https://example.com' }\n"
             )
         )
 
@@ -191,6 +191,72 @@ def test_compile_dsl_rejects_tool_call_with_non_object_params() -> None:
                 "      params: \"not-an-object\"\n"
             )
         )
+
+
+# ------------------- tool.call params vs the tool's input_schema -------------------
+#
+# Regression: a docx_render step without `output_name` compiled fine and only
+# failed mid-run at grounding ("Missing required parameters"). Required params
+# of default-registry tools must be enforced at compile time.
+
+
+def test_compile_dsl_rejects_tool_call_missing_required_tool_params() -> None:
+    with pytest.raises(ValueError, match=r"step 's1' tool 'docx_render'.*output_name"):
+        compile_dsl(
+            _wrap(
+                "    - id: s1\n"
+                "      type: tool.call\n"
+                "      description: render the doc\n"
+                "      tool: docx_render\n"
+                "      params:\n"
+                "        template: t.docx\n"
+                "        values: { a: '{{ $form.x }}' }\n"
+            )
+        )
+
+
+def test_compile_dsl_accepts_tool_call_with_all_required_tool_params() -> None:
+    compiled = compile_dsl(
+        _wrap(
+            "    - id: s1\n"
+            "      type: tool.call\n"
+            "      description: render the doc\n"
+            "      tool: docx_render\n"
+            "      params:\n"
+            "        template: t.docx\n"
+            "        output_name: \"out_{{ $form.x }}\"\n"
+            "        values: { a: '{{ $form.x }}' }\n"
+        )
+    )
+    assert compiled.workflow_spec["steps"][0]["id"] == "s1"
+
+
+def test_compile_dsl_reports_all_missing_required_tool_params() -> None:
+    with pytest.raises(ValueError, match=r"\['method', 'url'\]"):
+        compile_dsl(
+            _wrap(
+                "    - id: s1\n"
+                "      type: tool.call\n"
+                "      description: call an api\n"
+                "      tool: http_request\n"
+                "      params: {}\n"
+            )
+        )
+
+
+def test_compile_dsl_leaves_unknown_tools_to_linter_and_grounding() -> None:
+    """Tools outside the default catalog (custom registries) are not the
+    compiler's to judge — their params must pass through untouched."""
+    compiled = compile_dsl(
+        _wrap(
+            "    - id: s1\n"
+            "      type: tool.call\n"
+            "      description: custom tool\n"
+            "      tool: some_custom_tool\n"
+            "      params: {}\n"
+        )
+    )
+    assert compiled.workflow_spec["steps"][0]["tool"] == "some_custom_tool"
 
 
 def test_compile_dsl_rejects_ai_step_without_expect() -> None:
@@ -272,7 +338,7 @@ workflow:
       type: tool.call
       description: needs auth
       tool: http_request
-      params: { url: 'https://example.com' }
+      params: { method: GET, url: 'https://example.com' }
       uses_credentials: [ "missing_secret" ]
 """
     with pytest.raises(ValueError, match="unknown credentials"):
@@ -288,7 +354,7 @@ def test_compile_dsl_rejects_retry_with_negative_attempts() -> None:
         "      type: tool.call\n"
         "      description: do thing\n"
         "      tool: http_request\n"
-        "      params: { url: 'https://example.com' }\n"
+        "      params: { method: GET, url: 'https://example.com' }\n"
         "      retry:\n"
         "        attempts: -1\n"
     )
@@ -302,7 +368,7 @@ def test_compile_dsl_rejects_retry_with_invalid_backoff_mode() -> None:
         "      type: tool.call\n"
         "      description: do thing\n"
         "      tool: http_request\n"
-        "      params: { url: 'https://example.com' }\n"
+        "      params: { method: GET, url: 'https://example.com' }\n"
         "      retry:\n"
         "        attempts: 1\n"
         "        backoff: { mode: zigzag }\n"
@@ -317,7 +383,7 @@ def test_compile_dsl_rejects_retry_with_non_bool_jitter() -> None:
         "      type: tool.call\n"
         "      description: do thing\n"
         "      tool: http_request\n"
-        "      params: { url: 'https://example.com' }\n"
+        "      params: { method: GET, url: 'https://example.com' }\n"
         "      retry:\n"
         "        attempts: 1\n"
         "        backoff:\n"

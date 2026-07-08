@@ -462,7 +462,7 @@ workflow:
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       uses_credentials: ["known", "missing"]
 """
     with pytest.raises(ValueError, match="unknown credentials"):
@@ -480,7 +480,7 @@ workflow:
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       uses_credentials: "known"
 """
     with pytest.raises(ValueError, match="string list"):
@@ -497,7 +497,7 @@ def test_dsl_retry_and_backoff_validation():
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       retry: { attempts: -1 }
 """
             )
@@ -511,7 +511,7 @@ def test_dsl_retry_and_backoff_validation():
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       retry: { attempts: 1, backoff: { mode: "bad" } }
 """
             )
@@ -525,7 +525,7 @@ def test_dsl_retry_and_backoff_validation():
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       retry: { attempts: 1, backoff: { mode: "linear", base_ms: -1 } }
 """
             )
@@ -539,7 +539,7 @@ def test_dsl_retry_and_backoff_validation():
       type: tool.call
       description: "Test step"
       tool: http_request
-      params: {}
+      params: { method: GET, url: "https://example.com" }
       retry: { attempts: 1, backoff: { mode: "linear", jitter: "yes" } }
 """
             )

@@ -70,6 +70,13 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str | None, int | None, str | None]]
         "/workflow/steps",
     ),
     (
+        re.compile(r"step '([^']+)' tool '[^']+' missing required params"),
+        "step.missing_tool_params",
+        "workflow",
+        1,
+        "/workflow/steps",
+    ),
+    (
         re.compile(r"Unknown step type '[^']+' in step '([^']+)'"),
         "step.unknown_type",
         "workflow",

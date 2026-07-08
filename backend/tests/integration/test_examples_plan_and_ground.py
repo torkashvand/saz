@@ -50,9 +50,9 @@ def _make_full_fake_registry() -> ToolRegistry:
 
     # Outbound tools (camelCase key, mirroring real specs)
     for name in ("http_request", "webhook_emit", "webhook_wait", "ansible_run"):
-        register(name, "inputSchema")
+        register(name, "input_schema")
     for name in ("artifact.store", "artifact.retrieve"):
-        register(name, "inputSchema")
+        register(name, "input_schema")
 
     # AI ops (snake_case key, mirroring real specs)
     from saz.agents.ai_ops import AI_OPS

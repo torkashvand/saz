@@ -29,6 +29,17 @@ describe('toFriendlyError', () => {
     expect(toFriendlyError(err, documentStep).message).toMatch(/document settings/i);
   });
 
+  it('translates the compiler tool-params error into a document-settings message', () => {
+    // The backend now rejects tool.call steps missing a required tool arg
+    // (e.g. docx_render without output_name) with step.missing_tool_params.
+    const err: ValidationError = {
+      code: 'step.missing_tool_params',
+      message: "step 'render_draft' tool 'docx_render' missing required params: ['output_name']",
+      step_id: 'render_draft',
+    };
+    expect(toFriendlyError(err, documentStep).message).toMatch(/document settings/i);
+  });
+
   it('translates a missing form field reference into a plain-language message', () => {
     const err: ValidationError = {
       code: 'expression.unknown_form_field',

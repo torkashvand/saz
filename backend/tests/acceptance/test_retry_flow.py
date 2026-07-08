@@ -25,7 +25,7 @@ from tests.fakes.critic import FakeCritic
 HTTP_SPEC = {
     "name": "http_request",
     "description": "Fake recorded HTTP",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {"method": {"type": "string"}, "url": {"type": "string"}},
         "required": ["method", "url"],

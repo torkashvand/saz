@@ -26,7 +26,7 @@ from tests.fakes.tools import RecordingTool
 HTTP_SPEC = {
     "name": "http_request",
     "description": "fake",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {"method": {"type": "string"}, "url": {"type": "string"}},
         "required": ["method", "url"],
@@ -35,7 +35,7 @@ HTTP_SPEC = {
 EMIT_SPEC = {
     "name": "webhook_emit",
     "description": "fake undeclared tool",
-    "inputSchema": {"type": "object", "properties": {}, "required": []},
+    "input_schema": {"type": "object", "properties": {}, "required": []},
 }
 
 

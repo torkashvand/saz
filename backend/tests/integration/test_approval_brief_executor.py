@@ -38,7 +38,7 @@ VALID_BRIEF = json.dumps(
 TOOL_SPEC = {
     "name": "noop",
     "description": "Fake recorded tool",
-    "inputSchema": {"type": "object", "properties": {}},
+    "input_schema": {"type": "object", "properties": {}},
 }
 
 

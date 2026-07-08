@@ -8,7 +8,7 @@ from saz.linter.rules.tool_params import ToolParamsRule
 
 _SPEC = {
     "name": "demo_tool",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "additionalProperties": False,
         "properties": {

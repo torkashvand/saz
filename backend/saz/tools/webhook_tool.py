@@ -41,7 +41,7 @@ class WebhookTool:
         return {
             "name": "webhook_emit",
             "description": "Send webhook to external system",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "url": {
@@ -71,7 +71,7 @@ class WebhookTool:
         return {
             "name": "webhook_wait",
             "description": "Generate callback URL and suspend until webhook received",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "event_name": {"type": "string", "description": "Name of event to wait for"},

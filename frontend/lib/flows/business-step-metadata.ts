@@ -210,6 +210,11 @@ function computeBaseStepStatus(step: WorkflowStepDraft): StepStatus {
         return status('missing_mappings');
       }
       if (!params.template) return status('needs_setup');
+      // docx_render requires output_name; the compiler rejects the step
+      // without it, so it must never show as Ready.
+      if (typeof params.output_name !== 'string' || !params.output_name.trim()) {
+        return status('needs_setup');
+      }
       return status('ready');
     }
     case 'approval': {

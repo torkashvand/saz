@@ -40,7 +40,8 @@ function translate(error: ValidationError, step?: WorkflowStepDraft): string {
   const isMissing =
     code === 'step.missing_field' ||
     code === 'step.empty_field' ||
-    code === 'step.params_not_object';
+    code === 'step.params_not_object' ||
+    code === 'step.missing_tool_params';
 
   // Check WHICH field is missing before the pattern-specific branches: an
   // approval step whose only problem is a missing description must say "needs

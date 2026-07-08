@@ -55,7 +55,7 @@ class HttpTool:
         return {
             "name": "http_request",
             "description": "Make HTTP requests to external APIs",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "method": {

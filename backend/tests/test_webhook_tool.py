@@ -131,10 +131,10 @@ def test_webhook_tool_emit_propagates_transport_errors(
 def test_webhook_tool_emit_spec_requires_url_and_payload(tool: WebhookTool) -> None:
     spec = tool.emit_spec
     assert spec["name"] == "webhook_emit"
-    assert set(spec["inputSchema"]["required"]) == {"url", "payload"}
+    assert set(spec["input_schema"]["required"]) == {"url", "payload"}
 
 
 def test_webhook_tool_wait_spec_requires_event_name(tool: WebhookTool) -> None:
     spec = tool.wait_spec
     assert spec["name"] == "webhook_wait"
-    assert spec["inputSchema"]["required"] == ["event_name"]
+    assert spec["input_schema"]["required"] == ["event_name"]

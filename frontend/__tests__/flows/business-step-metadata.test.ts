@@ -88,9 +88,21 @@ describe('computeStepStatus', () => {
       type: 'tool.call',
       tool: 'docx_render',
       description: 'Render the draft document',
-      params: { template: 't', values: { a: '{{ $form.x }}' } },
+      params: { template: 't', output_name: 'out.docx', values: { a: '{{ $form.x }}' } },
     });
     expect(computeStepStatus(s).kind).toBe('ready');
+  });
+
+  it('does not mark a document step Ready without an output name', () => {
+    // docx_render requires output_name — the compiler rejects the step, so
+    // "Ready" here would be a lie (this exact gap shipped a failing run).
+    const s = step({
+      type: 'tool.call',
+      tool: 'docx_render',
+      description: 'Render the draft document',
+      params: { template: 't', values: { a: '{{ $form.x }}' } },
+    });
+    expect(computeStepStatus(s).kind).toBe('needs_setup');
   });
 
   it('does not mark a step Ready when the compile-required description is missing', () => {

@@ -30,7 +30,7 @@ class DocxRenderTool:
         return {
             "name": "docx_render",
             "description": "Fill {{token}} placeholders in a .docx template and store the result.",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "template": {"type": "string", "description": "Path to the tokenized .docx."},

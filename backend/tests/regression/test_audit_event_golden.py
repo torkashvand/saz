@@ -34,7 +34,7 @@ GOLDEN_PATH = Path(__file__).parent.parent / "golden" / "audit_event_sequences.j
 HTTP_SPEC = {
     "name": "http_request",
     "description": "Fake recorded HTTP",
-    "inputSchema": {
+    "input_schema": {
         "type": "object",
         "properties": {"method": {"type": "string"}, "url": {"type": "string"}},
         "required": ["method", "url"],

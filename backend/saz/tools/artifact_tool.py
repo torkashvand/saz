@@ -30,7 +30,7 @@ class ArtifactTool:
         return {
             "name": "artifact.store",
             "description": "Store workflow output as artifact",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "name": {
@@ -60,7 +60,7 @@ class ArtifactTool:
         return {
             "name": "artifact.retrieve",
             "description": "Retrieve stored artifact",
-            "inputSchema": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "artifact_id": {

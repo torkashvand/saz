@@ -58,7 +58,7 @@ class ToolParamsRule:
             # Unknown/missing tool is handled by _validate_tool_references.
             return []
 
-        schema = spec.get("inputSchema") or spec.get("input_schema") or {}
+        schema = spec.get("input_schema") or {}
         props: dict[str, Any] = schema.get("properties") or {}
         required = set(schema.get("required") or [])
         closed = schema.get("additionalProperties") is False

@@ -1,7 +1,7 @@
 'use client';
 
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AppError } from '@/lib/errors';
 import { AuthProvider, _internalAuth } from '@/lib/auth';
@@ -18,11 +18,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
             if (error && typeof error === 'object' && 'kind' in error) {
               const appError = error as AppError;
 
-              // On auth errors, clear the stale token and push to /login
-              // unless we're already there. This guarantees the user never
-              // stays "ghost-logged-in" with cached UI behind a 401.
+              // On auth errors, fully sign out (token + user state + query
+              // cache) and push to /login unless we're already there. This
+              // guarantees the user never stays "ghost-logged-in" with cached
+              // UI behind a 401.
               if (appError.kind === 'auth') {
-                _internalAuth.setAccessToken(null);
+                _internalAuth.forceSignOut();
                 if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
                   router.replace('/login');
                 }
@@ -88,6 +89,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       }),
   );
+
+  // Let auth flows (logout, login, 401 sign-out) clear the query cache so one
+  // user's cached data is never served to the next on a shared tab.
+  useEffect(() => {
+    _internalAuth.registerQueryCacheClearer(() => queryClient.clear());
+    return () => _internalAuth.registerQueryCacheClearer(null);
+  }, [queryClient]);
 
   return (
     <QueryClientProvider client={queryClient}>

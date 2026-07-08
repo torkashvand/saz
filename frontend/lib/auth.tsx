@@ -23,6 +23,13 @@ const STORAGE_KEY = 'saz.access_token';
 
 let _token: string | null = null;
 
+// Bridge between the AuthProvider (owns `user` state) and the Providers layer
+// (owns the React Query cache). Lets a 401 caught in the query cache clear BOTH
+// the user state and the cache, instead of leaving a ghost-authenticated UI or
+// serving one user's cached data to the next.
+let _clearUserState: (() => void) | null = null;
+let _clearQueryCache: (() => void) | null = null;
+
 export function getAccessToken(): string | null {
   // Read straight from localStorage so non-React callers (the API fetch
   // wrapper, the WebSocket helper) always see the latest value without
@@ -102,13 +109,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  // Register the user-state clearer so a 401 handled in the query cache can
+  // fully sign the user out (not just wipe the token).
+  useEffect(() => {
+    _clearUserState = () => setUser(null);
+    return () => {
+      _clearUserState = null;
+    };
+  }, []);
+
   const login = useCallback(async (identifier: string, password: string) => {
+    // Drop any previous user's cached queries before the new session loads,
+    // so user B never sees user A's cached data on a shared tab.
+    _clearQueryCache?.();
     const resp = await api.login({ identifier, password });
     setAccessToken(resp.access_token);
     setUser(resp.user);
   }, []);
 
   const completeSso = useCallback(async () => {
+    _clearQueryCache?.();
     const resp = await api.refreshSession();
     setAccessToken(resp.access_token);
     setUser(resp.user);
@@ -124,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setAccessToken(null);
     setUser(null);
+    _clearQueryCache?.();
   }, []);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
@@ -166,4 +187,17 @@ export const _internalAuth = {
   getAccessToken,
   setAccessToken,
   STORAGE_KEY,
+  /** Let the Providers layer register how to clear the React Query cache. */
+  registerQueryCacheClearer(fn: (() => void) | null) {
+    _clearQueryCache = fn;
+  },
+  /**
+   * Full client-side sign-out from a non-React context (the query cache 401
+   * handler): drop the token, the user state, and every cached query.
+   */
+  forceSignOut() {
+    setAccessToken(null);
+    _clearUserState?.();
+    _clearQueryCache?.();
+  },
 };

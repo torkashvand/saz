@@ -89,12 +89,26 @@ async function tryRefreshAccessToken(): Promise<boolean> {
   return _refreshInFlight;
 }
 
-async function fetchApi<T>(
+// A silent refresh must only be skipped for the endpoints that mint/rotate the
+// session itself — refreshing on a failed login/refresh would recurse. Every
+// OTHER auth endpoint (/me, /change_password, /logout, …) benefits from the
+// replay just like the rest of the API.
+function skipSilentRefresh(endpoint: string): boolean {
+  return endpoint.startsWith('/api/v1/auth/refresh') || endpoint.startsWith('/api/v1/auth/login');
+}
+
+/**
+ * Authenticated fetch with a one-shot silent-refresh replay and a timeout.
+ * Returns the raw Response (caller inspects `.ok`); throws an AppError on
+ * network/timeout failures. Shared by the JSON wrapper and binary downloads
+ * so both get identical auth/refresh/timeout behavior.
+ */
+async function authedFetch(
   endpoint: string,
   options?: RequestInit,
   timeoutMs = DEFAULT_TIMEOUT,
   retried = false,
-): Promise<T> {
+): Promise<Response> {
   const url = `${API_BASE_URL}${endpoint}`;
   const method = options?.method || 'GET';
 
@@ -120,62 +134,60 @@ async function fetchApi<T>(
 
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      // On a 401, try one silent refresh and replay the request. Skip the
-      // auth endpoints themselves to avoid recursion on a dead session.
-      if (response.status === 401 && !retried && !endpoint.startsWith('/api/v1/auth/')) {
-        clearTimeout(timeoutId);
-        if (await tryRefreshAccessToken()) {
-          return fetchApi<T>(endpoint, options, timeoutMs, true);
-        }
+    // On a 401, try one silent refresh and replay the request.
+    if (response.status === 401 && !retried && !skipSilentRefresh(endpoint)) {
+      if (await tryRefreshAccessToken()) {
+        return authedFetch(endpoint, options, timeoutMs, true);
       }
-
-      const appError = await fromHttpError(response);
-
-      // Log server errors for debugging
-      if (response.status >= 500) {
-        captureAppError(appError, {
-          url: url,
-          method,
-          endpoint,
-        });
-      }
-
-      throw appError;
     }
 
-    // Handle empty responses. A 204 carries no JSON even when the server tags
-    // it application/json; calling response.json() on it throws "Unexpected end
-    // of JSON input", so short-circuit before parsing.
-    if (response.status === 204) {
-      return {} as T;
-    }
-    const contentType = response.headers.get('content-type');
-    if (!contentType?.includes('application/json')) {
-      return {} as T;
-    }
-
-    return await response.json();
+    return response;
   } catch (error) {
     clearTimeout(timeoutId);
 
-    // If already an AppError, rethrow
     if (error && typeof error === 'object' && 'kind' in error) {
       throw error;
     }
-
-    // Network/timeout errors
     if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TypeError')) {
       const appError = fromNetworkError(error);
       captureAppError(appError, { url, method, endpoint });
       throw appError;
     }
-
-    // Unknown errors
     const appError = fromUnknownError(error);
     captureAppError(appError, { url, method, endpoint });
     throw appError;
   }
+}
+
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT,
+): Promise<T> {
+  const response = await authedFetch(endpoint, options, timeoutMs);
+  const method = options?.method || 'GET';
+
+  if (!response.ok) {
+    const appError = await fromHttpError(response);
+    // Log server errors for debugging
+    if (response.status >= 500) {
+      captureAppError(appError, { url: `${API_BASE_URL}${endpoint}`, method, endpoint });
+    }
+    throw appError;
+  }
+
+  // Handle empty responses. A 204 carries no JSON even when the server tags
+  // it application/json; calling response.json() on it throws "Unexpected end
+  // of JSON input", so short-circuit before parsing.
+  if (response.status === 204) {
+    return {} as T;
+  }
+  const contentType = response.headers.get('content-type');
+  if (!contentType?.includes('application/json')) {
+    return {} as T;
+  }
+
+  return await response.json();
 }
 
 export const api = {
@@ -448,14 +460,12 @@ export const api = {
   /**
    * Download an artifact's file. The endpoint requires the Bearer token, so a
    * plain <a download> won't work — fetch with auth, then trigger a Blob save.
+   * Routed through authedFetch so it gets the same silent-refresh, timeout,
+   * and AppError contract as every other endpoint.
    */
   downloadArtifact: async (runId: string, artifactId: string, filename: string) => {
-    const token = getAccessToken();
-    const res = await fetch(
-      `${API_BASE_URL}/api/v1/runs/${runId}/artifacts/${artifactId}/download`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    );
-    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    const res = await authedFetch(`/api/v1/runs/${runId}/artifacts/${artifactId}/download`);
+    if (!res.ok) throw await fromHttpError(res);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

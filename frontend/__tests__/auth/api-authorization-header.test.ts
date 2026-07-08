@@ -60,6 +60,55 @@ describe('API client Authorization header', () => {
     await expect(api.logout()).resolves.toBeDefined();
   });
 
+  it('silently refreshes and replays a 401 on a non-refresh auth endpoint (e.g. change_password)', async () => {
+    _internalAuth.setAccessToken('stale');
+    const unauthorized = {
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ error: 'unauthorized', message: 'expired' }),
+    };
+    const refreshed = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ access_token: 'fresh', token_type: 'bearer', expires_at: 'x' }),
+    };
+    const okChange = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ id: 'u1' }),
+    };
+    // 1) change_password 401 → 2) /auth/refresh 200 → 3) change_password replay 200
+    fetchMock
+      .mockResolvedValueOnce(unauthorized)
+      .mockResolvedValueOnce(refreshed)
+      .mockResolvedValueOnce(okChange);
+
+    await expect(
+      api.changePassword({ current_password: 'a', new_password: 'b' }),
+    ).resolves.toBeDefined();
+
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    expect(urls[1]).toContain('/api/v1/auth/refresh');
+    expect(urls[2]).toContain('/api/v1/auth/change_password');
+    expect(_internalAuth.getAccessToken()).toBe('fresh');
+  });
+
+  it('does not attempt a refresh loop when /auth/login itself 401s', async () => {
+    const unauthorized = {
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ error: 'invalid_credentials', message: 'bad' }),
+    };
+    fetchMock.mockResolvedValue(unauthorized);
+    await expect(api.login({ identifier: 'a', password: 'b' })).rejects.toBeDefined();
+    // Only the login call — no /auth/refresh replay.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reads the token at request time, not module load time', async () => {
     // The first call has no token...
     await api.listFlows();

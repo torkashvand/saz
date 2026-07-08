@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { sanitizeNextPath } from '@/lib/utils';
 import type { AppError } from '@/lib/errors';
 import type { PublicProvider } from '@/lib/types';
 
@@ -67,8 +68,7 @@ function LoginForm() {
       // ?next= lets the redirect target be carried through from a
       // ProtectedRoute interception so users land back on the page they
       // actually wanted instead of dropping to "/".
-      const next = searchParams.get('next');
-      router.replace(next && next.startsWith('/') ? next : '/');
+      router.replace(sanitizeNextPath(searchParams.get('next')));
     } catch (err) {
       if (err && typeof err === 'object' && 'kind' in err) {
         setError(err as AppError);

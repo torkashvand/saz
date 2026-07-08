@@ -32,7 +32,10 @@ export function ProtectedRoute({
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated && pathname !== '/login') {
-      const next = encodeURIComponent(pathname || '/');
+      // window.location.search is read inside the effect (client-only) so the
+      // query string survives the login round-trip without useSearchParams,
+      // which would force a Suspense boundary on every page.
+      const next = encodeURIComponent((pathname || '/') + window.location.search);
       router.replace(`/login?next=${next}`);
       return;
     }

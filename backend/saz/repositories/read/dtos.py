@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from saz.domain.literals import RunStatus, StepStatus
+from saz.domain.literals import PlannerMode, RunStatus, StepStatus
 
 
 @dataclass
@@ -14,6 +14,7 @@ class FlowListItemDTO:
     name: str
     version: str | None
     description: str | None
+    planner_mode: PlannerMode
     created_at: datetime
 
 

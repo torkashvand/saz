@@ -4,20 +4,11 @@ import { useState } from 'react';
 import type { StepEditorProps } from '../step-editors/step-editor-shell';
 import { StaticField } from '../step-editors/step-editor-shell';
 import { JsonObjectEditor } from '../json-object-editor';
-import { MappingRows } from './mapping-rows';
+import { MappingRows, readStringMap } from './mapping-rows';
 import type { BindingContext } from '@/lib/flows/bindings';
 
 function asParams(step: StepEditorProps['step']): Record<string, unknown> {
   return (step.params as Record<string, unknown>) ?? {};
-}
-
-function asValues(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object') return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = typeof v === 'string' ? v : '';
-  }
-  return out;
 }
 
 /**
@@ -29,7 +20,7 @@ function asValues(value: unknown): Record<string, string> {
 export function AuditTrailEditor({ step, draft, priorStepIds, onChange }: StepEditorProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const params = asParams(step);
-  const content = asValues(params.content);
+  const { supported: contentSupported, values: content } = readStringMap(params.content);
 
   const context: BindingContext = {
     formFields: draft.form?.fields ?? [],
@@ -57,13 +48,24 @@ export function AuditTrailEditor({ step, draft, priorStepIds, onChange }: StepEd
 
       <div>
         <h4 className="text-sm font-medium text-slate-800 mb-2">What to save</h4>
-        <MappingRows
-          values={content}
-          context={context}
-          onChange={(next) => setParam('content', Object.keys(next).length ? next : undefined)}
-          addLabel="Add item to save"
-          namePlaceholder="Record field name"
-        />
+        {contentSupported ? (
+          <MappingRows
+            values={content}
+            context={context}
+            onChange={(next) => setParam('content', Object.keys(next).length ? next : undefined)}
+            addLabel="Add item to save"
+            namePlaceholder="Record field name"
+          />
+        ) : (
+          // Nested/non-string values can't be shown as binding chips without
+          // data loss — edit them as raw JSON instead.
+          <JsonObjectEditor
+            label="What to save (raw)"
+            value={params.content}
+            onChange={(next) => setParam('content', next)}
+            testId={`step-${step.id}-content`}
+          />
+        )}
       </div>
 
       <div>

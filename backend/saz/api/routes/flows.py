@@ -44,6 +44,7 @@ async def list_flows(
                 name=f.name,
                 version=f.version,
                 description=f.description,
+                planner_mode=f.planner_mode,
                 created_at=f.created_at,
             )
             for f in flows

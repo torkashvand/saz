@@ -57,7 +57,10 @@ export function WorkflowStepsSection({ draft, onChange, stepErrors }: WorkflowSt
 
   const duplicateStep = (index: number) => {
     const step = steps[index];
-    const newStep: WorkflowStepDraft = { ...step, id: `${step.id}_copy_${Date.now()}` };
+    // Deep-copy: a shallow spread would share params/expect/extras object
+    // references between the copy and the original.
+    const newStep: WorkflowStepDraft = structuredClone(step);
+    newStep.id = `${step.id}_copy_${Date.now()}`;
     const updated = [...steps];
     updated.splice(index + 1, 0, newStep);
     setSteps(updated);
@@ -106,7 +109,10 @@ export function WorkflowStepsSection({ draft, onChange, stepErrors }: WorkflowSt
         <div className="space-y-4">
           {steps.map((step, idx) => (
             <StepCard
-              key={idx}
+              // Keyed by step id so deleting/reordering doesn't transfer one
+              // card's local UI state (open advanced panel, JSON drafts) to a
+              // different step.
+              key={step.id}
               step={step}
               draft={draft}
               priorStepIds={steps.slice(0, idx).map((s) => s.id)}

@@ -5,7 +5,7 @@ import type { StepEditorProps } from '../step-editors/step-editor-shell';
 import { StaticField } from '../step-editors/step-editor-shell';
 import { JsonObjectEditor } from '../json-object-editor';
 import { BindingPicker } from '../binding-picker';
-import { MappingRows } from './mapping-rows';
+import { MappingRows, readStringMap } from './mapping-rows';
 import { DocumentConfigPreview } from './document-config-preview';
 import { getActiveDomainPack } from '@/lib/flows/domain-packs/registry';
 import { getFieldLabel, getFieldOptions } from '@/lib/flows/business-step-metadata';
@@ -18,16 +18,6 @@ import {
 
 function asParams(step: StepEditorProps['step']): Record<string, unknown> {
   return (step.params as Record<string, unknown>) ?? {};
-}
-
-function asValues(params: Record<string, unknown>): Record<string, string> {
-  const raw = params.values;
-  if (!raw || typeof raw !== 'object') return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    out[k] = typeof v === 'string' ? v : '';
-  }
-  return out;
 }
 
 /**
@@ -44,7 +34,7 @@ function asValues(params: Record<string, unknown>): Record<string, string> {
 export function DocumentGenerationEditor({ step, draft, priorStepIds, onChange }: StepEditorProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const params = asParams(step);
-  const values = asValues(params);
+  const { supported: valuesSupported, values } = readStringMap(params.values);
 
   const context: BindingContext = {
     formFields: draft.form?.fields ?? [],
@@ -131,7 +121,16 @@ export function DocumentGenerationEditor({ step, draft, priorStepIds, onChange }
         <h4 className="text-sm font-medium text-slate-800 mb-2">
           Field mappings{mappingCount > 0 ? ` (${mappingCount})` : ''}
         </h4>
-        <MappingRows values={values} context={context} onChange={setValues} />
+        {valuesSupported ? (
+          <MappingRows values={values} context={context} onChange={setValues} />
+        ) : (
+          <JsonObjectEditor
+            label="Field mappings (raw)"
+            value={params.values}
+            onChange={(next) => setParam('values', next)}
+            testId={`step-${step.id}-values`}
+          />
+        )}
       </div>
 
       <div>

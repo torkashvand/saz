@@ -19,13 +19,17 @@ export default function FlowsPage() {
   const [plannerFilter, setPlannerFilter] = useState<string>('all');
   const limit = 20;
 
+  // Search/planner filters are client-side, so pagination must run over the
+  // FILTERED set — paging the server per 20 rows while filtering locally made
+  // searches miss matches on other pages and produced incoherent page counts.
+  // The catalog is small; fetch it in one go and slice locally.
   const {
     data: flows,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['flows', page],
-    queryFn: () => api.listFlows({ limit, offset: page * limit }),
+    queryKey: ['flows', 'catalog'],
+    queryFn: () => api.listFlows({ limit: 500, offset: 0 }),
     retry: false,
   });
 
@@ -35,12 +39,14 @@ export default function FlowsPage() {
       const matchesSearch =
         f.name.toLowerCase().includes(search.toLowerCase()) ||
         (f.description?.toLowerCase().includes(search.toLowerCase()) ?? false);
-      const matchesPlanner = plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
+      const matchesPlanner = plannerFilter === 'all' || f.planner_mode === plannerFilter;
       return matchesSearch && matchesPlanner;
     });
   }, [flows, search, plannerFilter]);
 
-  const totalPages = flows ? Math.ceil(flows.total / limit) : 0;
+  const totalPages = Math.ceil(filtered.length / limit);
+  const currentPage = Math.min(page, Math.max(0, totalPages - 1));
+  const pageItems = filtered.slice(currentPage * limit, (currentPage + 1) * limit);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -60,13 +66,19 @@ export default function FlowsPage() {
             type="text"
             placeholder="Search workflows..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
           value={plannerFilter}
-          onChange={(e) => setPlannerFilter(e.target.value)}
+          onChange={(e) => {
+            setPlannerFilter(e.target.value);
+            setPage(0);
+          }}
           className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="all">All Modes</option>
@@ -86,7 +98,7 @@ export default function FlowsPage() {
       ) : filtered.length > 0 ? (
         <>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((flow) => (
+            {pageItems.map((flow) => (
               <WorkflowCard
                 key={flow.id}
                 flow={flow}
@@ -102,19 +114,19 @@ export default function FlowsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage(Math.max(0, page - 1))}
-                disabled={page === 0}
+                onClick={() => setPage(Math.max(0, currentPage - 1))}
+                disabled={currentPage === 0}
               >
                 ← Previous
               </Button>
               <span className="text-sm text-gray-600">
-                Page {page + 1} of {totalPages}
+                Page {currentPage + 1} of {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
-                disabled={page >= totalPages - 1}
+                onClick={() => setPage(Math.min(totalPages - 1, currentPage + 1))}
+                disabled={currentPage >= totalPages - 1}
               >
                 Next →
               </Button>

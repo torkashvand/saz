@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { BindingPicker } from '../binding-picker';
 import {
@@ -8,6 +9,27 @@ import {
   type BindingContext,
   type FriendlyBinding,
 } from '@/lib/flows/bindings';
+
+/**
+ * Read a params sub-object as a friendly string→expression map. `supported`
+ * is false when any value is a non-string (nested object/array/number), which
+ * MappingRows can't represent — callers fall back to the raw JSON editor so
+ * that data is preserved rather than coerced to '' and destroyed on edit.
+ */
+export function readStringMap(value: unknown): {
+  supported: boolean;
+  values: Record<string, string>;
+} {
+  if (value === undefined || value === null) return { supported: true, values: {} };
+  if (typeof value !== 'object' || Array.isArray(value)) return { supported: false, values: {} };
+  const values: Record<string, string> = {};
+  let supported = true;
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') values[k] = v;
+    else supported = false;
+  }
+  return { supported, values };
+}
 
 interface MappingRowsProps {
   /** Map of document/record field name -> compiled expression. */
@@ -33,7 +55,23 @@ export function MappingRows({
 }: MappingRowsProps) {
   const entries = Object.entries(values);
 
-  const renameKey = (oldKey: string, newKey: string) => {
+  // Key renames are edited in a local draft and committed on blur. Renaming
+  // live on every keystroke would, while typing THROUGH an existing key (e.g.
+  // "vendor" en route to "vendor_name"), momentarily collide and drop the
+  // other mapping via Object.fromEntries dedupe.
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+
+  const commitKey = (oldKey: string) => {
+    const draft = keyDrafts[oldKey];
+    setKeyDrafts((d) => {
+      const next = { ...d };
+      delete next[oldKey];
+      return next;
+    });
+    if (draft === undefined) return;
+    const newKey = draft.trim();
+    // Reject empty or colliding names — revert to the original silently.
+    if (!newKey || newKey === oldKey || newKey in values) return;
     onChange(
       Object.fromEntries(
         Object.entries(values).map(([k, v]) => (k === oldKey ? [newKey, v] : [k, v])),
@@ -77,13 +115,14 @@ export function MappingRows({
       </div>
 
       {entries.map(([key, expr], i) => (
-        <div key={i} className="border border-slate-200 rounded p-3 space-y-2 bg-white">
+        <div key={key} className="border border-slate-200 rounded p-3 space-y-2 bg-white">
           <div className="flex items-center gap-2">
             <input
               type="text"
               aria-label={`Field name for mapping ${i + 1}`}
-              value={key}
-              onChange={(e) => renameKey(key, e.target.value)}
+              value={keyDrafts[key] ?? key}
+              onChange={(e) => setKeyDrafts((d) => ({ ...d, [key]: e.target.value }))}
+              onBlur={() => commitKey(key)}
               placeholder={namePlaceholder}
               className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />

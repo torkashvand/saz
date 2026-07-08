@@ -4,21 +4,8 @@ import type { StepEditorProps } from './step-editor-shell';
 import { ExpressionInput } from './step-editor-shell';
 import { InputDataMapping } from './ai-fields/input-data-mapping';
 import { OutputSchemaEditor } from './ai-fields/output-schema-editor';
-
-const LOCALE_FRIENDLY_TYPES = new Set([
-  'ai.extract',
-  'ai.generate',
-  'ai.route',
-  'ai.score',
-  'ai.assess',
-  'ai.normalize',
-  'ai.match',
-  'ai.evaluate',
-  'ai.compare',
-  'ai.translate',
-  'ai.summarize',
-  'ai.plan',
-]);
+import { CommaListInput } from '../comma-list-input';
+import { AI_STEP_TYPES } from '@/lib/flows/types';
 
 /**
  * Shared editor for every `ai.*` step. AI ops all use the same fields
@@ -27,7 +14,7 @@ const LOCALE_FRIENDLY_TYPES = new Set([
  * top_k, tools_allowlist).
  */
 export function AiStepEditor({ step, draft, priorStepIds, onChange }: StepEditorProps) {
-  if (!LOCALE_FRIENDLY_TYPES.has(step.type)) return null;
+  if (!AI_STEP_TYPES.has(step.type)) return null;
 
   const extras = step.extras ?? {};
 
@@ -69,17 +56,9 @@ export function AiStepEditor({ step, draft, priorStepIds, onChange }: StepEditor
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Branches (comma-separated)
           </label>
-          <input
-            type="text"
-            value={(step.branches_enum || []).join(', ')}
-            onChange={(e) => {
-              const items = e.target.value
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean);
-              onChange({ branches_enum: items.length > 0 ? items : undefined });
-            }}
-            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+          <CommaListInput
+            value={step.branches_enum || []}
+            onChange={(items) => onChange({ branches_enum: items.length > 0 ? items : undefined })}
             placeholder="approve, reject, escalate"
           />
         </div>
@@ -119,17 +98,11 @@ export function AiStepEditor({ step, draft, priorStepIds, onChange }: StepEditor
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Tools allowlist (comma-separated)
           </label>
-          <input
-            type="text"
-            value={Array.isArray(extras.tools_allowlist) ? extras.tools_allowlist.join(', ') : ''}
-            onChange={(e) => {
-              const items = e.target.value
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean);
-              setExtra('tools_allowlist', items.length > 0 ? items : undefined);
-            }}
-            className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+          <CommaListInput
+            value={
+              Array.isArray(extras.tools_allowlist) ? (extras.tools_allowlist as string[]) : []
+            }
+            onChange={(items) => setExtra('tools_allowlist', items.length > 0 ? items : undefined)}
             placeholder="http_request, artifact.store"
           />
         </div>

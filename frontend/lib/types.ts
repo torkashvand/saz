@@ -5,8 +5,9 @@
 export interface FlowListItem {
   id: string;
   name: string;
-  version?: string;
-  description?: string;
+  version?: string | null;
+  description?: string | null;
+  planner_mode: PlannerMode;
   created_at: string;
 }
 

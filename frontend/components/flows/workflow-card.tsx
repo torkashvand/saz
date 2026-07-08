@@ -13,13 +13,11 @@ interface WorkflowCardProps {
 }
 
 export function WorkflowCard({ flow, showEdit, showLaunch, onLaunch }: WorkflowCardProps) {
-  const plannerMode = (flow as any).planner_mode || 'deterministic';
-
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-5 hover:shadow-md hover:border-blue-300 transition-all group relative">
       <div className="flex items-start justify-between mb-2">
         <h3 className="font-semibold text-slate-900 text-lg">{flow.name}</h3>
-        <PlannerBadge mode={plannerMode} />
+        <PlannerBadge mode={flow.planner_mode} />
       </div>
 
       {flow.version && <div className="text-xs text-slate-500 mb-2">v{flow.version}</div>}

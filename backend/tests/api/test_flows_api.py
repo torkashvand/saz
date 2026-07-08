@@ -172,6 +172,16 @@ def test_planner_mode(app_client, registered_flow):
     assert resp.json()["planner_mode"] == "deterministic"
 
 
+def test_list_includes_planner_mode(app_client, registered_flow):
+    """The list endpoint must expose planner_mode — the catalog UI filters
+    and badges flows by it."""
+    resp = app_client.get("/api/v1/flows")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    item = next(i for i in items if i["id"] == registered_flow)
+    assert item["planner_mode"] == "deterministic"
+
+
 def test_flow_metadata(app_client, registered_flow):
     resp = app_client.get(f"/api/v1/flows/{registered_flow}")
     data = resp.json()

@@ -80,9 +80,12 @@ describe('AuditTrailEditor', () => {
   it('maps saved items through binding chips into params.content', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /add item to save/i }));
+    // Key renames commit on blur (renaming per keystroke could collide with
+    // an existing key mid-typing and silently drop a mapping).
     fireEvent.change(screen.getByLabelText(/field name for mapping 1/i), {
       target: { value: 'contact' },
     });
+    fireEvent.blur(screen.getByLabelText(/field name for mapping 1/i));
     fireEvent.change(screen.getByLabelText(/source for mapping 1/i), { target: { value: 'form' } });
     fireEvent.change(screen.getByLabelText(/form field for mapping 1/i), {
       target: { value: 'contact_email' },

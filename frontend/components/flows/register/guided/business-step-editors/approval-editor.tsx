@@ -6,7 +6,7 @@ import type { StepEditorProps } from '../step-editors/step-editor-shell';
 import { StaticField } from '../step-editors/step-editor-shell';
 import { JsonObjectEditor } from '../json-object-editor';
 import { BindingPicker } from '../binding-picker';
-import { MappingRows } from './mapping-rows';
+import { MappingRows, readStringMap } from './mapping-rows';
 import {
   bindingToExpression,
   expressionToBinding,
@@ -22,15 +22,6 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
-function asValues(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object') return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = typeof v === 'string' ? v : '';
-  }
-  return out;
-}
-
 /**
  * Friendly editor for "Review & approval" steps (human.approval).
  *
@@ -42,7 +33,7 @@ export function ApprovalEditor({ step, draft, priorStepIds, onChange }: StepEdit
   const [showAdvanced, setShowAdvanced] = useState(false);
   const params = asParams(step);
   const approvers = asStringArray(params.approvers);
-  const payload = asValues(params.payload);
+  const { supported: payloadSupported, values: payload } = readStringMap(params.payload);
 
   const context: BindingContext = {
     formFields: draft.form?.fields ?? [],
@@ -134,13 +125,22 @@ export function ApprovalEditor({ step, draft, priorStepIds, onChange }: StepEdit
 
       <div>
         <h4 className="text-sm font-medium text-slate-800 mb-2">What the reviewer sees</h4>
-        <MappingRows
-          values={payload}
-          context={context}
-          onChange={(next) => setParam('payload', Object.keys(next).length ? next : undefined)}
-          addLabel="Add item"
-          namePlaceholder="Item name"
-        />
+        {payloadSupported ? (
+          <MappingRows
+            values={payload}
+            context={context}
+            onChange={(next) => setParam('payload', Object.keys(next).length ? next : undefined)}
+            addLabel="Add item"
+            namePlaceholder="Item name"
+          />
+        ) : (
+          <JsonObjectEditor
+            label="What the reviewer sees (raw)"
+            value={params.payload}
+            onChange={(next) => setParam('payload', next)}
+            testId={`step-${step.id}-payload`}
+          />
+        )}
       </div>
 
       <div>

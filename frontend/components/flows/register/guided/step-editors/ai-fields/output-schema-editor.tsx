@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { JsonObjectEditor } from '../../json-object-editor';
+import { CommaListInput } from '../../comma-list-input';
 import {
   friendlyToSchema,
   schemaToFriendly,
@@ -70,10 +71,15 @@ export function OutputSchemaEditor({
     emit({ ...schema, fields: schema.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
   };
   const addField = () => {
-    const n = schema.fields.length + 1;
+    // Derive from existing names, not the count — "add 2, delete the first,
+    // add again" would otherwise mint a duplicate field_2.
+    const existing = new Set(schema.fields.map((f) => f.name));
+    let n = schema.fields.length + 1;
+    let name = `field_${n}`;
+    while (existing.has(name)) name = `field_${++n}`;
     emit({
       ...schema,
-      fields: [...schema.fields, { name: `field_${n}`, type: 'string', required: false }],
+      fields: [...schema.fields, { name, type: 'string', required: false }],
     });
   };
   const removeField = (i: number) => {
@@ -158,17 +164,12 @@ export function OutputSchemaEditor({
             </div>
 
             {enumApplies && (
-              <input
-                type="text"
-                aria-label={`Allowed values ${i + 1}`}
-                value={(f.enumValues ?? []).join(', ')}
-                onChange={(e) => {
-                  const items = e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  setField(i, { enumValues: items.length > 0 ? items : undefined });
-                }}
+              <CommaListInput
+                ariaLabel={`Allowed values ${i + 1}`}
+                value={f.enumValues ?? []}
+                onChange={(items) =>
+                  setField(i, { enumValues: items.length > 0 ? items : undefined })
+                }
                 placeholder="Allowed values (comma-separated, optional)"
                 className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />

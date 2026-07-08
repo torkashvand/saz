@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface JsonObjectEditorProps {
   label: string;
@@ -34,27 +34,32 @@ export function JsonObjectEditor({
 }: JsonObjectEditorProps) {
   const [draft, setDraft] = useState<string>(() => stringify(value));
   const [error, setError] = useState<string | null>(null);
-  const [focused, setFocused] = useState(false);
+  // The last value THIS editor emitted, so we can distinguish an external
+  // change (adopt it) from an echo of our own onChange (ignore it).
+  const lastEmitted = useRef<unknown>(value);
 
-  // Sync the textarea when the parent value changes from outside (e.g. when
-  // the YAML mode rewrites the draft). Avoid clobbering an in-progress edit.
+  // Adopt external value changes (e.g. YAML mode rewrote the draft). Crucially
+  // this does NOT run on blur, so typing invalid JSON and clicking away keeps
+  // the invalid text and its error visible instead of silently reverting.
   useEffect(() => {
-    if (!focused) {
-      setDraft(stringify(value));
-      setError(null);
-    }
-  }, [value, focused]);
+    if (value === lastEmitted.current) return;
+    lastEmitted.current = value;
+    setDraft(stringify(value));
+    setError(null);
+  }, [value]);
 
   const handleChange = (next: string) => {
     setDraft(next);
     if (next.trim() === '') {
       setError(null);
+      lastEmitted.current = undefined;
       onChange(undefined);
       return;
     }
     try {
       const parsed = JSON.parse(next);
       setError(null);
+      lastEmitted.current = parsed;
       onChange(parsed);
     } catch (e: any) {
       setError(e?.message || 'Invalid JSON');
@@ -67,8 +72,6 @@ export function JsonObjectEditor({
       <textarea
         value={draft}
         onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
         rows={rows}
         aria-label={testId || label}
         spellCheck={false}

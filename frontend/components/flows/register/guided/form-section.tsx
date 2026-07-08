@@ -16,6 +16,7 @@ import {
 import { resolveStepMetadata } from '@/lib/flows/business-step-metadata';
 import { GENERIC_PACK, getActiveDomainPack } from '@/lib/flows/domain-packs/registry';
 import { ExpertModeToggle } from './expert-mode-toggle';
+import { CommaListInput } from './comma-list-input';
 
 interface FormSectionProps {
   draft: FlowDraft;
@@ -28,11 +29,22 @@ const FORMAT_OPTIONS: ReadonlyArray<{ value: '' | 'email' | 'uri'; label: string
   { value: 'uri', label: 'URI' },
 ];
 
+let _rowIdCounter = 0;
+const nextRowId = () => `field-row-${++_rowIdCounter}`;
+
 export function FormSection({ draft, onChange }: FormSectionProps) {
   const fields = draft.form?.fields ?? [];
   const [expertMode, setExpertMode] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollToNewField, setScrollToNewField] = useState(false);
+
+  // Stable React keys for the field rows. Fields have no persistent id and
+  // their `name` changes while typing, so we track a parallel id list (fields
+  // are only appended/removed, never reordered). Index keys would transfer a
+  // row's local input drafts to its neighbor after a deletion.
+  const rowIdsRef = useRef<string[]>(fields.map(() => nextRowId()));
+  while (rowIdsRef.current.length < fields.length) rowIdsRef.current.push(nextRowId());
+  rowIdsRef.current.length = fields.length;
 
   // Bring a newly added field into view and focus its first control.
   useEffect(() => {
@@ -57,11 +69,13 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
     onChange({ form: next.length > 0 ? { fields: next } : undefined });
 
   const addField = () => {
-    const newField: FlowFormField = {
-      name: `field_${fields.length + 1}`,
-      type: 'string',
-      required: false,
-    };
+    // Derive from existing names, not the count, so "add 2, delete the first,
+    // add" doesn't mint a duplicate field_2.
+    const existing = new Set(fields.map((f) => f.name));
+    let n = fields.length + 1;
+    let name = `field_${n}`;
+    while (existing.has(name)) name = `field_${++n}`;
+    const newField: FlowFormField = { name, type: 'string', required: false };
     setFields([...fields, newField]);
     setScrollToNewField(true);
   };
@@ -78,7 +92,10 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
     setFields(updated);
   };
 
-  const removeField = (index: number) => setFields(fields.filter((_, i) => i !== index));
+  const removeField = (index: number) => {
+    rowIdsRef.current = rowIdsRef.current.filter((_, i) => i !== index);
+    setFields(fields.filter((_, i) => i !== index));
+  };
 
   return (
     <div id="form" className="bg-white border border-slate-200 rounded-lg p-6">
@@ -109,14 +126,14 @@ export function FormSection({ draft, onChange }: FormSectionProps) {
           {fields.map((field, idx) =>
             expertMode ? (
               <FormFieldRow
-                key={idx}
+                key={rowIdsRef.current[idx]}
                 field={field}
                 onChange={(updates) => updateField(idx, updates)}
                 onRemove={() => removeField(idx)}
               />
             ) : (
               <BusinessFieldRow
-                key={idx}
+                key={rowIdsRef.current[idx]}
                 field={field}
                 onChange={(next) => replaceField(idx, next)}
                 onRemove={() => removeField(idx)}
@@ -144,7 +161,6 @@ interface BusinessFieldRowProps {
 function BusinessFieldRow({ field, onChange, onRemove }: BusinessFieldRowProps) {
   const label = field.title ?? '';
   const friendlyType = toFriendlyFieldType(field);
-  const choices = (field.enum ?? []).map((v) => String(v)).join(', ');
 
   const onLabelChange = (nextLabel: string) => {
     const next: FlowFormField = { ...field, title: nextLabel };
@@ -240,17 +256,10 @@ function BusinessFieldRow({ field, onChange, onRemove }: BusinessFieldRowProps) 
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Choices (comma-separated)
             </label>
-            <input
-              type="text"
-              aria-label="Choices"
-              value={choices}
-              onChange={(e) => {
-                const items = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                onChange({ ...field, enum: items });
-              }}
+            <CommaListInput
+              ariaLabel="Choices"
+              value={(field.enum ?? []).map((v) => String(v))}
+              onChange={(items) => onChange({ ...field, enum: items })}
               className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="low, medium, high"
             />
@@ -270,7 +279,6 @@ interface FormFieldRowProps {
 function FormFieldRow({ field, onChange, onRemove }: FormFieldRowProps) {
   const isNumeric = field.type === 'number' || field.type === 'integer';
   const isTextual = field.type === 'string' || field.type === 'text';
-  const enumDraft = (field.enum || []).join(', ');
 
   return (
     <div className="border border-slate-200 rounded-md p-4 space-y-3">
@@ -454,22 +462,9 @@ function FormFieldRow({ field, onChange, onRemove }: FormFieldRowProps) {
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Allowed values (comma-separated)
             </label>
-            <input
-              type="text"
-              value={enumDraft}
-              onChange={(e) => {
-                const trimmed = e.target.value.trim();
-                if (!trimmed) {
-                  onChange({ enum: undefined });
-                  return;
-                }
-                const items = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                onChange({ enum: items.length > 0 ? items : undefined });
-              }}
-              className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+            <CommaListInput
+              value={(field.enum ?? []).map((v) => String(v))}
+              onChange={(items) => onChange({ enum: items.length > 0 ? items : undefined })}
               placeholder="low, medium, high"
             />
           </div>

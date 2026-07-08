@@ -136,6 +136,7 @@ class FlowListItem(BaseModel):
     name: str
     version: str | None = None
     description: str | None = None
+    planner_mode: PlannerMode
     created_at: datetime
 
 

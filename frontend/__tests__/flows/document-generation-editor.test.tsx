@@ -64,9 +64,12 @@ describe('DocumentGenerationEditor', () => {
     render(<Harness />);
 
     fireEvent.click(screen.getByRole('button', { name: /add field mapping/i }));
+    // Key renames commit on blur (per-keystroke renames could collide with an
+    // existing key mid-typing and silently drop a mapping).
     fireEvent.change(screen.getByLabelText(/field name for mapping 1/i), {
       target: { value: 'title_system_name' },
     });
+    fireEvent.blur(screen.getByLabelText(/field name for mapping 1/i));
     fireEvent.change(screen.getByLabelText(/source for mapping 1/i), {
       target: { value: 'form' },
     });

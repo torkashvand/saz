@@ -23,13 +23,17 @@ class FlowReadRepository:
         stmt = select(Flow).order_by(Flow.created_at.desc()).limit(limit).offset(offset)
         flows = self.session.scalars(stmt).all()
 
-        # Map to DTOs
+        # Map to DTOs. planner_mode lives in the stored definition, not as a
+        # column (mirrors the detail endpoint's derivation).
         items = [
             FlowListItemDTO(
                 id=flow.id,
                 name=flow.name,
                 version=flow.version,
                 description=flow.description,
+                planner_mode=(flow.definition.get("workflow") or {}).get(
+                    "planner_mode", "deterministic"
+                ),
                 created_at=flow.created_at,
             )
             for flow in flows

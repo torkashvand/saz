@@ -69,12 +69,12 @@ function extractValidationErrors(data: any): ValidationError[] | undefined {
       }));
   }
 
-  // Generic {field: message} shape
-  if (data?.errors && typeof data.errors === 'object') {
-    return Object.entries(data.errors).map(([field, message]) => ({
-      field,
-      message: String(message),
-    }));
+  // Backend ErrorEnvelope details: [{field?, message}]
+  if (Array.isArray(data?.details)) {
+    const entries = data.details
+      .filter((d: any) => d && typeof d.message === 'string')
+      .map((d: any) => ({ field: String(d.field ?? ''), message: d.message }));
+    if (entries.length > 0) return entries;
   }
 
   return undefined;
@@ -107,8 +107,11 @@ export async function fromHttpError(
         message = data.detail;
       }
 
-      // Extract error code
-      if (typeof data?.code === 'string') {
+      // Extract the machine-readable code. The backend ErrorEnvelope carries
+      // it in `error` (e.g. {"error": "not_found", "message": ...}).
+      if (typeof data?.error === 'string') {
+        code = data.error;
+      } else if (typeof data?.code === 'string') {
         code = data.code;
       }
 

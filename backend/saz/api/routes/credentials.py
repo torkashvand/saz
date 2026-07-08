@@ -97,9 +97,11 @@ async def update_credential(
     _user: OperatorUserDep,
 ) -> CredentialResponse:
     """Update an existing credential."""
+    # data=None means "keep the stored secret" (metadata-only update); the
+    # old `req.data or {}` silently WIPED the secret on such updates.
     credential_name = service.update(
         name=name,
-        data=req.data or {},
+        data=req.data,
         description=req.description,
     )
 

@@ -83,11 +83,12 @@ class CredentialService:
             for c in credentials
         ]
 
-    def update(self, name: str, data: dict, description: str | None = None) -> str:
+    def update(self, name: str, data: dict | None, description: str | None = None) -> str:
         """Update credential.
 
-        Updates only touch the secret payload and description; the original
-        ``created_by_user_id`` is preserved on the existing row.
+        ``data=None`` keeps the stored secret payload untouched (metadata-only
+        update); a dict replaces it. The original ``created_by_user_id`` is
+        preserved on the existing row.
         """
         assert self.uow.credentials is not None
 
@@ -95,8 +96,11 @@ class CredentialService:
         if not existing:
             raise ValueError(f"Credential not found: {name}")
 
-        data_yaml = yaml.dump(data)
-        encrypted = self.cipher.encrypt(data_yaml.encode())
+        if data is None:
+            encrypted = existing.data_encrypted
+        else:
+            data_yaml = yaml.dump(data)
+            encrypted = self.cipher.encrypt(data_yaml.encode())
 
         self.uow.credentials.upsert(
             name=name,

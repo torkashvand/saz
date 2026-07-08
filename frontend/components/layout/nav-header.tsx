@@ -79,7 +79,10 @@ export function NavHeader() {
                 onClick={handleLogout}
                 aria-label="Sign out"
                 data-testid="nav-logout"
-                className="hidden md:inline-flex"
+                // When the mobile menu is hidden (login/change-password),
+                // there is no other sign-out control on small screens — the
+                // button must stay visible at every width there.
+                className={showLinks ? 'hidden md:inline-flex' : ''}
               >
                 <LogOut className="w-4 h-4 mr-1" />
                 Sign out

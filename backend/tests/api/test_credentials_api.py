@@ -96,6 +96,28 @@ def test_update_changes_data_without_leaking_either_value(app_client, db_engine)
         assert b"v2_new" not in row.data_encrypted
 
 
+def test_update_without_data_keeps_stored_secret(app_client, db_engine):
+    """A metadata-only update (no `data` in the PUT body) must NOT wipe the
+    stored secret — it used to be replaced with an empty payload."""
+    app_client.post(
+        "/api/v1/credentials",
+        json={"name": "api_cred_meta", "type": "api_token", "data": {"token": "keep_me"}},
+    )
+    with Session(db_engine) as session:
+        before = session.get(Credential, "api_cred_meta").data_encrypted
+
+    resp = app_client.put(
+        "/api/v1/credentials/api_cred_meta",
+        json={"description": "updated description only"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["description"] == "updated description only"
+
+    with Session(db_engine) as session:
+        after = session.get(Credential, "api_cred_meta").data_encrypted
+    assert after == before, "metadata-only update replaced the stored secret payload"
+
+
 def test_delete_removes_credential(app_client):
     app_client.post(
         "/api/v1/credentials",

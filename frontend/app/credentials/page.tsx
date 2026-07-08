@@ -282,6 +282,24 @@ export default function CredentialsPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Edit mode with the secret left untouched → metadata-only update. The
+    // stored value can't be displayed, so an empty form means "keep it"; the
+    // PUT omits `data` and the backend preserves the existing payload
+    // (sending {} would REPLACE the secret with an empty object).
+    if (viewMode === 'edit' && selectedCredential) {
+      const secretUntouched =
+        mode === 'simple'
+          ? Object.keys(buildDataFromSimpleFields()).length === 0
+          : dataJson.trim() === '' || dataJson.trim() === '{}';
+      if (secretUntouched) {
+        updateMutation.mutate({
+          name: selectedCredential.name,
+          data: { description },
+        });
+        return;
+      }
+    }
+
     let data: Record<string, any>;
 
     if (mode === 'simple') {

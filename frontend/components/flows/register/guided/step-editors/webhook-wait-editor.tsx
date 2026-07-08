@@ -42,7 +42,9 @@ export function WebhookWaitEditor({ step, onChange }: StepEditorProps) {
           };
           onChange({ params: Object.keys(merged).length > 0 ? merged : undefined });
         }}
-        placeholder='{ "timeout_ms": 86400000 }'
+        // The engine reads timeout_minutes/timeout_seconds for webhook.wait;
+        // a timeout_ms example would be silently ignored at runtime.
+        placeholder='{ "timeout_minutes": 1440 }'
         testId={`step-${step.id}-params-extra`}
       />
     </div>

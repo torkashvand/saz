@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useCreateRun } from '@/lib/hooks';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -71,13 +72,17 @@ function NewRunPageContent() {
     router.push(`/runs/new?flow=${flowId}`, { scroll: false });
   };
 
+  // useCreateRun invalidates ['runs'] on success so the runs list isn't stale
+  // after launching from here.
+  const createRunMutation = useCreateRun();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFlow) return;
 
     setSubmitting(true);
     try {
-      const result = await api.createRun({
+      const result = await createRunMutation.mutateAsync({
         flow_id: selectedFlow.id,
         payload: formData,
       });

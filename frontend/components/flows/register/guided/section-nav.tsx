@@ -24,6 +24,10 @@ const SECTION_FOR_ERROR: Record<string, string> = {
   policies: 'policies',
   telemetry: 'telemetry',
   workflow: 'steps',
+  credentials: 'policies',
+  // Lint findings attach to steps (flow-builder maps them with
+  // section: 'consistency').
+  consistency: 'steps',
 };
 
 interface SectionNavProps {

@@ -21,6 +21,7 @@ export default function AdminAuthProvidersPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<AuthProvider | null>(null);
+  const [actionError, setActionError] = useState<AppError | null>(null);
   const [testResult, setTestResult] = useState<{ key: string; ok: boolean; detail: string } | null>(
     null,
   );
@@ -40,13 +41,23 @@ export default function AdminAuthProvidersPage() {
 
   async function remove(p: AuthProvider) {
     if (!confirm(`Delete SSO provider "${p.display_name}"?`)) return;
-    await api.deleteAuthProvider(p.id);
-    invalidate();
+    setActionError(null);
+    try {
+      await api.deleteAuthProvider(p.id);
+      invalidate();
+    } catch (err) {
+      setActionError(err as AppError);
+    }
   }
 
   async function toggleEnabled(p: AuthProvider) {
-    await api.updateAuthProvider(p.id, { enabled: !p.enabled });
-    invalidate();
+    setActionError(null);
+    try {
+      await api.updateAuthProvider(p.id, { enabled: !p.enabled });
+      invalidate();
+    } catch (err) {
+      setActionError(err as AppError);
+    }
   }
 
   return (
@@ -65,6 +76,7 @@ export default function AdminAuthProvidersPage() {
       </div>
 
       {error && <ErrorBanner error={error as unknown as AppError} />}
+      {actionError && <ErrorBanner error={actionError} />}
       {testResult && (
         <div
           className={`text-sm rounded-md px-3 py-2 ${testResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}
@@ -279,7 +291,7 @@ function ProviderModal({
                 data-1p-ignore
                 data-lpignore="true"
                 data-bwignore
-                value={form.client_secret}
+                value={form.client_secret ?? ''}
                 onChange={(e) => set({ client_secret: e.target.value })}
                 className="pr-10"
                 data-testid="provider-secret"

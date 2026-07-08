@@ -557,6 +557,7 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
     queryFn: () => api.listUserSessions(target.id),
   });
   const [busy, setBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState<AppError | null>(null);
 
   const sessions = data?.items ?? [];
   const isSelf = !!currentUser && target.id === currentUser.id;
@@ -584,6 +585,7 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
   async function revokeOne(sessionId: string) {
     const revoked = sessions.find((s) => s.id === sessionId);
     setBusy(true);
+    setRevokeError(null);
     try {
       await api.revokeUserSession(target.id, sessionId);
       if (isSelf && revoked?.is_current) {
@@ -592,6 +594,10 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
       }
       dropFromCache((id) => id === sessionId);
       void refetch();
+    } catch (err) {
+      // A failed revoke must be visible — otherwise the session silently
+      // stays listed with no explanation.
+      setRevokeError(err as AppError);
     } finally {
       setBusy(false);
     }
@@ -600,6 +606,7 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
   async function revokeAll() {
     if (!confirm(`Sign ${target.username} out of all ${sessions.length} session(s)?`)) return;
     setBusy(true);
+    setRevokeError(null);
     try {
       await api.revokeAllUserSessions(target.id);
       if (isSelf) {
@@ -608,6 +615,8 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
       }
       dropFromCache(() => true);
       void refetch();
+    } catch (err) {
+      setRevokeError(err as AppError);
     } finally {
       setBusy(false);
     }
@@ -616,6 +625,7 @@ function SessionsModal({ target, onClose }: { target: AdminUser; onClose: () => 
   return (
     <ModalShell title={`Sessions for ${target.username}`} onClose={onClose}>
       {error && <ErrorBanner error={error as unknown as AppError} />}
+      {revokeError && <ErrorBanner error={revokeError} />}
       <p className="text-sm text-slate-600 mb-3">
         Active refresh sessions. Revoking one rejects its access token on the next request; revoking
         all signs the user out everywhere.

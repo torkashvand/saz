@@ -34,10 +34,11 @@ function readableFilename(step: WorkflowStepDraft): string {
  */
 export function DocumentConfigPreview({
   step,
-  templateLabel,
+  templateDisplay,
 }: {
   step: WorkflowStepDraft;
-  templateLabel: string;
+  /** Display value of the SELECTED template (preset label or raw path). */
+  templateDisplay: string;
 }) {
   const p = params(step);
   const v = values(step);
@@ -57,7 +58,7 @@ export function DocumentConfigPreview({
         <dt className="text-slate-500">Purpose</dt>
         <dd>{purpose}</dd>
         <dt className="text-slate-500">Template</dt>
-        <dd>{hasTemplate ? templateLabel : 'Not selected'}</dd>
+        <dd>{hasTemplate ? templateDisplay : 'Not selected'}</dd>
         <dt className="text-slate-500">Output file</dt>
         <dd>{readableFilename(step)}</dd>
         <dt className="text-slate-500">Fields mapped</dt>

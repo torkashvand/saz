@@ -69,6 +69,10 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
   const lintTimer = useRef<NodeJS.Timeout | null>(null);
   const isUpdating = useRef(false);
   const initialParseRan = useRef(false);
+  // Monotonic sequence guards: a slow older compile/lint response must not
+  // overwrite the result of a newer request.
+  const compileSeq = useRef(0);
+  const lintSeq = useRef(0);
 
   // Edit mode: parse the initial YAML once into the semantic draft.
   useEffect(() => {
@@ -158,10 +162,12 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
     }
     if (lintTimer.current) clearTimeout(lintTimer.current);
     lintTimer.current = setTimeout(async () => {
+      const seq = ++lintSeq.current;
       try {
-        setLintResult(await api.lintFlow({ yaml }));
+        const result = await api.lintFlow({ yaml });
+        if (seq === lintSeq.current) setLintResult(result);
       } catch {
-        setLintResult(null);
+        if (seq === lintSeq.current) setLintResult(null);
       }
     }, 500);
     return () => {
@@ -171,8 +177,10 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
 
   const runDirectCompile = async (generated: string) => {
     if (!generated.trim()) return;
+    const seq = ++compileSeq.current;
     try {
       const response = await api.compileFlow({ yaml: generated });
+      if (seq !== compileSeq.current) return;
       if (response.valid) {
         setValidationResult({
           valid: true,
@@ -199,6 +207,7 @@ export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: Fl
         });
       }
     } catch (err: any) {
+      if (seq !== compileSeq.current) return;
       setValidationResult({
         valid: false,
         errors: [{ message: err?.message || 'Validation failed' }],

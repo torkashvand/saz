@@ -162,6 +162,8 @@ export interface RunListItem {
 export interface RunListResponse {
   items: RunListItem[];
   total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CreateRunRequest {
@@ -191,7 +193,6 @@ export interface RunDetailResponse {
   total_cost_usd: number;
   policy_violations?: any;
   steps: RunStep[];
-  artifacts?: string[];
 
   // Enhanced UX fields
   error_summary?: {
@@ -230,7 +231,7 @@ export interface RunStep {
   name: string;
   attempt: number;
   step_type: string;
-  status: 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'skipped';
+  status: StepStatus;
   start_ts?: string;
   end_ts?: string;
   duration_ms?: number;
@@ -249,6 +250,7 @@ export interface RunStep {
 
 export interface RunStepsResponse {
   run_id: string;
+  status: RunStatus;
   steps: RunStep[];
 }
 
@@ -341,7 +343,7 @@ export interface RetryRunResponse {
 
 export interface ArtifactItem {
   id: string;
-  step_id: string;
+  step_id: string | null;
   filename: string;
   content_type: string;
   size_bytes: number;
@@ -458,6 +460,7 @@ export interface Event {
   planner_mode: PlannerMode;
   severity: Severity;
   actor: Actor;
+  actor_user_id?: string | null;
 
   summary: string;
   payload: Record<string, any>;
@@ -603,7 +606,8 @@ export interface CreateAuthProviderRequest {
   display_name: string;
   issuer: string;
   client_id: string;
-  client_secret: string;
+  // Optional: public (PKCE-only) clients have no secret.
+  client_secret?: string | null;
   scopes?: string;
   enabled?: boolean;
   allowed_domains?: string | null;

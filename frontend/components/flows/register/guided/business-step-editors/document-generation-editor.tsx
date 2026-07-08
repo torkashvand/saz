@@ -115,7 +115,10 @@ export function DocumentGenerationEditor({ step, draft, priorStepIds, onChange }
         onChange={(next) => setParam('output_name', next || undefined)}
       />
 
-      <DocumentConfigPreview step={step} templateLabel={templateLabel} />
+      <DocumentConfigPreview
+        step={step}
+        templateDisplay={presets.find((p) => p.value === template)?.label ?? template}
+      />
 
       <div>
         <h4 className="text-sm font-medium text-slate-800 mb-2">

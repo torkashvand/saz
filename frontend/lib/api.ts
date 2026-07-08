@@ -453,7 +453,7 @@ export const api = {
    * List artifacts for a run
    */
   getRunArtifacts: (id: string, stepId?: string) => {
-    const query = stepId ? `?step_id=${stepId}` : '';
+    const query = stepId ? `?step_id=${encodeURIComponent(stepId)}` : '';
     return fetchApi<ArtifactListResponse>(`/api/v1/runs/${id}/artifacts${query}`);
   },
 
@@ -516,7 +516,7 @@ export const api = {
    * Update an existing credential
    */
   updateCredential: (name: string, data: UpdateCredentialRequest) =>
-    fetchApi<CredentialResponse>(`/api/v1/credentials/${name}`, {
+    fetchApi<CredentialResponse>(`/api/v1/credentials/${encodeURIComponent(name)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
@@ -525,7 +525,7 @@ export const api = {
    * Delete a credential
    */
   deleteCredential: (name: string) =>
-    fetchApi<{ status: string; name: string }>(`/api/v1/credentials/${name}`, {
+    fetchApi<{ status: string; name: string }>(`/api/v1/credentials/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
 

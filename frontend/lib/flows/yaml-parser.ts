@@ -12,7 +12,6 @@ import type {
   StepType,
   WorkflowStepDraft,
 } from './types';
-import { piiPolicyFromBackend } from './types';
 import type { CompileFlowResponse } from '../types';
 import { api } from '../api';
 
@@ -417,5 +416,3 @@ function asStringArray(value: unknown): string[] | undefined {
   const out = value.filter((v): v is string => typeof v === 'string');
   return out.length > 0 ? out : undefined;
 }
-
-export { piiPolicyFromBackend };

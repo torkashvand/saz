@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toFriendlyError, toFriendlyErrors } from '@/lib/flows/friendly-validation';
+import { toFriendlyError } from '@/lib/flows/friendly-validation';
 import type { ValidationError } from '@/lib/flows/types';
 import type { WorkflowStepDraft } from '@/lib/flows/types';
 
@@ -59,17 +59,5 @@ describe('toFriendlyError', () => {
   it('falls back to the original message for unknown codes', () => {
     const err: ValidationError = { code: 'something.weird', message: 'raw backend message' };
     expect(toFriendlyError(err).message).toBe('raw backend message');
-  });
-});
-
-describe('toFriendlyErrors', () => {
-  it('maps a list of errors using per-step context', () => {
-    const errors: ValidationError[] = [
-      { code: 'json.invalid', message: 'bad json' },
-      { code: 'step.missing_field', message: 'missing params', step_id: 'review' },
-    ];
-    const out = toFriendlyErrors(errors, { review: approvalStep });
-    expect(out).toHaveLength(2);
-    expect(out[1].message).toMatch(/who should review/i);
   });
 });

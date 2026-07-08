@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Braces } from 'lucide-react';
-import type { FlowDraft, WorkflowStepDraft } from '@/lib/flows/types';
+import type { FlowDraft } from '@/lib/flows/types';
 
 interface ExpressionPickerProps {
   /** Insert the chosen token at the current cursor in `inputRef`. */
@@ -190,19 +190,4 @@ function PickerItem({
       </button>
     </li>
   );
-}
-
-// Helper hook: pair a ref + value handler with the picker.
-export function useExpressionField(
-  step: WorkflowStepDraft,
-  onChange: (updates: Partial<WorkflowStepDraft>) => void,
-  fieldKey: 'instruction' | 'if',
-) {
-  const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
-  const value = (step[fieldKey] as string | undefined) ?? '';
-  return {
-    inputRef,
-    value,
-    onChange: (next: string) => onChange({ [fieldKey]: next } as Partial<WorkflowStepDraft>),
-  };
 }

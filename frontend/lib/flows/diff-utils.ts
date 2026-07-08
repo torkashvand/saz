@@ -21,8 +21,6 @@ export function computeLineDiff(baselineYaml: string, currentYaml: string): Line
 
   // Simple line-by-line comparison
   // This is not a perfect LCS diff, but works well for incremental edits
-  const maxLines = Math.max(baselineLines.length, currentLines.length);
-
   for (let i = 0; i < currentLines.length; i++) {
     const currentLine = currentLines[i];
     const baselineLine = i < baselineLines.length ? baselineLines[i] : undefined;

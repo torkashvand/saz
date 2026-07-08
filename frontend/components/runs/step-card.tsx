@@ -45,12 +45,10 @@ function getStepTypeIcon(stepType: string | null | undefined) {
   const category = normalized.split('.')[0];
 
   let result;
-  let iconName = '';
 
   switch (category) {
     case 'ai':
       result = { Icon: Zap, color: 'text-purple-600', bg: 'bg-purple-100' };
-      iconName = '⚡ Zap (purple)';
       break;
 
     case 'tool':

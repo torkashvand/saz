@@ -5,9 +5,6 @@ import { NavHeader } from './nav-header';
 import { ProtectedRoute } from './protected-route';
 
 const PUBLIC_PATHS = ['/login'];
-// Authenticated-but-no-app-access — reachable while must_change_password
-// is still true, so the gated user can complete the change.
-const FORCED_CHANGE_OK_PATHS = ['/change-password'];
 const ADMIN_PATH_PREFIX = '/admin';
 
 /**
@@ -36,10 +33,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-// Exported for tests if anyone needs to mirror the policy list.
-export const _appShellInternals = {
-  PUBLIC_PATHS,
-  FORCED_CHANGE_OK_PATHS,
-  ADMIN_PATH_PREFIX,
-};

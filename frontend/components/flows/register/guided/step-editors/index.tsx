@@ -25,6 +25,3 @@ export function pickStepEditor(type: StepType): EditorComponent {
   if (AI_STEP_TYPES.has(type)) return AiStepEditor;
   return REGISTRY[type] ?? AiStepEditor;
 }
-
-export type { StepEditorProps };
-export { AiStepEditor };

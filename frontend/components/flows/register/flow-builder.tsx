@@ -40,24 +40,18 @@ function lintWarningText(f: LintFinding): string {
 
 interface FlowBuilderProps {
   initialYaml?: string;
-  initialDraft?: FlowDraft;
   flowId?: string;
   isEditMode?: boolean;
 }
 
-export function FlowBuilder({
-  initialYaml = '',
-  initialDraft,
-  flowId,
-  isEditMode = false,
-}: FlowBuilderProps) {
+export function FlowBuilder({ initialYaml = '', flowId, isEditMode = false }: FlowBuilderProps) {
   const router = useRouter();
   const { toast } = useToast();
   const registerMutation = useRegisterFlow();
   const updateMutation = useUpdateFlow(flowId || '');
 
   const [mode, setMode] = useState<FlowBuilderMode>('guided');
-  const [draft, setDraft] = useState<FlowDraft>(initialDraft || emptyDraft());
+  const [draft, setDraft] = useState<FlowDraft>(emptyDraft());
   const [yaml, setYaml] = useState(initialYaml);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [lastUpdatedBy, setLastUpdatedBy] = useState<LastUpdatedBy>(initialYaml ? 'yaml' : null);

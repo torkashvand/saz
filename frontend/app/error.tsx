@@ -16,7 +16,6 @@ export default function Error({
   const appError = fromUnknownError(error);
 
   useEffect(() => {
-    // Capture to Sentry with error boundary context
     captureException(error, {
       errorBoundary: 'root',
       digest: error.digest,

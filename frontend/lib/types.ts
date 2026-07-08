@@ -19,17 +19,11 @@ export interface RegisterFlowRequest {
   yaml: string;
 }
 
+// Mirrors backend RegisterFlowResponse (flow_schemas.py) — id/name/version only.
 export interface RegisterFlowResponse {
   id: string;
   name: string;
-  version?: string;
-  description?: string;
-  created_at: string;
-  workflow_summary: WorkflowSummary;
-  form_schema: {
-    properties?: Record<string, any>;
-    required?: string[];
-  };
+  version?: string | null;
 }
 
 export interface CompileFlowRequest {
@@ -252,16 +246,6 @@ export interface RunStepsResponse {
   steps: RunStep[];
 }
 
-export interface AdvanceRunRequest {
-  approval_data?: Record<string, any>;
-}
-
-export interface AdvanceRunResponse {
-  run_id: string;
-  status: string;
-  message: string;
-}
-
 export interface ResumeRunRequest {
   resume_data?: Record<string, any> | null;
   override_payload?: Record<string, any> | null;
@@ -391,35 +375,10 @@ export interface UpdateCredentialRequest {
   description?: string;
 }
 
-// --- Graph Visualization ---
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  type: string;
-}
-
-export interface GraphEdge {
-  from: string;
-  to: string;
-  label?: string;
-}
-
-export interface FlowGraphResponse {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
 // Mirrors backend StepStatus (saz.domain.literals.StepStatus). The backend
 // never emits 'pending' or 'success'; those phantom values were removed.
 // 'skipped' is set when a step's `when` guard evaluates false.
 export type StepStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'skipped';
-
-export interface RunGraphResponse {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  status_by_step: Record<string, StepStatus>;
-}
 
 // --- Unified Event System ---
 
@@ -499,45 +458,11 @@ export interface Event {
   tags: Record<string, string>;
 }
 
-export interface RunSummary {
-  id: string;
-  flow_id: string;
-  status: string;
-  planner_mode: PlannerMode;
-
-  created_at: string;
-  completed_at: string | null;
-  duration_ms: number | null;
-
-  total_events: number;
-  event_counts: Record<string, number>;
-  total_tokens: number;
-  total_cost_usd: number;
-  error_count: number;
-}
-
 export interface EventListResponse {
   events: Event[];
   total: number;
   cursor: string | null;
   has_more: boolean;
-}
-
-// Derived UI state
-export interface StepTimeline {
-  step_id: string;
-  step_name: string;
-  status: 'running' | 'completed' | 'failed' | 'skipped';
-  started_at: string | null;
-  completed_at: string | null;
-  duration_ms: number | null;
-  events: Event[];
-}
-
-export interface RunTimeline {
-  run: RunSummary;
-  steps: StepTimeline[];
-  orphan_events: Event[]; // Events not tied to a step
 }
 
 // ========== Additional Types ==========
@@ -623,24 +548,6 @@ export interface TokenResponse {
   token_type: string;
   expires_at: string;
   user: CurrentUser;
-}
-
-export interface AuthSession {
-  id: string;
-  auth_method: string;
-  provider_key?: string | null;
-  created_at: string;
-  last_used_at: string;
-  idle_expires_at: string;
-  absolute_expires_at: string;
-  ip?: string | null;
-  user_agent?: string | null;
-  is_current: boolean;
-}
-
-export interface AuthSessionListResponse {
-  items: AuthSession[];
-  total: number;
 }
 
 // Admin view of a user's session. is_current marks the session the requesting

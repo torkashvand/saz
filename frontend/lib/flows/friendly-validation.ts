@@ -81,10 +81,3 @@ export function toFriendlyError(error: ValidationError, step?: WorkflowStepDraft
     code: error.code,
   };
 }
-
-export function toFriendlyErrors(
-  errors: ValidationError[],
-  stepsById: Record<string, WorkflowStepDraft> = {},
-): FriendlyError[] {
-  return errors.map((e) => toFriendlyError(e, e.step_id ? stepsById[e.step_id] : undefined));
-}

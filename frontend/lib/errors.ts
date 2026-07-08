@@ -164,20 +164,6 @@ export function fromUnknownError(error: unknown): AppError {
 }
 
 /**
- * Check if error is a specific kind
- */
-export function isErrorKind(error: AppError | null | undefined, kind: ErrorKind): boolean {
-  return error?.kind === kind;
-}
-
-/**
- * Get user-facing error message
- */
-export function getErrorMessage(error: AppError | null | undefined): string {
-  return error?.message || ERROR_MESSAGES.unknown;
-}
-
-/**
  * Get validation error for a specific field
  */
 export function getFieldError(

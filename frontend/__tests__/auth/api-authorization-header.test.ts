@@ -46,7 +46,7 @@ describe('API client Authorization header', () => {
   it('does not parse JSON on a 204 response (empty body)', async () => {
     // A 204 can carry an application/json content-type with an empty body;
     // calling response.json() would throw. The client must resolve cleanly so
-    // callers (e.g. session revoke) run their follow-up logic.
+    // callers (e.g. logout) run their follow-up logic.
     _internalAuth.setAccessToken('jwt-abc');
     fetchMock.mockResolvedValue({
       ok: true,
@@ -57,7 +57,7 @@ describe('API client Authorization header', () => {
       },
       text: async () => '',
     });
-    await expect(api.revokeSession('sess-1')).resolves.toBeDefined();
+    await expect(api.logout()).resolves.toBeDefined();
   });
 
   it('reads the token at request time, not module load time', async () => {

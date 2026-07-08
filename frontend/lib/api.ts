@@ -15,8 +15,6 @@ import type {
   CreateRunResponse,
   RunDetailResponse,
   RunStepsResponse,
-  AdvanceRunRequest,
-  AdvanceRunResponse,
   ResumeRunRequest,
   ResumeRunResponse,
   RetryRunResponse,
@@ -25,7 +23,6 @@ import type {
   // Events
   Event,
   EventListResponse,
-  RunSummary,
   EventType,
   Severity,
   // Artifacts
@@ -38,13 +35,10 @@ import type {
   // Templates
   TemplateSummary,
   TemplateDetail,
-  // Graph
-  RunGraphResponse,
   // Auth
   LoginRequest,
   ChangePasswordRequest,
   TokenResponse,
-  AuthSessionListResponse,
   CurrentUser,
   UserRole,
   PublicProvider,
@@ -59,11 +53,9 @@ import type {
   AdminCreateUserRequest,
   AdminUpdateUserRequest,
   AdminSessionListResponse,
-  // Legacy
-  FlowGraphResponse,
 } from './types';
 import { fromHttpError, fromNetworkError, fromUnknownError } from './errors';
-import { addBreadcrumb, captureAppError } from './monitoring';
+import { captureAppError } from './monitoring';
 import { getAccessToken, _internalAuth } from './auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -109,13 +101,6 @@ async function fetchApi<T>(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Add breadcrumb for debugging
-  addBreadcrumb(`API Request: ${method} ${endpoint}`, 'api', {
-    method,
-    endpoint,
-    hasBody: !!options?.body,
-  });
-
   try {
     const token = getAccessToken();
     const headers: Record<string, string> = {
@@ -147,13 +132,7 @@ async function fetchApi<T>(
 
       const appError = await fromHttpError(response);
 
-      // Add error breadcrumb
-      addBreadcrumb(`API Error: ${response.status} ${endpoint}`, 'api', {
-        status: response.status,
-        errorKind: appError.kind,
-      });
-
-      // Capture server errors to Sentry
+      // Log server errors for debugging
       if (response.status >= 500) {
         captureAppError(appError, {
           url: url,
@@ -164,9 +143,6 @@ async function fetchApi<T>(
 
       throw appError;
     }
-
-    // Add success breadcrumb
-    addBreadcrumb(`API Success: ${method} ${endpoint}`, 'api', { status: response.status });
 
     // Handle empty responses. A 204 carries no JSON even when the server tags
     // it application/json; calling response.json() on it throws "Unexpected end
@@ -236,16 +212,6 @@ export const api = {
 
   /** Revoke the current refresh session server-side. */
   logout: () => fetchApi<void>('/api/v1/auth/logout', { method: 'POST' }),
-
-  /** Revoke every session for the current user (all devices). */
-  logoutAll: () => fetchApi<{ revoked: number }>('/api/v1/auth/logout_all', { method: 'POST' }),
-
-  /** List the current user's active refresh sessions. */
-  listSessions: () => fetchApi<AuthSessionListResponse>('/api/v1/auth/sessions'),
-
-  /** Revoke one of the current user's sessions by id. */
-  revokeSession: (id: string) =>
-    fetchApi<void>(`/api/v1/auth/sessions/${id}`, { method: 'DELETE' }),
 
   /** Enabled SSO providers for the login screen (unauthenticated). */
   listPublicProviders: () => fetchApi<PublicProvider[]>('/api/v1/auth/providers'),
@@ -380,11 +346,6 @@ export const api = {
    */
   getDslMetadata: () => fetchApi<DslMetadata>('/api/v1/flows/dsl-metadata'),
 
-  /**
-   * Get flow graph visualization
-   */
-  getFlowGraph: (flowId: string) => fetchApi<FlowGraphResponse>(`/api/v1/flows/${flowId}/graph`),
-
   // ========== Run Endpoints ==========
 
   /**
@@ -419,15 +380,6 @@ export const api = {
   getRunSteps: (id: string) => fetchApi<RunStepsResponse>(`/api/v1/runs/${id}/steps`),
 
   /**
-   * Advance a suspended run past a human gate (legacy)
-   */
-  advanceRun: (id: string, data: AdvanceRunRequest) =>
-    fetchApi<AdvanceRunResponse>(`/api/v1/runs/${id}/advance`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  /**
    * Resume a suspended run (human approval / webhook wait)
    */
   resumeRun: (id: string, data: ResumeRunRequest) =>
@@ -457,11 +409,6 @@ export const api = {
     }),
 
   /**
-   * Get run summary with aggregated event metrics
-   */
-  getRunSummary: (runId: string) => fetchApi<RunSummary>(`/api/v1/runs/${runId}`),
-
-  /**
    * Get events for a run with filtering and pagination
    */
   getRunEvents: (
@@ -489,11 +436,6 @@ export const api = {
   },
 
   // ========== Introspection Endpoints ==========
-
-  /**
-   * Get run graph with status overlay
-   */
-  getRunGraph: (id: string) => fetchApi<RunGraphResponse>(`/api/v1/runs/${id}/graph`),
 
   /**
    * List artifacts for a run
@@ -634,7 +576,6 @@ export const api = {
     };
 
     ws.onclose = () => {
-      console.log('WebSocket closed for run:', runId);
       onClose?.();
     };
 

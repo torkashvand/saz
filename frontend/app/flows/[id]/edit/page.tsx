@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { FlowBuilder } from '@/components/flows/register/flow-builder';
-import { yamlToDraft } from '@/lib/flows/yaml-parser';
 
 export default function FlowEditPage({ params }: { params: { id: string } }) {
   const [initialYaml, setInitialYaml] = useState<string | null>(null);

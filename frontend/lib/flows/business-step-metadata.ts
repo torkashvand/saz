@@ -18,7 +18,7 @@ import type {
 } from './domain-packs/types';
 
 /** Tools the document-generation editor understands (generic, not domain). */
-export const DOCUMENT_TOOLS: ReadonlySet<string> = new Set(['docx_render']);
+const DOCUMENT_TOOLS: ReadonlySet<string> = new Set(['docx_render']);
 
 /** Generic metadata for each business pattern. No domain words here. */
 export const GENERIC_STEP_METADATA: Record<BusinessStepPattern, BusinessStepMetadata> = {
@@ -224,7 +224,7 @@ export function computeStepStatus(step: WorkflowStepDraft): StepStatus {
 }
 
 /** For approval steps, a readable label for the first reviewer, if set. */
-export function stepReviewer(step: WorkflowStepDraft, context: BindingContext): string | undefined {
+function stepReviewer(step: WorkflowStepDraft, context: BindingContext): string | undefined {
   if (classifyPattern(step) !== 'approval') return undefined;
   const approvers = paramsOf(step).approvers;
   const first = Array.isArray(approvers)
@@ -260,7 +260,7 @@ function defaultSummary(step: WorkflowStepDraft, pattern: BusinessStepPattern): 
   return GENERIC_STEP_METADATA[pattern].description;
 }
 
-export function resolveStepLabel(step: WorkflowStepDraft, pack: DomainPack): string {
+function resolveStepLabel(step: WorkflowStepDraft, pack: DomainPack): string {
   const pattern = classifyPattern(step);
   const override = pack.stepOverrides[pattern];
   const fromPack = override?.labelFor?.(step);

@@ -53,6 +53,14 @@ describe('friendlyToSchema', () => {
       properties: { n: { type: 'number', enum: [1, 2.5] } },
     });
   });
+
+  it('drops blank numeric enum entries instead of coercing them to 0', () => {
+    const out = friendlyToSchema({
+      additionalProperties: false,
+      fields: [{ name: 'n', type: 'number', required: false, enumValues: ['1', ' ', ''] }],
+    }) as any;
+    expect(out.properties.n.enum).toEqual([1]);
+  });
 });
 
 describe('schemaToFriendly', () => {

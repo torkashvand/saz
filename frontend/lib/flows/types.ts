@@ -285,7 +285,9 @@ export function emptyDraft(overrides?: Partial<FlowDraft>): FlowDraft {
     schema_version: 1,
     flow: { name: 'new_flow', version: '1.0', description: '' },
     policies: {
-      budget_usd: 1.0,
+      // Matches the backend default (dsl.py) so an untouched draft doesn't
+      // silently impose a tighter budget than a flow with no policies block.
+      budget_usd: 10.0,
       pii: { allow: false, tokenize_model_inputs: false },
     },
     workflow: { planner_mode: 'deterministic', steps: [] },

@@ -224,6 +224,16 @@ describe('quote safety in compiled expressions', () => {
     });
   });
 
+  it('treats a composite expression as a constant, not a lossy single-source binding', () => {
+    // Splitting this into a previous_step binding would bury the second
+    // template in the "formatter" and mislabel where the value comes from.
+    const composite = "{{ $step('a').b }} and {{ $form.c }}";
+    expect(expressionToBinding(composite)).toEqual({
+      sourceType: 'constant',
+      sourceField: composite,
+    });
+  });
+
   it('strips single quotes from step ids in $step refs', () => {
     const expr = bindingToExpression({
       sourceType: 'previous_step',

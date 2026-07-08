@@ -44,18 +44,10 @@ export function useRunEvents(runId: string) {
   // instead of reporting a connection failure that did not happen.
   const intentionalCloseRef = useRef(false);
 
-  // Fetch run data
-  const {
-    data: run,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ['run', runId],
-    queryFn: () => api.getRunDetails(runId),
-  });
-
-  // Fetch historical events from database
-  const { data: historicalEventsData, isLoading: isLoadingEvents } = useQuery({
+  // Fetch historical events from database. (Run details are the page's
+  // concern via useRunDetails — duplicating that query here just wasted a
+  // request and returned data no consumer read.)
+  const { data: historicalEventsData } = useQuery({
     queryKey: ['run-events', runId],
     queryFn: () => api.getRunEvents(runId, { limit: 500 }),
   });
@@ -211,11 +203,8 @@ export function useRunEvents(runId: string) {
   }, [connect]);
 
   return {
-    run,
     events,
     isConnected,
-    isLoading: isLoading || isLoadingEvents,
-    error,
     connectionError,
     retry,
   };

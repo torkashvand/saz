@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { FlowDraft, FlowPolicies, PiiPolicyValue } from '@/lib/flows/types';
 import { PII_POLICIES, piiPolicyFromBackend, piiPolicyToBackend } from '@/lib/flows/types';
 import { X } from 'lucide-react';
@@ -57,11 +58,16 @@ export function PoliciesSection({ draft, onChange }: PoliciesSectionProps) {
   const setCredentials = (next: string[]) =>
     onChange({ credentials: next.length > 0 ? { uses: next } : undefined });
 
+  // Inline input instead of window.prompt — consistent with every other
+  // add-flow in the builder and testable.
+  const [newCredential, setNewCredential] = useState('');
+
   const addCredential = () => {
-    const cred = prompt('Enter credential ID:');
+    const cred = newCredential.trim();
     if (cred && !credentials.includes(cred)) {
       setCredentials([...credentials, cred]);
     }
+    setNewCredential('');
   };
 
   const removeCredential = (cred: string) => setCredentials(credentials.filter((c) => c !== cred));
@@ -216,12 +222,29 @@ export function PoliciesSection({ draft, onChange }: PoliciesSectionProps) {
               </span>
             ))}
           </div>
-          <button
-            onClick={addCredential}
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-          >
-            + Add Credential
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              aria-label="Credential ID"
+              value={newCredential}
+              onChange={(e) => setNewCredential(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addCredential();
+                }
+              }}
+              placeholder="credential id (e.g. api_token)"
+              className="px-2 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={addCredential}
+              disabled={!newCredential.trim()}
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium disabled:text-slate-400"
+            >
+              + Add Credential
+            </button>
+          </div>
         </div>
       </div>
     </div>

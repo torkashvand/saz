@@ -39,6 +39,24 @@ describe('applyFriendlyFieldType', () => {
     }
   });
 
+  it('preserves author-set constraints the target type can express', () => {
+    // Regression: toggling long_text ↔ short_text used to discard format /
+    // minLength / maxLength (while deliberately preserving pattern).
+    const email = field({ format: 'email', minLength: 5, maxLength: 100 });
+    const asLong = applyFriendlyFieldType(email, 'long_text');
+    expect(asLong.format).toBe('email');
+    expect(asLong.minLength).toBe(5);
+    expect(asLong.maxLength).toBe(100);
+    const backToShort = applyFriendlyFieldType(asLong, 'short_text');
+    expect(backToShort.format).toBe('email');
+    expect(backToShort.minLength).toBe(5);
+
+    const bounded = field({ type: 'number', minimum: 0, maximum: 10 });
+    const reapplied = applyFriendlyFieldType(bounded, 'number');
+    expect(reapplied.minimum).toBe(0);
+    expect(reapplied.maximum).toBe(10);
+  });
+
   it('preserves identity fields when switching type', () => {
     const start = field({ name: 'budget', title: 'Budget', required: true, description: 'EUR' });
     const next = applyFriendlyFieldType(start, 'number');

@@ -47,7 +47,10 @@ export function toFriendlyFieldType(field: FlowFormField): FriendlyFieldType {
 /**
  * Apply a friendly type to a field, clearing markers managed by other friendly
  * types so switching types never leaves stale constraints behind. Identity
- * fields (name/title/required/description) are preserved.
+ * fields (name/title/required/description) are preserved, and author-set
+ * constraints survive whenever the target type can still express them
+ * (format/minLength/maxLength on text, minimum/maximum on number) — the same
+ * rule already applied to `pattern`.
  */
 export function applyFriendlyFieldType(
   field: FlowFormField,
@@ -63,6 +66,16 @@ export function applyFriendlyFieldType(
     // Drop our managed date pattern; preserve any author-set pattern otherwise.
     pattern: field.pattern === ISO_DATE_PATTERN ? undefined : field.pattern,
   };
+
+  if (type === 'short_text' || type === 'long_text') {
+    if (field.format !== undefined) base.format = field.format;
+    if (field.minLength !== undefined) base.minLength = field.minLength;
+    if (field.maxLength !== undefined) base.maxLength = field.maxLength;
+  }
+  if (type === 'number') {
+    if (field.minimum !== undefined) base.minimum = field.minimum;
+    if (field.maximum !== undefined) base.maximum = field.maximum;
+  }
 
   switch (type) {
     case 'short_text':

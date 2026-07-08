@@ -83,7 +83,7 @@ export default function CredentialsPage() {
     data: credentials,
     isLoading,
     error,
-    isError,
+    refetch,
   } = useQuery({
     queryKey: ['credentials'],
     queryFn: () => api.listCredentials(),
@@ -1129,11 +1129,7 @@ export default function CredentialsPage() {
 
       {/* Credentials List */}
       {error ? (
-        <ErrorBanner
-          error={error}
-          title="Failed to Load Credentials"
-          onRetry={() => window.location.reload()}
-        />
+        <ErrorBanner error={error} title="Failed to Load Credentials" onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="text-center py-8">Loading credentials...</div>
       ) : credentials && credentials.items && credentials.items.length > 0 ? (

@@ -86,7 +86,10 @@ function getStatusLabel(status: StepVisualStatus): string {
     running: 'Running',
     completed: 'Completed',
     failed: 'Failed',
-    suspended: 'Awaiting Approval',
+    // Generic wording: a step suspends for approval OR a webhook wait, and
+    // the timeline can't tell which — "Awaiting Approval" was wrong for the
+    // latter.
+    suspended: 'Suspended',
   }[status];
 }
 
@@ -222,7 +225,7 @@ export function StepProgressTimeline({
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-amber-500" />
-          <span>Awaiting Approval</span>
+          <span>Suspended</span>
         </div>
       </div>
     </div>

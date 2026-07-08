@@ -79,12 +79,19 @@ export function bindingToExpression(binding: FriendlyBinding): string {
  * Best-effort reverse of bindingToExpression. Returns null only for inputs
  * that are not strings; any non-matching string becomes a constant binding so
  * existing YAML always maps to *something* the friendly UI can show.
+ *
+ * A composite expression ("{{ $step('a').b }} and {{ $form.c }}") must NOT be
+ * split into a single-source binding whose "formatter" hides a second template
+ * — the chip label would then misrepresent where the value comes from. Such
+ * values fall through to a constant binding, shown verbatim.
  */
 export function expressionToBinding(value: unknown): FriendlyBinding | null {
   if (typeof value !== 'string') return null;
 
+  const compositeSuffix = (suffix: string | undefined) => !!suffix && suffix.includes('{{');
+
   const step = value.match(STEP_FIELD_RE);
-  if (step) {
+  if (step && !compositeSuffix(step[3])) {
     const binding: FriendlyBinding = {
       sourceType: 'previous_step',
       sourceStepId: step[1],
@@ -95,14 +102,14 @@ export function expressionToBinding(value: unknown): FriendlyBinding | null {
   }
 
   const form = value.match(FORM_RE);
-  if (form) {
+  if (form && !compositeSuffix(form[2])) {
     const binding: FriendlyBinding = { sourceType: 'form', sourceField: form[1] ?? '' };
     if (form[2]) binding.formatter = form[2];
     return binding;
   }
 
   const env = value.match(ENV_RE);
-  if (env) {
+  if (env && !compositeSuffix(env[3])) {
     const binding: FriendlyBinding = { sourceType: 'system', sourceField: env[1] };
     if (env[2]) binding.fallback = env[2];
     if (env[3]) binding.formatter = env[3];

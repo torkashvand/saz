@@ -45,7 +45,12 @@ export function emptyOutputSchema(): FriendlyOutputSchema {
 
 function coerceEnum(type: OutputFieldType | OutputScalarType, values: string[]): unknown[] {
   if (type === 'number' || type === 'integer') {
-    return values.map((v) => Number(v)).filter((n) => !Number.isNaN(n));
+    // Number('') is 0, so blank entries must be dropped BEFORE coercion or an
+    // empty string silently becomes the enum value 0.
+    return values
+      .filter((v) => v.trim() !== '')
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n));
   }
   return values;
 }

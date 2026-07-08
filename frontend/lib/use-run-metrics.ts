@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { RunDetailResponse } from './types';
 
 export interface RunMetrics {
@@ -20,6 +20,16 @@ export interface RunMetrics {
  * - Handle running runs with live duration calculation
  */
 export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
+  // Tick once a second while the run is live so the Duration card counts up
+  // instead of freezing at whatever Date.now() was on the last refetch.
+  const [now, setNow] = useState(() => Date.now());
+  const isLive = run?.status === 'running' && !!run.started_at && !run.completed_at;
+  useEffect(() => {
+    if (!isLive) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isLive]);
+
   return useMemo(() => {
     if (!run) {
       return {
@@ -66,17 +76,14 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
       }
     }
 
-    // Calculate duration: wall-clock time from start to end (or now if running)
+    // Calculate duration: wall-clock time from start to end (or now if the
+    // run hasn't ended). Suspended/failed runs without completed_at started
+    // too — show elapsed-so-far rather than the misleading "Not started".
     let durationMs: number | null = null;
     if (run.started_at) {
-      if (run.completed_at) {
-        // Completed: use actual end time
-        durationMs = new Date(run.completed_at).getTime() - new Date(run.started_at).getTime();
-      } else if (run.status === 'running') {
-        // Running: calculate from now
-        durationMs = Date.now() - new Date(run.started_at).getTime();
-      }
-      // If status is failed/suspended but no completed_at, leave as null
+      durationMs = run.completed_at
+        ? new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()
+        : now - new Date(run.started_at).getTime();
     } else if (run.duration_ms != null) {
       // Fallback to backend-provided duration
       durationMs = run.duration_ms;
@@ -91,5 +98,5 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
       failedSteps,
       runningSteps,
     };
-  }, [run]);
+  }, [run, now]);
 }

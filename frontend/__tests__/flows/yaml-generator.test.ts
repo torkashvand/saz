@@ -74,7 +74,42 @@ describe('draftToDsl — form fields', () => {
       format: 'email',
     });
     expect(fields[1]).toMatchObject({ name: 'count', type: 'integer', minimum: 0, maximum: 100 });
-    expect(fields[1].required).toBeUndefined();
+    // Regression: `required: false` used to be dropped, and the backend
+    // defaults absent `required` to TRUE — silently making the field
+    // mandatory. The explicit boolean must always be emitted.
+    expect(fields[1].required).toBe(false);
+  });
+});
+
+describe('draftToDsl — section extras', () => {
+  it('emits workflow extras (e.g. allowed_tools) alongside planner_mode/steps', () => {
+    const dsl = draftToDsl(
+      baseDraft({
+        workflow: {
+          planner_mode: 'agentic',
+          steps: [],
+          extras: { allowed_tools: ['http_request'] },
+        },
+      }),
+    );
+    expect((dsl.workflow as any).allowed_tools).toEqual(['http_request']);
+    expect((dsl.workflow as any).planner_mode).toBe('agentic');
+  });
+
+  it('emits policies extras (budget sub-caps) alongside edited keys', () => {
+    const dsl = draftToDsl(
+      baseDraft({
+        policies: { budget_usd: 2, extras: { max_steps: 20, max_tokens: 50000 } },
+      }),
+    );
+    expect(dsl.policies).toMatchObject({ budget_usd: 2, max_steps: 20, max_tokens: 50000 });
+    expect((dsl.policies as any).extras).toBeUndefined();
+  });
+
+  it('emits top-level extras (e.g. meta) verbatim', () => {
+    const dsl = draftToDsl(baseDraft({ extras: { meta: { origin: 'imported' } } }));
+    expect(dsl.meta).toEqual({ origin: 'imported' });
+    expect((dsl as any).extras).toBeUndefined();
   });
 });
 

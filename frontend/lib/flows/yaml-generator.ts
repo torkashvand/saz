@@ -41,9 +41,18 @@ export function draftToDsl(draft: FlowDraft): Record<string, unknown> {
   }
 
   dsl.workflow = {
+    // Extras first so the edited keys always win on collision.
+    ...(draft.workflow.extras ?? {}),
     planner_mode: draft.workflow.planner_mode || 'deterministic',
     steps: draft.workflow.steps.map(serializeStep),
   };
+
+  // Top-level sections the guided UI doesn't edit (meta, …).
+  if (draft.extras) {
+    for (const [k, v] of Object.entries(draft.extras)) {
+      if (!(k in dsl)) dsl[k] = v;
+    }
+  }
 
   return dsl;
 }
@@ -60,7 +69,10 @@ export function draftToUnifiedYaml(draft: FlowDraft): string {
 
 function serializeFormField(field: FlowFormField): Record<string, unknown> {
   const out: Record<string, unknown> = { name: field.name, type: field.type };
-  if (field.required) out.required = true;
+  // Always emit the explicit boolean: the backend defaults an ABSENT
+  // `required` to true, so dropping `required: false` would flip the field
+  // to mandatory on the next run.
+  if (field.required !== undefined) out.required = field.required;
   if (field.description) out.description = field.description;
   if (field.title) out.title = field.title;
   if (field.format) out.format = field.format;
@@ -77,8 +89,9 @@ function serializeFormField(field: FlowFormField): Record<string, unknown> {
 
 function serializePolicies(policies: FlowPolicies | undefined): Record<string, unknown> | null {
   if (!policies) return null;
-  const out: Record<string, unknown> = {};
-  let touched = false;
+  // Extras first so the edited keys always win on collision.
+  const out: Record<string, unknown> = { ...(policies.extras ?? {}) };
+  let touched = Object.keys(out).length > 0;
 
   if (policies.budget_usd !== undefined) {
     out.budget_usd = policies.budget_usd;

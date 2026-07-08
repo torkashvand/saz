@@ -77,6 +77,12 @@ export interface FlowPolicies {
     };
   };
   rate_limits?: Record<string, { rpm: number }>;
+  /**
+   * Backend-valid policy keys the guided UI doesn't edit (max_tokens,
+   * max_steps, max_time_seconds, max_replan_attempts, …). Preserved verbatim
+   * so a load → save cycle never loosens safety constraints.
+   */
+  extras?: Record<string, unknown>;
 }
 
 export interface FlowTelemetry {
@@ -132,6 +138,8 @@ export interface WorkflowStepDraft {
 export interface WorkflowSection {
   planner_mode: PlannerMode;
   steps: WorkflowStepDraft[];
+  /** Backend-valid workflow keys the guided UI doesn't edit (allowed_tools, …). */
+  extras?: Record<string, unknown>;
 }
 
 /**
@@ -146,6 +154,8 @@ export interface FlowDraft {
   telemetry?: FlowTelemetry;
   credentials?: FlowCredentials;
   workflow: WorkflowSection;
+  /** Backend-valid top-level sections the guided UI doesn't edit (meta, …). */
+  extras?: Record<string, unknown>;
 }
 
 /** UI-only state — never serialized, never sent to the backend. */

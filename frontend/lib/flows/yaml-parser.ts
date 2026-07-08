@@ -47,6 +47,20 @@ const KNOWN_STEP_TYPES: ReadonlySet<StepType> = new Set([
   'ai.plan',
 ]);
 
+const KNOWN_TOP_LEVEL_KEYS = new Set([
+  'schema_version',
+  'flow',
+  'form',
+  'policies',
+  'telemetry',
+  'credentials',
+  'workflow',
+]);
+
+const KNOWN_WORKFLOW_KEYS = new Set(['planner_mode', 'steps']);
+
+const KNOWN_POLICY_KEYS = new Set(['budget_usd', 'concurrency', 'defaults', 'pii', 'rate_limits']);
+
 const KNOWN_STEP_KEYS = new Set([
   'id',
   'type',
@@ -163,6 +177,14 @@ function mapToDraft(raw: unknown, compileResponse: CompileFlowResponse): FlowDra
     },
   };
 
+  // Backend-valid keys the guided UI doesn't edit (workflow.allowed_tools,
+  // top-level meta, …) are preserved verbatim — the same pattern as
+  // step-level extras — so a load → save cycle never strips them.
+  const workflowExtras = collectExtras(workflowSrc, KNOWN_WORKFLOW_KEYS);
+  if (workflowExtras) draft.workflow.extras = workflowExtras;
+  const topLevelExtras = collectExtras(obj, KNOWN_TOP_LEVEL_KEYS);
+  if (topLevelExtras) draft.extras = topLevelExtras;
+
   if (formFields) draft.form = { fields: formFields };
   const policies = parsePolicies(policiesSrc);
   if (policies) draft.policies = policies;
@@ -171,6 +193,17 @@ function mapToDraft(raw: unknown, compileResponse: CompileFlowResponse): FlowDra
   if (credentials) draft.credentials = credentials;
 
   return draft;
+}
+
+function collectExtras(
+  src: Record<string, unknown>,
+  knownKeys: ReadonlySet<string>,
+): Record<string, unknown> | undefined {
+  const extras: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (!knownKeys.has(k)) extras[k] = v;
+  }
+  return Object.keys(extras).length > 0 ? extras : undefined;
 }
 
 function parsePlannerMode(value: unknown): PlannerMode {
@@ -195,7 +228,10 @@ function parseFormFields(value: unknown): FlowFormField[] {
     if (!name) continue;
     const type = parseFormFieldType(raw.type);
     const field: FlowFormField = { name, type };
-    if (raw.required === true) field.required = true;
+    // The backend defaults an absent `required` to TRUE (dsl.py), so the
+    // draft must carry the resolved boolean — dropping `required: false`
+    // would silently make the field mandatory after a round-trip.
+    field.required = raw.required === undefined ? true : Boolean(raw.required);
     if (typeof raw.description === 'string') field.description = raw.description;
     if (typeof raw.title === 'string') field.title = raw.title;
     if (raw.default !== undefined) field.default = raw.default;
@@ -306,6 +342,13 @@ function parsePolicies(value: Record<string, unknown>): FlowPolicies | undefined
       out.rate_limits = limits;
       touched = true;
     }
+  }
+
+  // Unedited backend keys (max_tokens, max_steps, …) survive verbatim.
+  const extras = collectExtras(value, KNOWN_POLICY_KEYS);
+  if (extras) {
+    out.extras = extras;
+    touched = true;
   }
 
   return touched ? out : undefined;

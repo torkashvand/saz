@@ -379,3 +379,67 @@ describe('round-trip — YAML → draft → YAML → draft', () => {
     expect(result2.draft).toEqual(result1.draft);
   });
 });
+
+describe('yamlToDraft — required semantics and section extras (round-trip safety)', () => {
+  it('preserves required: false and defaults absent required to true (backend semantics)', async () => {
+    const yaml = asYaml({
+      schema_version: 1,
+      flow: { name: 'demo' },
+      form: {
+        fields: [
+          { name: 'optional_note', type: 'string', required: false },
+          { name: 'implicit_required', type: 'string' },
+        ],
+      },
+      workflow: { planner_mode: 'deterministic', steps: [] },
+    });
+    const result = await yamlToDraft(yaml);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.draft.form?.fields[0].required).toBe(false);
+    expect(result.draft.form?.fields[1].required).toBe(true);
+
+    // Round-trip: regenerating must keep the field optional at runtime.
+    const dsl = draftToDsl(result.draft);
+    const fields = (dsl.form as any).fields;
+    expect(fields[0].required).toBe(false);
+    expect(fields[1].required).toBe(true);
+  });
+
+  it('preserves workflow.allowed_tools, policy budget sub-caps, and top-level meta', async () => {
+    const source = {
+      schema_version: 1,
+      flow: { name: 'demo' },
+      meta: { origin: 'imported' },
+      policies: {
+        budget_usd: 2,
+        max_tokens: 50000,
+        max_steps: 20,
+        max_time_seconds: 600,
+        max_replan_attempts: 2,
+      },
+      workflow: {
+        planner_mode: 'agentic',
+        allowed_tools: ['http_request', 'docx_render'],
+        steps: [],
+      },
+    };
+    const result = await yamlToDraft(asYaml(source));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const dsl = draftToDsl(result.draft) as any;
+    // Safety-relevant keys the guided UI does not edit must survive a
+    // load → save cycle instead of being silently stripped (which would
+    // LOOSEN the flow's safety constraints).
+    expect(dsl.workflow.allowed_tools).toEqual(['http_request', 'docx_render']);
+    expect(dsl.policies).toMatchObject({
+      budget_usd: 2,
+      max_tokens: 50000,
+      max_steps: 20,
+      max_time_seconds: 600,
+      max_replan_attempts: 2,
+    });
+    expect(dsl.meta).toEqual({ origin: 'imported' });
+  });
+});

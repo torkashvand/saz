@@ -87,9 +87,19 @@ describe('computeStepStatus', () => {
     const s = step({
       type: 'tool.call',
       tool: 'docx_render',
+      description: 'Render the draft document',
       params: { template: 't', values: { a: '{{ $form.x }}' } },
     });
     expect(computeStepStatus(s).kind).toBe('ready');
+  });
+
+  it('does not mark a step Ready when the compile-required description is missing', () => {
+    const s = step({
+      type: 'tool.call',
+      tool: 'docx_render',
+      params: { template: 't', values: { a: '{{ $form.x }}' } },
+    });
+    expect(computeStepStatus(s).kind).toBe('needs_setup');
   });
 
   it('marks non-AI technical steps as advanced', () => {

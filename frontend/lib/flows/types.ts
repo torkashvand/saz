@@ -112,6 +112,7 @@ export type StepType =
   | 'ai.compare'
   | 'ai.translate'
   | 'ai.summarize'
+  | 'ai.fix_json'
   | 'ai.plan';
 
 export interface WorkflowStepDraft {
@@ -202,6 +203,7 @@ export const STEP_TYPES = [
   { value: 'ai.compare', label: 'AI Compare', category: 'AI' },
   { value: 'ai.translate', label: 'AI Translate', category: 'AI' },
   { value: 'ai.summarize', label: 'AI Summarize', category: 'AI' },
+  { value: 'ai.fix_json', label: 'AI Fix JSON', category: 'AI' },
   { value: 'ai.plan', label: 'AI Plan', category: 'AI' },
   { value: 'condition', label: 'Condition', category: 'Control' },
   { value: 'human.approval', label: 'Human Approval', category: 'Control' },
@@ -223,6 +225,7 @@ export const AI_STEP_TYPES: ReadonlySet<StepType> = new Set([
   'ai.compare',
   'ai.translate',
   'ai.summarize',
+  'ai.fix_json',
   'ai.plan',
 ]);
 
@@ -234,9 +237,14 @@ export const FIELD_TYPES = [
   { value: 'boolean', label: 'Boolean' },
 ] as const satisfies ReadonlyArray<{ value: FormFieldType; label: string }>;
 
+// All four combinations of {allow, tokenize_model_inputs}. The mapping must
+// round-trip exactly: a tri-state here used to collapse
+// {allow: true, tokenize: true} into 'allow_with_warning', so merely touching
+// the dropdown silently DISABLED tokenization — a PII-safety regression.
 export const PII_POLICIES = [
   { value: 'disallow', label: 'Disallow' },
   { value: 'tokenize', label: 'Tokenize' },
+  { value: 'allow_tokenized', label: 'Allow (tokenized model inputs)' },
   { value: 'allow_with_warning', label: 'Allow with Warning' },
 ] as const;
 
@@ -249,6 +257,8 @@ export function piiPolicyToBackend(value: PiiPolicyValue): {
   switch (value) {
     case 'allow_with_warning':
       return { allow: true, tokenize_model_inputs: false };
+    case 'allow_tokenized':
+      return { allow: true, tokenize_model_inputs: true };
     case 'tokenize':
       return { allow: false, tokenize_model_inputs: true };
     case 'disallow':
@@ -261,10 +271,11 @@ export function piiPolicyFromBackend(pii?: {
   allow?: boolean;
   tokenize_model_inputs?: boolean;
 }): PiiPolicyValue {
-  if (!pii) return 'disallow';
-  if (pii.allow === true) return 'allow_with_warning';
-  if (pii.tokenize_model_inputs === true) return 'tokenize';
-  return 'disallow';
+  // Backend defaults (dsl.py): allow=false, tokenize_model_inputs=TRUE.
+  const allow = pii?.allow === true;
+  const tokenize = pii?.tokenize_model_inputs !== false;
+  if (allow) return tokenize ? 'allow_tokenized' : 'allow_with_warning';
+  return tokenize ? 'tokenize' : 'disallow';
 }
 
 // ---- Default factories ---------------------------------------------------

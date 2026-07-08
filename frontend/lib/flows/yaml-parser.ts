@@ -12,6 +12,7 @@ import type {
   StepType,
   WorkflowStepDraft,
 } from './types';
+import { STEP_TYPES } from './types';
 import type { CompileFlowResponse } from '../types';
 import { api } from '../api';
 
@@ -26,26 +27,9 @@ export type FlowDraftParseResult =
   | { ok: true; draft: FlowDraft; warnings?: string[]; compileResponse: CompileFlowResponse }
   | { ok: false; errors: ParsedError[]; advanced?: boolean };
 
-const KNOWN_STEP_TYPES: ReadonlySet<StepType> = new Set([
-  'tool.call',
-  'condition',
-  'human.approval',
-  'webhook.wait',
-  'artifact.store',
-  'artifact.retrieve',
-  'ai.extract',
-  'ai.generate',
-  'ai.route',
-  'ai.score',
-  'ai.assess',
-  'ai.normalize',
-  'ai.match',
-  'ai.evaluate',
-  'ai.compare',
-  'ai.translate',
-  'ai.summarize',
-  'ai.plan',
-]);
+// Derived from the single catalog in types.ts so a new step type needs one
+// edit, not a parallel list that can drift.
+const KNOWN_STEP_TYPES: ReadonlySet<StepType> = new Set(STEP_TYPES.map((t) => t.value));
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
   'schema_version',
@@ -427,6 +411,8 @@ function parseStepType(value: unknown): StepType {
     : 'ai.extract';
 }
 
+// Safety net for backend-valid step types the guided builder doesn't know yet
+// (compile has already rejected truly invalid types before this runs).
 function checkForAdvancedFeatures(raw: unknown): { supported: boolean; reasons: string[] } {
   const reasons: string[] = [];
   const obj = isObject(raw) ? raw : {};
@@ -435,9 +421,7 @@ function checkForAdvancedFeatures(raw: unknown): { supported: boolean; reasons: 
   for (const step of steps) {
     if (!isObject(step)) continue;
     const type = step.type;
-    if (type === 'group.parallel' || type === 'group.map') {
-      reasons.push(`step "${asString(step.id) || '?'}" uses ${type}`);
-    } else if (typeof type === 'string' && !KNOWN_STEP_TYPES.has(type as StepType)) {
+    if (typeof type === 'string' && !KNOWN_STEP_TYPES.has(type as StepType)) {
       reasons.push(`step "${asString(step.id) || '?'}" uses unknown type "${type}"`);
     }
   }

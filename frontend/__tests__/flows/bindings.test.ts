@@ -204,3 +204,36 @@ describe('validateBinding', () => {
     expect(result.valid).toBe(false);
   });
 });
+
+describe('quote safety in compiled expressions', () => {
+  // The template grammar has no escape for quotes inside '...' args: a
+  // fallback like "it's" used to emit {{ $env('X', 'it's') }} — broken for
+  // both the backend and our reverse regexes.
+  it('strips single quotes from $env fallbacks so the expression round-trips', () => {
+    const expr = bindingToExpression({
+      sourceType: 'system',
+      sourceField: 'GREETING',
+      fallback: "it's fine",
+    });
+    expect(expr).toBe("{{ $env('GREETING', 'its fine') }}");
+    const back = expressionToBinding(expr);
+    expect(back).toMatchObject({
+      sourceType: 'system',
+      sourceField: 'GREETING',
+      fallback: 'its fine',
+    });
+  });
+
+  it('strips single quotes from step ids in $step refs', () => {
+    const expr = bindingToExpression({
+      sourceType: 'previous_step',
+      sourceStepId: "we'ird",
+      sourceField: 'total',
+    });
+    expect(expr).toBe("{{ $step('weird').total }}");
+    expect(expressionToBinding(expr)).toMatchObject({
+      sourceType: 'previous_step',
+      sourceStepId: 'weird',
+    });
+  });
+});

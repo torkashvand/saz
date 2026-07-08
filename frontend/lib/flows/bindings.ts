@@ -41,6 +41,13 @@ const STEP_FIELD_RE = /^\{\{\s*\$step\('([^']+)'\)(?:\.([\w.]+))?\s*\}\}(.*)$/;
 const FORM_RE = /^\{\{\s*\$form(?:\.([\w.]+))?\s*\}\}(.*)$/;
 const ENV_RE = /^\{\{\s*\$env\('([^']+)'(?:,\s*'([^']*)')?\)\s*\}\}(.*)$/;
 
+// The template grammar has no escape sequence for quotes inside '...' args,
+// so a stray single quote (e.g. a fallback of "it's") would emit an expression
+// neither the backend nor our reverse regexes can parse. Strip them.
+function quoteArg(value: string): string {
+  return `'${value.replace(/'/g, '')}'`;
+}
+
 /** Compile a binding down to a Saz template expression or raw constant. */
 export function bindingToExpression(binding: FriendlyBinding): string {
   const suffix = binding.formatter ?? '';
@@ -50,15 +57,16 @@ export function bindingToExpression(binding: FriendlyBinding): string {
         ? `{{ $form.${binding.sourceField} }}${suffix}`
         : `{{ $form }}${suffix}`;
     case 'previous_step': {
+      const stepRef = quoteArg(binding.sourceStepId ?? '');
       const ref = binding.sourceField
-        ? `{{ $step('${binding.sourceStepId}').${binding.sourceField} }}`
-        : `{{ $step('${binding.sourceStepId}') }}`;
+        ? `{{ $step(${stepRef}).${binding.sourceField} }}`
+        : `{{ $step(${stepRef}) }}`;
       return `${ref}${suffix}`;
     }
     case 'system': {
       const arg = binding.fallback
-        ? `'${binding.sourceField}', '${binding.fallback}'`
-        : `'${binding.sourceField}'`;
+        ? `${quoteArg(binding.sourceField)}, ${quoteArg(binding.fallback)}`
+        : quoteArg(binding.sourceField);
       return `{{ $env(${arg}) }}${suffix}`;
     }
     case 'constant':

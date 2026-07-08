@@ -185,6 +185,17 @@ function status(kind: StepStatus['kind']): StepStatus {
 }
 
 export function computeStepStatus(step: WorkflowStepDraft): StepStatus {
+  const base = computeBaseStepStatus(step);
+  // Every non-AI step type requires a non-empty description to compile
+  // (dsl.py); a step without one must never show as "Ready". Pattern-specific
+  // gaps (missing mappings, no reviewer) stay the primary signal.
+  if (base.kind === 'ready' && !isAiStep(step) && (!step.description || !step.description.trim())) {
+    return status('needs_setup');
+  }
+  return base;
+}
+
+function computeBaseStepStatus(step: WorkflowStepDraft): StepStatus {
   if (isAiStep(step)) {
     const ready = !!step.instruction && step.instruction.trim().length > 0;
     return status(ready ? 'ready' : 'needs_setup');
@@ -323,12 +334,17 @@ export function createBusinessStep(
   pack: DomainPack,
 ): WorkflowStepDraft {
   const id = uniqueId(STEP_ID_BASE[pattern] ?? 'step', existingIds);
+  // Non-AI step types require a non-empty description to compile; seed the
+  // pattern's friendly description so a freshly added business step isn't
+  // born invalid (business users are never shown the raw field).
+  const description = resolveStepMetadata(pattern, pack).description;
   let seed: WorkflowStepDraft;
   switch (pattern) {
     case 'document_generation':
       seed = {
         id,
         type: 'tool.call',
+        description,
         tool: 'docx_render',
         params: {
           template: pack.templatePresets?.[0]?.value ?? '',
@@ -338,16 +354,16 @@ export function createBusinessStep(
       };
       break;
     case 'approval':
-      seed = { id, type: 'human.approval', params: {} };
+      seed = { id, type: 'human.approval', description, params: {} };
       break;
     case 'wait_for_response':
-      seed = { id, type: 'webhook.wait', params: {} };
+      seed = { id, type: 'webhook.wait', description, params: {} };
       break;
     case 'audit_trail':
-      seed = { id, type: 'artifact.store', params: {} };
+      seed = { id, type: 'artifact.store', description, params: {} };
       break;
     case 'rule_check':
-      seed = { id, type: 'condition' };
+      seed = { id, type: 'condition', description };
       break;
     default:
       seed = { id, type: 'ai.extract' };

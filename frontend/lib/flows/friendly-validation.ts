@@ -42,6 +42,13 @@ function translate(error: ValidationError, step?: WorkflowStepDraft): string {
     code === 'step.empty_field' ||
     code === 'step.params_not_object';
 
+  // Check WHICH field is missing before the pattern-specific branches: an
+  // approval step whose only problem is a missing description must say "needs
+  // a visible name", not "choose who should review" (the reviewer may be set).
+  if (isMissing && /\b(name|description)\b/i.test(raw)) {
+    return 'This step needs a visible name.';
+  }
+
   if (isMissing && step) {
     const pattern = classifyPattern(step);
     if (pattern === 'approval') return 'Choose who should review this step.';
@@ -54,10 +61,6 @@ function translate(error: ValidationError, step?: WorkflowStepDraft): string {
     if (pattern === 'audit_trail') {
       return 'Choose what this step should save to the audit trail.';
     }
-  }
-
-  if (isMissing && /\b(name|description)\b/i.test(raw)) {
-    return 'This step needs a visible name.';
   }
   if (code === 'workflow.steps_empty') {
     return 'Add at least one step to this workflow.';

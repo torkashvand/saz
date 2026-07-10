@@ -93,6 +93,12 @@ export function useRunEvents(runId: string) {
         ) {
           queryClient.invalidateQueries({ queryKey: ['run', runId] });
         }
+
+        // A newly written artifact must appear in the Artifacts panel without
+        // a page reload — the panel has its own query cache entry.
+        if (event.event_type === 'artifact.created') {
+          queryClient.invalidateQueries({ queryKey: ['artifacts', runId] });
+        }
       }
     },
     [runId, queryClient],

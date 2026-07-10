@@ -71,11 +71,14 @@ export function WebhookCallbackPanel({
       return;
     }
 
-    void onSendCallback({
+    // The caller surfaces failures itself (mutation onError toast) but its
+    // mutateAsync still rethrows — swallow the rejection here so a failed
+    // callback does not escape as an unhandled promise rejection.
+    onSendCallback({
       action,
       reason: action === 'reject' ? reason.trim() : undefined,
       data,
-    });
+    }).catch(() => {});
   };
 
   return (

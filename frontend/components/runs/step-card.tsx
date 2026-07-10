@@ -16,6 +16,7 @@ import {
   X,
   Loader2,
   Info,
+  Minus,
   PauseCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -96,6 +97,7 @@ export function CompactStepCard({
   const isFailed = step?.status === 'failed';
   const isRunning = step?.status === 'running';
   const isSuspended = step?.status === 'suspended';
+  const isSkipped = step?.status === 'skipped';
 
   // Get step type icon
   const { Icon: StepIcon, color: iconColor, bg: iconBg } = getStepTypeIcon(stepType);
@@ -136,9 +138,11 @@ export function CompactStepCard({
 
   const timingInfo = step?.start_ts
     ? `Started ${formatTime(step.start_ts)} • Duration ${formatDuration(step.duration_ms)}`
-    : isPlanned
-      ? 'Not started'
-      : 'Not started yet';
+    : isSkipped
+      ? 'Skipped — condition not met'
+      : isPlanned
+        ? 'Not started'
+        : 'Not started yet';
 
   // Help text for planned steps
   const helpText = planned ? getStepHelpText(planned) : null;
@@ -210,6 +214,12 @@ export function CompactStepCard({
                     {isSuspended && (
                       <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white bg-amber-500 shadow-sm">
                         <PauseCircle className="h-3 w-3 text-white" />
+                      </div>
+                    )}
+
+                    {isSkipped && (
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-white bg-slate-400 shadow-sm">
+                        <Minus className="h-2.5 w-2.5 text-white stroke-[3]" />
                       </div>
                     )}
                   </>

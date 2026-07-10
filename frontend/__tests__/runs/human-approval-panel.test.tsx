@@ -352,4 +352,14 @@ describe('HumanApprovalPanel — non-procurement workflow', () => {
     expect(screen.queryByTestId('key-facts')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Approve and continue/i })).toBeInTheDocument();
   });
+
+  it('REGRESSION: suspended step missing from the plan does not render "Step 0 of N"', () => {
+    // Agentic runs (or drifted plans) can suspend on a step id that is not in
+    // planned_steps; findIndex returns -1 and the header showed "Step 0 of 3".
+    renderPanel(makeRun(), { ...APPROVAL_ERROR, step_id: 'not_in_plan' });
+
+    expect(screen.queryByText(/Step 0 of/)).toBeNull();
+    // The flow name is still shown without a step position.
+    expect(screen.getByText(/rfq_rfp_drafting/)).toBeInTheDocument();
+  });
 });

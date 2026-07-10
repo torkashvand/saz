@@ -21,8 +21,13 @@ export function ResizableSplit({
 }: ResizableSplitProps) {
   const [leftWidth, setLeftWidth] = useState(() => {
     if (typeof window === 'undefined') return defaultLeftWidth;
-    const stored = localStorage.getItem(storageKey);
-    return stored ? parseFloat(stored) : defaultLeftWidth;
+    // A corrupted stored value (NaN or out of range) would wedge the layout
+    // with one pane collapsed and no way to grab the divider.
+    const parsed = parseFloat(localStorage.getItem(storageKey) ?? '');
+    if (Number.isNaN(parsed) || parsed < minLeftWidth || parsed > 100 - minRightWidth) {
+      return defaultLeftWidth;
+    }
+    return parsed;
   });
 
   const containerRef = useRef<HTMLDivElement>(null);

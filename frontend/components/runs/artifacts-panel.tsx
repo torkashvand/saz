@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Download, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useErrorToast } from '@/lib/use-error-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -14,6 +15,7 @@ function formatBytes(n: number): string {
 }
 
 export function ArtifactsPanel({ runId }: { runId: string }) {
+  const { showError } = useErrorToast();
   const { data } = useQuery({
     queryKey: ['artifacts', runId],
     queryFn: () => api.getRunArtifacts(runId),
@@ -44,7 +46,11 @@ export function ArtifactsPanel({ runId }: { runId: string }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => api.downloadArtifact(runId, a.id, a.filename)}
+              onClick={() => {
+                // A failed download must tell the operator why, not vanish
+                // into an unhandled promise rejection.
+                api.downloadArtifact(runId, a.id, a.filename).catch(showError);
+              }}
               data-testid={`download-${a.id}`}
             >
               <Download className="h-4 w-4 mr-1" />

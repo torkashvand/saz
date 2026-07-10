@@ -61,7 +61,7 @@ function NewRunPageContent() {
       const matchesSearch =
         f.name.toLowerCase().includes(search.toLowerCase()) ||
         (f.description?.toLowerCase().includes(search.toLowerCase()) ?? false);
-      const matchesPlanner = plannerFilter === 'all' || (f as any).planner_mode === plannerFilter;
+      const matchesPlanner = plannerFilter === 'all' || f.planner_mode === plannerFilter;
       return matchesSearch && matchesPlanner;
     });
   }, [flows, search, plannerFilter]);

@@ -23,7 +23,13 @@ import { ResizableSplit } from '@/components/ui/resizable-split';
 import { HumanApprovalPanel } from '@/components/runs/human-approval-panel';
 import { WebhookCallbackPanel } from '@/components/runs/webhook-callback-panel';
 import { ArtifactsPanel } from '@/components/runs/artifacts-panel';
-import { buildDisplaySteps, resolveCanonicalStepIndex } from '@/lib/runs/display-steps';
+import { buildDisplaySteps } from '@/lib/runs/display-steps';
+import {
+  applyLiveOverlay,
+  computeEffectiveRunningIndexes,
+  deriveIsRunningFromEvents,
+  deriveRunningIndexes,
+} from '@/lib/runs/live-overlay';
 
 type ViewMode = 'steps' | 'steps-console' | 'cost';
 
@@ -47,24 +53,15 @@ export default function RunDetailPageRedesign() {
   // Derive running state from BOTH canonical data and live events.
   // Canonical run.status may still be "queued" for a brief period after
   // execution starts (until the cache invalidation refetch completes).
-  // The live event stream tells us immediately that the run is active.
+  // The live event stream tells us immediately that the run is active —
+  // but a terminal canonical status always wins over the event buffer,
+  // which is capped and may be missing the terminal event (see
+  // lib/runs/live-overlay.ts).
   const isRunningCanonical = run?.status === 'running';
-  const isRunningFromEvents = useMemo(() => {
-    // Walk events in order; the last run-lifecycle event determines state.
-    let active = false;
-    for (const e of events) {
-      if (e.event_type === 'run.started' || e.event_type === 'run.resumed') {
-        active = true;
-      } else if (
-        e.event_type === 'run.completed' ||
-        e.event_type === 'run.failed' ||
-        e.event_type === 'run.suspended'
-      ) {
-        active = false;
-      }
-    }
-    return active;
-  }, [events]);
+  const isRunningFromEvents = useMemo(
+    () => deriveIsRunningFromEvents(events, run?.status),
+    [events, run?.status],
+  );
   const isRunning = isRunningCanonical || isRunningFromEvents;
   const isSuspended = run?.status === 'suspended';
 
@@ -120,129 +117,31 @@ export default function RunDetailPageRedesign() {
   // step_number restarts from 0 for the remaining sub-plan, so using it
   // directly would incorrectly light up the first workflow bullet.
   const runningStepNumbers = useMemo(() => {
-    const running = new Set<number>();
-    if (!run?.planned_steps) return running;
+    if (!run?.planned_steps) return new Set<number>();
+    return deriveRunningIndexes(events, run.steps, run.planned_steps, run.status);
+  }, [events, run?.steps, run?.planned_steps, run?.status]);
 
-    events.forEach((event) => {
-      // Run-level terminal / pause events: clear ALL running indicators.
-      // When a run suspends (approval gate), completes, or fails, no step
-      // should remain in the live "running" set.  Without this, a step
-      // that was started before suspension stays falsely lit as running,
-      // and after retry/resume the UI shows two running steps at once.
-      if (
-        event.event_type === 'run.suspended' ||
-        event.event_type === 'run.completed' ||
-        event.event_type === 'run.failed'
-      ) {
-        running.clear();
-        return;
-      }
-
-      // Step-level suspension (approval step marked suspended)
-      if (event.event_type === 'step.suspended') {
-        const idx = resolveCanonicalStepIndex(event, run.steps, run.planned_steps);
-        if (idx !== undefined) running.delete(idx);
-        return;
-      }
-
-      // Step lifecycle: started adds, completed/failed removes
-      if (
-        event.event_type !== 'step.started' &&
-        event.event_type !== 'step.completed' &&
-        event.event_type !== 'step.failed'
-      ) {
-        return;
-      }
-
-      const canonicalIndex = resolveCanonicalStepIndex(event, run.steps, run.planned_steps);
-
-      if (canonicalIndex !== undefined) {
-        if (event.event_type === 'step.started') {
-          running.add(canonicalIndex);
-        } else {
-          running.delete(canonicalIndex);
-        }
-      }
-    });
-
-    return running;
-  }, [events, run?.steps, run?.planned_steps]);
-
-  // Build display steps based on planner mode, then overlay live running state.
-  //
-  // The canonical source of truth is run.steps (persisted). The WebSocket
-  // events provide a live overlay so the operator sees which step is
-  // currently executing without waiting for the next API poll.
-  //
-  // After retry, the canonical step may still be "failed" (old attempt)
-  // while a new attempt is running. The overlay must handle BOTH cases:
-  //   1. kind === 'planned' (step never executed) → create synthetic step
-  //   2. kind === 'executed' but status is terminal (failed/completed from
-  //      an older attempt) → override with running status for the new attempt
   // When the run is active but no step.started event has arrived yet
   // (planner is generating the plan), infer which step will run next
   // so both the step cards AND the timeline show immediate feedback.
   const effectiveRunningIndexes = useMemo(() => {
-    if (runningStepNumbers.size > 0 || !isRunningFromEvents || !run) {
-      return runningStepNumbers;
-    }
-    const steps = buildDisplaySteps(run.planner_mode, run.planned_steps, run.steps);
-    const nextStep = steps.find(
-      (s) => s.kind === 'planned' || (s.kind === 'executed' && s.step.status === 'failed'),
+    if (!run) return runningStepNumbers;
+    return computeEffectiveRunningIndexes(
+      runningStepNumbers,
+      isRunningFromEvents,
+      run.planner_mode,
+      run.planned_steps,
+      run.steps,
     );
-    if (nextStep !== undefined) {
-      const inferred = new Set(runningStepNumbers);
-      inferred.add(nextStep.index);
-      return inferred;
-    }
-    return runningStepNumbers;
   }, [runningStepNumbers, isRunningFromEvents, run]);
 
+  // Build display steps based on planner mode, then overlay live running
+  // state (effectiveRunningIndexes includes both confirmed step.started
+  // events AND the inferred next-step during the planning gap).
   const displaySteps = useMemo(() => {
     if (!run) return [];
     const steps = buildDisplaySteps(run.planner_mode, run.planned_steps, run.steps);
-
-    // Enhance with real-time running status from WebSocket
-    // (effectiveRunningIndexes includes both confirmed step.started
-    // events AND the inferred next-step during the planning gap)
-    return steps.map((displayStep) => {
-      if (!effectiveRunningIndexes.has(displayStep.index)) {
-        return displayStep;
-      }
-
-      if (displayStep.kind === 'planned') {
-        // Step never executed — create a synthetic running step
-        return {
-          ...displayStep,
-          kind: 'executed' as const,
-          step: {
-            id: `ws-running-${displayStep.index}`,
-            number: displayStep.index,
-            name: displayStep.planned.name,
-            attempt: 1,
-            step_type: displayStep.planned.step_type || 'unknown',
-            status: 'running' as const,
-            retry_count: 0,
-          },
-        };
-      }
-
-      // Step already has a canonical record (e.g. failed from a previous
-      // attempt). Override to show it as running with the next attempt number.
-      if (displayStep.kind === 'executed' && displayStep.step.status !== 'running') {
-        return {
-          ...displayStep,
-          step: {
-            ...displayStep.step,
-            status: 'running' as const,
-            // Signal that this is the next attempt beyond what's persisted
-            attempt: displayStep.step.attempt + 1,
-          },
-        };
-      }
-
-      return displayStep;
-    });
+    return applyLiveOverlay(steps, effectiveRunningIndexes);
   }, [run, effectiveRunningIndexes]);
 
   // Retry mutation (same-run semantics — stays on this page)

@@ -8,12 +8,17 @@ import { ArtifactsPanel } from '@/components/runs/artifacts-panel';
 
 const getRunArtifacts = vi.fn();
 const downloadArtifact = vi.fn();
+const toastMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     getRunArtifacts: (...a: any[]) => getRunArtifacts(...a),
     downloadArtifact: (...a: any[]) => downloadArtifact(...a),
   },
+}));
+
+vi.mock('@/components/ui/use-toast', () => ({
+  useToast: () => ({ toast: toastMock }),
 }));
 
 function renderPanel() {
@@ -29,6 +34,9 @@ describe('ArtifactsPanel', () => {
   beforeEach(() => {
     getRunArtifacts.mockReset();
     downloadArtifact.mockReset();
+    // The real api.downloadArtifact always returns a promise.
+    downloadArtifact.mockResolvedValue(undefined);
+    toastMock.mockReset();
   });
 
   it('lists artifacts and downloads on click', async () => {
@@ -58,5 +66,29 @@ describe('ArtifactsPanel', () => {
     const { container } = renderPanel();
     await waitFor(() => expect(getRunArtifacts).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('REGRESSION: a failed download surfaces a toast, not an unhandled rejection', async () => {
+    getRunArtifacts.mockResolvedValue({
+      run_id: 'run-1',
+      artifacts: [
+        {
+          id: 'a1',
+          step_id: 'render_final',
+          filename: 'report.docx',
+          content_type: 'application/octet-stream',
+          size_bytes: 1024,
+          created_at: '2026-06-17T00:00:00Z',
+        },
+      ],
+    });
+    downloadArtifact.mockRejectedValue(new Error('HTTP 500'));
+
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('download-a1'));
+
+    // The operator must see WHY nothing downloaded.
+    await waitFor(() => expect(toastMock).toHaveBeenCalled());
+    expect(toastMock.mock.calls[0][0].description).toMatch(/HTTP 500/);
   });
 });

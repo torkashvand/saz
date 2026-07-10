@@ -9,6 +9,24 @@ export type DisplayStep =
   | { kind: 'planned'; index: number; planned: PlannedStep };
 
 /**
+ * Reduce a run's step rows to the latest attempt per step name.
+ *
+ * A run may contain multiple attempts for the same workflow step (from
+ * retry). The latest attempt (highest attempt number) is the current
+ * effective state. Earlier attempts are historical.
+ */
+export function latestAttemptsByName(executedSteps: RunStep[]): RunStep[] {
+  const latestByName = new Map<string, RunStep>();
+  for (const step of executedSteps) {
+    const existing = latestByName.get(step.name);
+    if (!existing || (step.attempt ?? 1) > (existing.attempt ?? 1)) {
+      latestByName.set(step.name, step);
+    }
+  }
+  return [...latestByName.values()];
+}
+
+/**
  * Find the latest-attempt executed step matching a planned step by name.
  *
  * A run may contain multiple attempts for the same workflow step (from
@@ -40,14 +58,7 @@ export function buildDisplaySteps(
   // Only show the latest attempt per step name so the user sees effective
   // state, not duplicated historical entries.
   if (plannerMode !== 'deterministic' || !plannedSteps || plannedSteps.length === 0) {
-    const latestByName = new Map<string, RunStep>();
-    for (const step of executedSteps) {
-      const existing = latestByName.get(step.name);
-      if (!existing || (step.attempt ?? 1) > (existing.attempt ?? 1)) {
-        latestByName.set(step.name, step);
-      }
-    }
-    return [...latestByName.values()]
+    return latestAttemptsByName(executedSteps)
       .sort((a, b) => a.number - b.number)
       .map((step) => ({
         kind: 'executed' as const,

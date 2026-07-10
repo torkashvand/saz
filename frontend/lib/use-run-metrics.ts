@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { latestAttemptsByName } from './runs/display-steps';
 import type { RunDetailResponse } from './types';
 
 export interface RunMetrics {
@@ -45,10 +46,15 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
 
     const steps = run.steps || [];
 
-    // Calculate step counts
-    const completedSteps = steps.filter((s) => s.status === 'completed').length;
-    const failedSteps = steps.filter((s) => s.status === 'failed').length;
-    const runningSteps = steps.filter(
+    // Status counts reflect the run's EFFECTIVE state: after a retry the run
+    // keeps historical attempt rows, and counting them all would keep showing
+    // an old failed attempt as a current failure. Only the latest attempt per
+    // step name is authoritative. (Tokens/cost below intentionally sum ALL
+    // attempts — every attempt spent them.)
+    const effectiveSteps = latestAttemptsByName(steps);
+    const completedSteps = effectiveSteps.filter((s) => s.status === 'completed').length;
+    const failedSteps = effectiveSteps.filter((s) => s.status === 'failed').length;
+    const runningSteps = effectiveSteps.filter(
       (s) => s.status === 'running' || s.status === 'queued',
     ).length;
 
@@ -90,7 +96,7 @@ export function useRunMetrics(run: RunDetailResponse | undefined): RunMetrics {
     }
 
     return {
-      totalSteps: steps.length,
+      totalSteps: effectiveSteps.length,
       totalTokens,
       totalCost,
       durationMs,

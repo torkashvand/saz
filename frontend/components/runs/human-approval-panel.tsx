@@ -388,7 +388,11 @@ export function HumanApprovalPanel({
                 Approval needed: {approvalTitle}
               </h3>
               <p className="mt-1 text-xs text-slate-500">
-                {run.flow_name} · Step {approvalStepIndex + 1} of {run.planned_steps?.length ?? '?'}
+                {run.flow_name}
+                {/* findIndex returns -1 when the suspended step isn't in the
+                    plan (agentic runs) — "Step 0 of N" would be nonsense. */}
+                {approvalStepIndex >= 0 &&
+                  ` · Step ${approvalStepIndex + 1} of ${run.planned_steps?.length ?? '?'}`}
               </p>
             </div>
           </div>

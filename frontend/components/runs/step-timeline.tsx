@@ -15,7 +15,13 @@ interface StepProgressTimelineProps {
   liveRunningIndexes?: Set<number>;
 }
 
-type StepVisualStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'suspended';
+type StepVisualStatus =
+  | 'not_started'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'suspended'
+  | 'skipped';
 
 /**
  * Derive step states with run-started awareness.
@@ -58,6 +64,10 @@ function deriveStepStates(
       if (executed.status === 'completed') return 'completed';
       if (executed.status === 'failed') return 'failed';
       if (executed.status === 'suspended') return 'suspended';
+      // Guard evaluated false — deliberately not run. Distinct from
+      // "not started" so a completed run doesn't look like it has a
+      // step still waiting to execute.
+      if (executed.status === 'skipped') return 'skipped';
       return 'not_started';
     }
 
@@ -90,6 +100,7 @@ function getStatusLabel(status: StepVisualStatus): string {
     // the timeline can't tell which — "Awaiting Approval" was wrong for the
     // latter.
     suspended: 'Suspended',
+    skipped: 'Skipped',
   }[status];
 }
 
@@ -127,6 +138,9 @@ export function StepProgressTimeline({
             completed: 'bg-green-500',
             failed: 'bg-red-500',
             suspended: 'bg-amber-500 animate-pulse',
+            // Hollow dot: visibly "resolved without running", unlike the
+            // solid grey of a step that hasn't started.
+            skipped: 'bg-white border-2 border-slate-400',
           }[status];
 
           return (
@@ -226,6 +240,10 @@ export function StepProgressTimeline({
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-amber-500" />
           <span>Suspended</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-white border border-slate-400" />
+          <span>Skipped</span>
         </div>
       </div>
     </div>

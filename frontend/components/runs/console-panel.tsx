@@ -42,6 +42,12 @@ function formatTimestamp(timestamp: string): string {
 }
 
 function getEventLevel(event: Event): string {
+  // The backend stamps severity on every event (e.g. policy.blocked is
+  // "error", verifier.escalated is "warn") — trust it first. The type-name
+  // heuristic remains as a fallback for events whose emitter left the
+  // default "info" on a failure-shaped type.
+  if (event.severity === 'error') return 'error';
+  if (event.severity === 'warn') return 'warning';
   const type = event.event_type.toLowerCase();
   if (type.includes('error') || type.includes('failed')) return 'error';
   if (type.includes('warn') || type.includes('warning')) return 'warning';

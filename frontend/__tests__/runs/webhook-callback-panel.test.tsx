@@ -135,4 +135,34 @@ describe('WebhookCallbackPanel', () => {
     expect(screen.getByTestId('webhook-approve-trigger')).toBeDisabled();
     expect(screen.getByTestId('webhook-reject-trigger')).toBeDisabled();
   });
+
+  it('REGRESSION: a rejected callback promise does not become an unhandled rejection', async () => {
+    // The page's mutateAsync rethrows on error (its onError toast already
+    // fired). The panel must swallow that rejection — otherwise every failed
+    // callback surfaces as an unhandled promise rejection.
+    const rejections: unknown[] = [];
+    const capture = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', capture);
+    try {
+      // Plain function, NOT vi.fn(): the mock harness attaches internal
+      // handlers to record settled results, which would mask the escape.
+      let calls = 0;
+      const onSendCallback = () => {
+        calls += 1;
+        return Promise.reject(new Error('network down'));
+      };
+      renderPanel({ onSendCallback });
+      fireEvent.click(screen.getByTestId('webhook-approve-trigger'));
+      fireEvent.click(screen.getByTestId('webhook-approve-submit'));
+      expect(calls).toBe(1);
+      // Give the rejection time to escape (unhandledRejection fires on a
+      // later tick than the rejection itself).
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', capture);
+    }
+  });
 });

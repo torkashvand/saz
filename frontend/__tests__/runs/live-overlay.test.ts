@@ -2,27 +2,27 @@
  * Tests for the live WebSocket overlay logic on the run detail page.
  *
  * The canonical step list comes from `buildDisplaySteps` (tested separately).
- * The live overlay derives `runningStepNumbers` from WebSocket events and
- * injects running state into display steps and the timeline.
- *
- * Previous tests only covered the canonical mapping helpers. These tests
- * cover the page-level overlay logic that was the root cause of the
- * "running indicator not showing after retry" bug.
+ * The live overlay derivations live in `lib/runs/live-overlay.ts` and are
+ * imported by BOTH app/runs/[id]/page.tsx and this test, so these tests
+ * exercise the real page logic, not a mirrored copy that can drift.
  *
  * Covers:
  * - resolveCanonicalStepIndex mapping from events to canonical positions
  * - Live overlay applying to both 'planned' and 'executed' (failed) display steps
  * - Attempt number derivation on synthetic/overridden running steps
  * - Repeated execution segments (retry) not resetting running indicator
+ * - Canonical terminal run status gating the overlay (truncated event buffer)
  * - Timeline integration with liveRunningIndexes
  */
 
 import { describe, it, expect } from 'vitest';
+import { buildDisplaySteps } from '@/lib/runs/display-steps';
 import {
-  buildDisplaySteps,
-  resolveCanonicalStepIndex,
-  type DisplayStep,
-} from '@/lib/runs/display-steps';
+  applyLiveOverlay,
+  computeEffectiveRunningIndexes,
+  deriveIsRunningFromEvents,
+  deriveRunningIndexes,
+} from '@/lib/runs/live-overlay';
 import type { PlannedStep, RunStep } from '@/lib/types';
 
 // Local alias mirroring the canonical run-status union in lib/types.ts.
@@ -32,7 +32,7 @@ import type { PlannedStep, RunStep } from '@/lib/types';
 type RunStatus = 'queued' | 'running' | 'suspended' | 'failed' | 'completed' | 'pending';
 
 // ---------------------------------------------------------------------------
-// Helpers — mirror page-level overlay logic from app/runs/[id]/page.tsx
+// Helpers
 // ---------------------------------------------------------------------------
 
 function planned(index: number, id: string, name?: string): PlannedStep {
@@ -54,101 +54,6 @@ function executedStep(
     status,
     retry_count: 0,
   };
-}
-
-/**
- * Simulate the page-level runningStepNumbers derivation from events.
- * This MUST mirror the exact logic in page.tsx's useMemo so that tests
- * exercise the real lifecycle behavior, not a stale copy.
- */
-function deriveRunningIndexes(
-  events: Array<{
-    event_type: string;
-    step_id: string | null;
-    payload: Record<string, any>;
-    summary: string;
-  }>,
-  executedSteps: RunStep[],
-  plannedSteps: PlannedStep[],
-): Set<number> {
-  const running = new Set<number>();
-  events.forEach((event) => {
-    // Run-level terminal / pause events: clear ALL running indicators.
-    if (
-      event.event_type === 'run.suspended' ||
-      event.event_type === 'run.completed' ||
-      event.event_type === 'run.failed'
-    ) {
-      running.clear();
-      return;
-    }
-
-    // Step-level suspension
-    if (event.event_type === 'step.suspended') {
-      const idx = resolveCanonicalStepIndex(event, executedSteps, plannedSteps);
-      if (idx !== undefined) running.delete(idx);
-      return;
-    }
-
-    // Step lifecycle: started adds, completed/failed removes
-    if (
-      event.event_type !== 'step.started' &&
-      event.event_type !== 'step.completed' &&
-      event.event_type !== 'step.failed'
-    ) {
-      return;
-    }
-    const canonicalIndex = resolveCanonicalStepIndex(event, executedSteps, plannedSteps);
-    if (canonicalIndex !== undefined) {
-      if (event.event_type === 'step.started') {
-        running.add(canonicalIndex);
-      } else {
-        running.delete(canonicalIndex);
-      }
-    }
-  });
-  return running;
-}
-
-/**
- * Simulate the page-level display step overlay from page.tsx's useMemo.
- * Applies live running state to canonical display steps.
- */
-function applyLiveOverlay(steps: DisplayStep[], runningIndexes: Set<number>): DisplayStep[] {
-  return steps.map((displayStep) => {
-    if (!runningIndexes.has(displayStep.index)) {
-      return displayStep;
-    }
-
-    if (displayStep.kind === 'planned') {
-      return {
-        ...displayStep,
-        kind: 'executed' as const,
-        step: {
-          id: `ws-running-${displayStep.index}`,
-          number: displayStep.index,
-          name: displayStep.planned.name,
-          attempt: 1,
-          step_type: displayStep.planned.step_type || 'unknown',
-          status: 'running' as const,
-          retry_count: 0,
-        },
-      };
-    }
-
-    if (displayStep.kind === 'executed' && displayStep.step.status !== 'running') {
-      return {
-        ...displayStep,
-        step: {
-          ...displayStep.step,
-          status: 'running' as const,
-          attempt: displayStep.step.attempt + 1,
-        },
-      };
-    }
-
-    return displayStep;
-  });
 }
 
 function makeEvent(type: string, stepName: string, stepId?: string) {
@@ -629,28 +534,6 @@ describe('live overlay — full integration', () => {
 // H. Immediate run-active detection from live events
 // ---------------------------------------------------------------------------
 
-/**
- * Simulate the page-level isRunningFromEvents derivation.
- * This mirrors the useMemo in page.tsx that detects run activity
- * from WebSocket events before the canonical run.status updates.
- * Uses last-event-wins so resumed-after-suspended works correctly.
- */
-function deriveIsRunningFromEvents(events: Array<{ event_type: string }>): boolean {
-  let active = false;
-  for (const e of events) {
-    if (e.event_type === 'run.started' || e.event_type === 'run.resumed') {
-      active = true;
-    } else if (
-      e.event_type === 'run.completed' ||
-      e.event_type === 'run.failed' ||
-      e.event_type === 'run.suspended'
-    ) {
-      active = false;
-    }
-  }
-  return active;
-}
-
 describe('live overlay — immediate run-active detection', () => {
   it('REGRESSION: run.started makes isRunning true even when canonical status is queued', () => {
     // This is the exact bug: run.status is still "queued" (refetch pending)
@@ -712,37 +595,12 @@ describe('live overlay — immediate run-active detection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// I. Inferred next-step during planning gap — mirrors effectiveRunningIndexes
+// I. Inferred next-step during planning gap — effectiveRunningIndexes
 // ---------------------------------------------------------------------------
-
-/**
- * Simulate the page-level effectiveRunningIndexes computation.
- * Mirrors the useMemo in page.tsx exactly.
- */
-function computeEffectiveRunningIndexes(
-  runningStepNumbers: Set<number>,
-  isRunningFromEvents: boolean,
-  plannedSteps: PlannedStep[],
-  executedSteps: RunStep[],
-): Set<number> {
-  if (runningStepNumbers.size > 0 || !isRunningFromEvents) {
-    return runningStepNumbers;
-  }
-  const steps = buildDisplaySteps('deterministic', plannedSteps, executedSteps);
-  const nextStep = steps.find(
-    (s) => s.kind === 'planned' || (s.kind === 'executed' && s.step.status === 'failed'),
-  );
-  if (nextStep !== undefined) {
-    const inferred = new Set(runningStepNumbers);
-    inferred.add(nextStep.index);
-    return inferred;
-  }
-  return runningStepNumbers;
-}
 
 describe('inferred next-step during planning gap', () => {
   it('fresh run: first planned step gets spinner', () => {
-    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, []);
+    const effective = computeEffectiveRunningIndexes(new Set(), true, 'deterministic', PLANNED, []);
     expect(effective.has(0)).toBe(true);
     expect(effective.size).toBe(1);
   });
@@ -754,7 +612,13 @@ describe('inferred next-step during planning gap', () => {
       executedStep('draft_rfp', 2, 'completed'),
       executedStep('create_rfp_record', 3, 'failed', 1),
     ];
-    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
+    const effective = computeEffectiveRunningIndexes(
+      new Set(),
+      true,
+      'deterministic',
+      PLANNED,
+      executed,
+    );
     expect(effective.has(3)).toBe(true);
     expect(effective.has(0)).toBe(false);
     expect(effective.size).toBe(1);
@@ -767,7 +631,13 @@ describe('inferred next-step during planning gap', () => {
       executedStep('draft_rfp', 2, 'completed'),
       executedStep('create_rfp_record', 3, 'completed'),
     ];
-    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
+    const effective = computeEffectiveRunningIndexes(
+      new Set(),
+      true,
+      'deterministic',
+      PLANNED,
+      executed,
+    );
     // Step 4 (send_confirmation) is still planned
     expect(effective.has(4)).toBe(true);
     expect(effective.size).toBe(1);
@@ -781,19 +651,33 @@ describe('inferred next-step during planning gap', () => {
       executedStep('create_rfp_record', 3, 'completed'),
       executedStep('send_confirmation', 4, 'completed'),
     ];
-    const effective = computeEffectiveRunningIndexes(new Set(), true, PLANNED, executed);
+    const effective = computeEffectiveRunningIndexes(
+      new Set(),
+      true,
+      'deterministic',
+      PLANNED,
+      executed,
+    );
     expect(effective.size).toBe(0);
   });
 
   it('skipped when step.started already populated runningStepNumbers', () => {
-    const effective = computeEffectiveRunningIndexes(new Set([2]), true, PLANNED, []);
+    const initial = new Set([2]);
+    const effective = computeEffectiveRunningIndexes(initial, true, 'deterministic', PLANNED, []);
     // Should return original set unchanged
+    expect(effective).toBe(initial);
     expect(effective.has(2)).toBe(true);
     expect(effective.size).toBe(1);
   });
 
   it('skipped when run is not active from events', () => {
-    const effective = computeEffectiveRunningIndexes(new Set(), false, PLANNED, []);
+    const effective = computeEffectiveRunningIndexes(
+      new Set(),
+      false,
+      'deterministic',
+      PLANNED,
+      [],
+    );
     expect(effective.size).toBe(0);
   });
 });
@@ -830,6 +714,7 @@ describe('page-level user-visible state', () => {
     const effective = computeEffectiveRunningIndexes(
       runningStepNumbers,
       isRunningFromLiveEvents,
+      'deterministic',
       PLANNED,
       canonicalSteps,
     );
@@ -879,6 +764,7 @@ describe('page-level user-visible state', () => {
     const effective = computeEffectiveRunningIndexes(
       runningStepNumbers,
       isRunningFromLiveEvents,
+      'deterministic',
       PLANNED,
       canonicalSteps,
     );
@@ -912,9 +798,50 @@ describe('page-level user-visible state', () => {
     const effective = computeEffectiveRunningIndexes(
       runningStepNumbers,
       true,
+      'deterministic',
       PLANNED,
       canonicalSteps,
     );
     expect(effective).toBe(runningStepNumbers); // same reference, no inference
+  });
+});
+
+// ---------------------------------------------------------------------------
+// K. Canonical terminal run status gates the overlay
+// ---------------------------------------------------------------------------
+
+describe('live overlay — canonical terminal status gates the overlay', () => {
+  it('REGRESSION: truncated event buffer cannot show a completed run as running', () => {
+    // The historical fetch caps at the OLDEST 500 events. For a long run the
+    // terminal run.completed event never reaches the client buffer, so the
+    // last lifecycle event seen is run.started — without the canonical gate
+    // the page shows a completed run as "running" forever.
+    const events = [{ event_type: 'run.started' }];
+    expect(deriveIsRunningFromEvents(events, 'completed')).toBe(false);
+    expect(deriveIsRunningFromEvents(events, 'failed')).toBe(false);
+  });
+
+  it('non-terminal canonical status lets events lead (run.started before refetch)', () => {
+    const events = [{ event_type: 'run.started' }];
+    expect(deriveIsRunningFromEvents(events, 'queued')).toBe(true);
+    expect(deriveIsRunningFromEvents(events)).toBe(true);
+  });
+
+  it('suspended canonical status still lets run.resumed lead during resume', () => {
+    // Resume flow: canonical still says "suspended" while the run.resumed
+    // event has already arrived — events must be allowed to lead here.
+    const events = [{ event_type: 'run.resumed' }];
+    expect(deriveIsRunningFromEvents(events, 'suspended')).toBe(true);
+  });
+
+  it('REGRESSION: stale step.started in truncated buffer lights no step on a terminal run', () => {
+    // Same truncation scenario at the step level: the buffer ends with a
+    // step.started whose step.completed/run.completed fell outside the
+    // window. A terminal canonical status must clear all indicators.
+    const events = [makeEvent('step.started', 'create_rfp_record')];
+    expect(deriveRunningIndexes(events, [], PLANNED, 'completed').size).toBe(0);
+    expect(deriveRunningIndexes(events, [], PLANNED, 'failed').size).toBe(0);
+    // Control: without a terminal status the indicator shows.
+    expect(deriveRunningIndexes(events, [], PLANNED, 'running').has(3)).toBe(true);
   });
 });

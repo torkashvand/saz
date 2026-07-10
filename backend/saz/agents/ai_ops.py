@@ -493,7 +493,14 @@ class AIOperationsRunner:
         - enum constraints
         - numeric bounds (minimum, maximum)
         """
-        if schema.get("type") == "object":
+        schema_type = schema.get("type")
+        if schema_type is None and ("properties" in schema or "required" in schema):
+            # An expect block with properties/required but no explicit
+            # "type": "object" (an easy YAML omission) is an object schema.
+            # The prompt promises strict enforcement — no-oping here would
+            # silently validate nothing.
+            schema_type = "object"
+        if schema_type == "object":
             if not isinstance(data, dict):
                 raise ValueError(f"Expected object, got {type(data).__name__}")
 

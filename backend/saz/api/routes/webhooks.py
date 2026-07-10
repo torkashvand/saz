@@ -16,6 +16,7 @@ from saz.audit.event_emitter import EventEmitter
 from saz.domain.event_schema import EventType
 from saz.domain.literals import Role, SuspensionErrorType
 from saz.engine.scheduler import get_scheduler
+from saz.services.run_service import resolve_suspended_step_on_approval
 
 router = APIRouter(prefix="/api/v1", tags=["webhooks"])
 logger = logging.getLogger(__name__)
@@ -76,6 +77,11 @@ async def resume_run(
         if user.role != Role.ADMIN and not ({user.username, user.email} & set(approvers)):
             raise AuthorizationError(f"User '{user.username}' is not an approver for run {run_id}")
     elif user.role != Role.ADMIN:
+        # Resume/reject mutate run state — viewers are read-only even for
+        # runs they created before being demoted, mirroring retry
+        # (OperatorUserDep). Named approvers above are exempt by design.
+        if user.role == Role.VIEWER:
+            raise AuthorizationError("write access required")
         assert service.uow.runs is not None
         owner_run = service.uow.runs.get(run_id)
         if owner_run is not None and owner_run.created_by_user_id != user.id:
@@ -243,8 +249,7 @@ async def handle_webhook_callback(
     expected_event = (run.error or {}).get("event_name")
     if expected_event and req.event_name and req.event_name != expected_event:
         raise ValidationError(
-            f"Callback event '{req.event_name}' does not match the awaited "
-            f"event '{expected_event}'"
+            f"Callback event '{req.event_name}' does not match the awaited event '{expected_event}'"
         )
 
     # Emit webhook callback received event
@@ -348,13 +353,12 @@ async def handle_webhook_callback(
         **(req.data or {}),
     }
 
-    # Complete the suspended step with the resume payload so downstream
+    # Resolve the suspended step with the resume payload so downstream
     # steps can template-access the callback data via $step('id').field.
+    # A pre-execution escalation is marked for re-execution instead of
+    # completed (see resolve_suspended_step_on_approval).
     if suspended_step_db_id is not None:
-        step_entity = uow.steps.get(suspended_step_db_id)
-        if step_entity:
-            step_entity.output = resume_data
-            uow.steps.mark_completed(suspended_step_db_id)
+        resolve_suspended_step_on_approval(uow, suspended_step_db_id, run.error, resume_data)
 
     # Emit approval granted with the DB-level step id (FK-safe) and the
     # human-readable step name for the audit trail.

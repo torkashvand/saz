@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -10,6 +11,25 @@ from saz.security.redaction import is_sensitive_key, redact_sensitive
 from saz.security.url_guard import validate_outbound_url
 
 logger = structlog.get_logger(__name__)
+
+
+def _safe_url(url: str) -> str:
+    """Return ``url`` with query values masked and userinfo dropped.
+
+    Secrets are commonly templated into query strings (``?api_key=...``), so
+    the raw URL must never reach logs, exception messages, or anything
+    persisted from them. Query keys are kept for debuggability.
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if parts.port:
+            host = f"{host}:{parts.port}"
+        query = "&".join(f"{k}=***" for k, _ in parse_qsl(parts.query, keep_blank_values=True))
+        return urlunsplit((parts.scheme, host, parts.path, query, parts.fragment))
+    except ValueError:
+        return "<unparseable-url>"
+
 
 # Response headers an upstream may set that carry credentials/session secrets.
 # These are redacted before the result is returned (and thus persisted into
@@ -118,7 +138,7 @@ class HttpTool:
         self.logger.info(
             "http_request_start",
             method=method,
-            url=url,
+            url=_safe_url(url),
             headers=safe_headers,
             idempotency_key=idempotency_key,
         )
@@ -170,13 +190,13 @@ class HttpTool:
                     self.logger.warning(
                         "http_request_non_2xx",
                         method=method,
-                        url=url,
+                        url=_safe_url(url),
                         status_code=response.status_code,
                         duration_ms=duration_ms,
                         idempotency_key=idempotency_key,
                     )
                     raise httpx.HTTPStatusError(
-                        f"HTTP {response.status_code} for {method} {url}",
+                        f"HTTP {response.status_code} for {method} {_safe_url(url)}",
                         request=response.request,
                         response=response,
                     )
@@ -184,7 +204,7 @@ class HttpTool:
                 self.logger.info(
                     "http_request_success",
                     method=method,
-                    url=url,
+                    url=_safe_url(url),
                     status_code=response.status_code,
                     duration_ms=duration_ms,
                     idempotency_key=idempotency_key,
@@ -197,7 +217,7 @@ class HttpTool:
             self.logger.error(
                 "http_request_failed",
                 method=method,
-                url=url,
+                url=_safe_url(url),
                 error=str(e),
                 duration_ms=duration_ms,
                 idempotency_key=idempotency_key,

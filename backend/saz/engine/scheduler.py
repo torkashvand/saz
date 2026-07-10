@@ -73,6 +73,7 @@ class RunScheduler:
             get_tool_registry,
         )
 
+        fatal = False
         try:
             logger.info(f"Thread started for run {run_id}")
             session = self.SessionLocal()
@@ -113,10 +114,40 @@ class RunScheduler:
             finally:
                 session.close()
         except Exception as e:
+            fatal = True
             logger.exception(f"Fatal error in thread for run {run_id}: {e}")
         finally:
             with self._running_lock:
                 self._running_runs.discard(run_id)
+            # Not after a fatal error: a run whose thread keeps crashing
+            # before it can leave "queued" must not requeue-loop forever.
+            if not fatal:
+                self._reschedule_if_requeued(run_id)
+
+    def _reschedule_if_requeued(self, run_id: str) -> None:
+        """Resubmit a run that was re-queued during this thread's teardown.
+
+        A resume/callback landing between the suspension commit and the
+        ``_running_runs`` discard flips the run to ``queued``, but its
+        ``schedule()`` call was refused because this thread still held the
+        id. Nothing rescans queued runs, so without this re-check the run is
+        stranded in ``queued`` forever.
+        """
+        try:
+            session = self.SessionLocal()
+            try:
+                with UnitOfWork(session) as uow:
+                    assert uow.runs is not None
+                    run = uow.runs.get(run_id)
+                    status = run.status if run else None
+            finally:
+                session.close()
+        except Exception as e:
+            logger.exception(f"Post-run status re-check failed for run {run_id}: {e}")
+            return
+        if status == "queued":
+            logger.info(f"Run {run_id} was re-queued during teardown; rescheduling")
+            self.schedule(run_id)
 
     def shutdown(self, wait: bool = False) -> None:
         """Shutdown the executor."""

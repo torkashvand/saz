@@ -1,6 +1,7 @@
 """Artifact Storage Tool - Store and retrieve workflow artifacts."""
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +10,11 @@ from uuid import uuid4
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+# store() always issues uuid4 ids; anything else in retrieve() is hostile
+# input (artifact_id is template-resolvable, so it can carry ../ or an
+# absolute path that would escape the storage directory).
+_ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class ArtifactTool:
@@ -143,8 +149,13 @@ class ArtifactTool:
             Artifact record with content
 
         Raises:
+            ValueError: If artifact_id is not a well-formed artifact id
             FileNotFoundError: If artifact not found
         """
+        if not _ARTIFACT_ID_RE.match(artifact_id):
+            self.logger.error("artifact_invalid_id", artifact_id=artifact_id)
+            raise ValueError(f"Invalid artifact_id: {artifact_id!r}")
+
         artifact_file = self.storage_path / f"{artifact_id}.json"
 
         if not artifact_file.exists():

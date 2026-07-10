@@ -60,9 +60,10 @@ def test_artifact_tool_retrieve_round_trips_stored_content(tool: ArtifactTool) -
 
 
 def test_artifact_tool_retrieve_missing_artifact_raises(tool: ArtifactTool) -> None:
+    missing_id = "00000000-0000-4000-8000-000000000000"
     with pytest.raises(FileNotFoundError) as exc:
-        asyncio.run(tool.retrieve("nonexistent-id"))
-    assert "nonexistent-id" in str(exc.value)
+        asyncio.run(tool.retrieve(missing_id))
+    assert missing_id in str(exc.value)
 
 
 def test_artifact_tool_list_artifacts_empty_directory_returns_empty_list(
@@ -130,3 +131,28 @@ def test_artifact_tool_specs_advertise_required_fields(tool: ArtifactTool) -> No
     retrieve_spec = tool.retrieve_spec
     assert retrieve_spec["name"] == "artifact.retrieve"
     assert retrieve_spec["input_schema"]["required"] == ["artifact_id"]
+
+
+def test_artifact_tool_retrieve_rejects_path_traversal(tool: ArtifactTool, tmp_path: Path) -> None:
+    """artifact_id is template-resolvable (e.g. {{ $form.x }}), so a hostile
+    value must not escape the storage directory. IDs are always uuid4 strings
+    from store(); anything else is rejected before touching the filesystem."""
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"artifact_id": "x", "content": {"stolen": True}}))
+
+    with pytest.raises(ValueError, match="Invalid artifact_id"):
+        asyncio.run(tool.retrieve("../outside"))
+
+
+def test_artifact_tool_retrieve_rejects_absolute_path(tool: ArtifactTool, tmp_path: Path) -> None:
+    outside = tmp_path / "abs.json"
+    outside.write_text(json.dumps({"artifact_id": "x", "content": {"stolen": True}}))
+
+    # Path("/base") / "/abs" silently replaces the base — must be rejected.
+    with pytest.raises(ValueError, match="Invalid artifact_id"):
+        asyncio.run(tool.retrieve(str(tmp_path / "abs")))
+
+
+def test_artifact_tool_retrieve_rejects_non_uuid_id(tool: ArtifactTool) -> None:
+    with pytest.raises(ValueError, match="Invalid artifact_id"):
+        asyncio.run(tool.retrieve("not-a-uuid"))

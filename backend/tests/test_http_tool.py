@@ -216,3 +216,43 @@ async def test_http_tool_does_not_follow_redirect_to_loopback(monkeypatch) -> No
     assert contacted == [
         "https://example.com/x"
     ], f"redirect was followed to an internal host, bypassing the SSRF guard: {contacted}"
+
+
+@pytest.mark.asyncio
+async def test_http_tool_non_2xx_error_message_hides_query_values(tool: HttpTool, monkeypatch):
+    """The HTTPStatusError message is persisted into step.error and logged by
+    the tool registry — a secret templated into a query param must not ride
+    along. Query keys stay visible for debugging; values are masked."""
+    transport = _mock_transport(401)
+    original_client = httpx.AsyncClient
+
+    def make_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr("saz.tools.http_tool.httpx.AsyncClient", make_client)
+
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await tool.execute(
+            method="GET",
+            url="https://example.com/api?api_key=sk-live-topsecret&page=2",
+        )
+    message = str(exc.value)
+    assert "sk-live-topsecret" not in message
+    assert "https://example.com/api" in message
+    assert "HTTP 401" in message
+
+
+def test_safe_url_masks_query_values_and_credentials():
+    from saz.tools.http_tool import _safe_url
+
+    assert (
+        _safe_url("https://example.com/api?api_key=sk-live-abc&page=2")
+        == "https://example.com/api?api_key=***&page=***"
+    )
+    # Userinfo credentials are dropped too.
+    assert _safe_url("https://user:pass@example.com/x") == "https://example.com/x"
+    # URLs without query survive unchanged.
+    assert _safe_url("https://example.com/plain") == "https://example.com/plain"
+    # Unparseable input falls back to a constant rather than echoing.
+    assert _safe_url("://not a url") in ("://not a url", "<unparseable-url>")

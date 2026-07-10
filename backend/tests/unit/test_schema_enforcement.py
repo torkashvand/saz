@@ -502,3 +502,38 @@ def test_ai_route_rejects_additional_properties(validate):
     data = {"route": "ops", "reason": "test", "extra_field": True}
     with pytest.raises(ValueError, match="Unexpected extra fields"):
         validate(data, schema)
+
+
+def test_schema_without_type_object_still_enforced(validate):
+    """An expect block with properties/required but no "type": "object"
+    (an easy YAML omission) must validate like an object schema — the
+    prompt promises strict enforcement, so silently no-oping is a hole."""
+    schema = {
+        "properties": {"result": {"type": "string"}},
+        "required": ["result"],
+    }
+    with pytest.raises(ValueError, match="Missing required field"):
+        validate({"other": "x", "wrong": True}, schema)
+
+
+def test_schema_without_type_object_rejects_extras(validate):
+    schema = {
+        "properties": {"result": {"type": "string"}},
+        "required": ["result"],
+    }
+    with pytest.raises(ValueError, match="Unexpected extra fields"):
+        validate({"result": "ok", "hallucinated": 1}, schema)
+
+
+def test_schema_without_type_object_accepts_valid(validate):
+    schema = {
+        "properties": {"result": {"type": "string"}},
+        "required": ["result"],
+    }
+    validate({"result": "ok"}, schema)  # should not raise
+
+
+def test_schema_without_type_object_rejects_non_dict(validate):
+    schema = {"properties": {"result": {"type": "string"}}, "required": ["result"]}
+    with pytest.raises(ValueError, match="Expected object"):
+        validate(["not", "an", "object"], schema)

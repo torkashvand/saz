@@ -141,3 +141,74 @@ def test_shutdown_no_wait_marks_inflight_runs_failed(fresh_scheduler, db_engine,
             run.status == "failed"
         ), f"shutdown(wait=False) must fail in-flight runs; got status={run.status!r}"
         assert run.error and run.error.get("type") == "ShutdownError"
+
+
+def test_requeue_during_teardown_is_rescheduled(fresh_scheduler, monkeypatch, db_engine):
+    """A resume/callback can flip a run to 'queued' after its suspension is
+    committed but while the executor thread is still tearing down. schedule()
+    refuses it (the id is still in _running_runs) and nothing rescans queued
+    runs — without a post-teardown re-check the run is stranded forever."""
+    from sqlalchemy.orm import Session
+
+    from saz.db.models import Flow, Run
+    from saz.engine.executor import WorkflowExecutor
+    from saz.globals import initialize_globals
+
+    # _execute_run_sync builds real agents from saz.globals; the executor
+    # itself is faked below, but the constructor chain must not crash.
+    initialize_globals()
+
+    with Session(db_engine) as session:
+        session.add(
+            Flow(
+                created_by_user_id=TEST_USER_ID,
+                id="flow_requeue",
+                name="flow_requeue",
+                definition={},
+            )
+        )
+        session.commit()
+        session.add(
+            Run(
+                created_by_user_id=TEST_USER_ID,
+                id="run_requeue",
+                flow_id="flow_requeue",
+                status="running",
+                planner_mode="deterministic",
+                payload={},
+            )
+        )
+        session.commit()
+
+    executions: list[int] = []
+    done = threading.Event()
+
+    async def fake_execute_run(self, run_id: str) -> None:
+        executions.append(1)
+        if len(executions) == 1:
+            # Simulate a fast callback landing in the teardown window: it
+            # flips the run to queued and calls schedule(), which refuses
+            # because this very thread still holds the id.
+            with Session(db_engine) as s:
+                run = s.get(Run, run_id)
+                assert run is not None
+                run.status = "queued"
+                s.commit()
+            assert fresh_scheduler.schedule(run_id) is False
+        else:
+            with Session(db_engine) as s:
+                run = s.get(Run, run_id)
+                assert run is not None
+                run.status = "completed"
+                s.commit()
+            done.set()
+
+    monkeypatch.setattr(WorkflowExecutor, "execute_run", fake_execute_run)
+
+    assert fresh_scheduler.schedule("run_requeue") is True
+    assert done.wait(timeout=5), "re-queued run was never rescheduled — stranded in 'queued'"
+
+    with Session(db_engine) as s:
+        run = s.get(Run, "run_requeue")
+        assert run is not None
+        assert run.status == "completed"

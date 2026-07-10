@@ -135,7 +135,15 @@ class Verdict(str, Enum):
 
 
 class Critique(BaseModel):
-    """Critic's evaluation of a step execution"""
+    """Critic's evaluation of a step execution.
+
+    ``extra="forbid"`` mirrors ExecutionPlan/PlanStep: the critic prompts say
+    "Return ONLY this JSON structure", so hallucinated fields fail validation
+    and route through the critic's fail-safe ESCALATE path instead of being
+    silently dropped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     verdict: Verdict
     reasoning: str = Field(..., description="Detailed analysis of step result")

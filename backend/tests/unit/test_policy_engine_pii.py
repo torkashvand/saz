@@ -572,3 +572,25 @@ def test_hex_secret_on_disallowed_outbound_path_is_blocked():
     )
     assert allowed is False
     assert reason and "non-approved" in reason
+
+
+def test_outbound_tool_unresolved_token_fails_loudly():
+    """A token with no vault mapping (the vault is run-scoped and in-memory,
+    so a resume after suspension starts empty) must NOT be sent to an
+    external system as a literal ``__PII_*__`` placeholder — that is silent
+    data corruption. The call must fail with a PolicyViolation instead."""
+    engine = PolicyEngine(
+        tokenize_model_inputs=True,
+        pii_allow_lists={"http_request": ["headers.Authorization"]},
+    )
+    run_id = "test-run-unresolved"
+
+    # Token in an allowed path, but the vault has no mapping for it
+    # (e.g. it was minted by a pre-suspension policy engine instance).
+    arguments = {
+        "url": "https://api.example.com",
+        "headers": {"Authorization": "Bearer __PII_API_KEY_1__"},
+    }
+
+    with pytest.raises(PolicyViolation, match="[Uu]nresolved"):
+        engine.detokenize_arguments("http_request", arguments, run_id)

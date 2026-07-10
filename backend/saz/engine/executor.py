@@ -103,11 +103,18 @@ class CritiqueFailure(Exception):
 
 
 class EscalationRequired(Exception):
-    """Raised when critic returns ESCALATE verdict"""
+    """Raised when critic returns ESCALATE verdict.
 
-    def __init__(self, message: str, critique: Critique):
+    ``pre_execution`` distinguishes the two escalation flavors, because they
+    need opposite resume semantics: a verifier escalation fires BEFORE the
+    tool runs (approval must re-execute the step), a critic escalation fires
+    AFTER (approval must NOT re-execute — the side effect already happened).
+    """
+
+    def __init__(self, message: str, critique: Critique, pre_execution: bool = False):
         super().__init__(message)
         self.critique = critique
+        self.pre_execution = pre_execution
 
 
 class ReplanRequired(Exception):
@@ -404,6 +411,7 @@ class WorkflowExecutor:
                 "step_results": {},
                 "artifacts": {},
                 "completed_steps": [],
+                "escalation_approvals": set(),
                 "emitter": emitter,
                 "planner_mode": planner_mode,
                 "allowed_tools": allowed_tools,
@@ -413,6 +421,19 @@ class WorkflowExecutor:
             # When a run contains multiple attempts (from retry), only the
             # highest-attempt completed step per name is authoritative.
             if run.steps:
+                # Budgets are per run, not per execution segment: this policy
+                # engine (and its in-memory tracker) is fresh, so replay the
+                # usage persisted on prior step rows. Every attempt spent real
+                # tokens/cost; completed and failed rows each consumed a step
+                # slot.
+                prior_tokens = sum(s.tokens or 0 for s in run.steps)
+                prior_cost = sum(s.cost_usd or 0.0 for s in run.steps)
+                prior_steps = sum(1 for s in run.steps if s.status in ("completed", "failed"))
+                if prior_tokens or prior_cost or prior_steps:
+                    self.policy_engine.budget_tracker.seed_usage(
+                        run_id, prior_tokens, prior_cost, prior_steps
+                    )
+
                 # Group by step name, keeping only the latest attempt per name
                 latest_by_name: dict[str, Any] = {}
                 for step in run.steps:
@@ -431,6 +452,21 @@ class WorkflowExecutor:
                         logger.info(
                             f"Restored step result for '{step.name}' "
                             f"(attempt {step.attempt}) from previous execution"
+                        )
+                    elif (
+                        step.status == "failed"
+                        and isinstance(step.output, dict)
+                        and step.output.get("escalation_approved")
+                    ):
+                        # A human approved this step's pre-execution escalation
+                        # on a prior segment (resume marked it failed, not
+                        # completed, precisely so it re-executes here). Record
+                        # the approval so the verifier's ESCALATE verdict does
+                        # not immediately re-suspend the run.
+                        context["escalation_approvals"].add(step.name)
+                        logger.info(
+                            f"Restored escalation approval for '{step.name}' "
+                            f"(attempt {step.attempt}); step will re-execute"
                         )
 
             # Check if workflow exists
@@ -632,17 +668,23 @@ class WorkflowExecutor:
                             current_step.duration_ms = int(
                                 (current_step.end_ts - start).total_seconds() * 1000
                             )
-                        current_step.error = {
+                        current_step.error = self._redact_secrets(
+                            {
+                                "message": str(step_error),
+                                "type": "PolicyViolation",
+                            }
+                        )
+                    error_dict = self._redact_secrets(
+                        {
                             "message": str(step_error),
                             "type": "PolicyViolation",
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
                         }
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": "PolicyViolation",
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                    }
-                    logger.error(f"Step {plan_step.step_id} blocked by policy: {step_error}")
+                    )
+                    logger.error(
+                        f"Step {plan_step.step_id} blocked by policy: {error_dict['message']}"
+                    )
                     await self._fail_run(run_id, error_dict, emitter)
                     return
 
@@ -656,32 +698,42 @@ class WorkflowExecutor:
                     if current_step is not None:
                         current_step.status = "failed"
                         current_step.end_ts = datetime.now(UTC)
-                        current_step.error = {
+                        current_step.error = self._redact_secrets(
+                            {
+                                "message": str(step_error),
+                                "type": type(step_error).__name__,
+                            }
+                        )
+                    error_dict = self._redact_secrets(
+                        {
                             "message": str(step_error),
                             "type": type(step_error).__name__,
+                            "category": "structural",
+                            "retryable": False,
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
                         }
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": type(step_error).__name__,
-                        "category": "structural",
-                        "retryable": False,
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                    }
-                    logger.error(f"Step {plan_step.step_id} structural error: {step_error}")
+                    )
+                    logger.error(
+                        f"Step {plan_step.step_id} structural error: {error_dict['message']}"
+                    )
                     await self._fail_run(run_id, error_dict, emitter)
                     return
 
                 except CritiqueFailure as step_error:
                     # Critique failed - store critique and fail
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": "CritiqueFailure",
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                        "critique": step_error.critique.model_dump(),
-                    }
-                    logger.error(f"Step {plan_step.step_id} failed critique: {step_error}")
+                    error_dict = self._redact_secrets(
+                        {
+                            "message": str(step_error),
+                            "type": "CritiqueFailure",
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
+                            "critique": step_error.critique.model_dump(),
+                        }
+                    )
+                    logger.error(
+                        f"Step {plan_step.step_id} failed critique: {error_dict['message']}"
+                    )
                     await self._fail_run(run_id, error_dict, emitter)
                     return
 
@@ -698,19 +750,24 @@ class WorkflowExecutor:
                     if current_step is not None:
                         current_step.status = "suspended"
                     callback_id = uuid4().hex
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": "EscalationRequired",
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                        "critique": step_error.critique.model_dump(),
-                        "callback_id": callback_id,
-                    }
+                    error_dict = self._redact_secrets(
+                        {
+                            "message": str(step_error),
+                            "type": "EscalationRequired",
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
+                            "critique": step_error.critique.model_dump(),
+                            "callback_id": callback_id,
+                            "pre_execution": step_error.pre_execution,
+                        }
+                    )
                     _attach_timeout_metadata(error_dict, plan_step.input_template)
-                    logger.warning(f"Step {plan_step.step_id} requires escalation: {step_error}")
+                    logger.warning(
+                        f"Step {plan_step.step_id} requires escalation: {error_dict['message']}"
+                    )
                     self.uow.runs.mark_suspended(run_id, error_dict)
                     emitter.run_suspended(
-                        reason=str(step_error),
+                        reason=str(error_dict["message"]),
                         step_id=step_db_id,
                     )
                     await emitter.commit_and_broadcast()
@@ -727,38 +784,48 @@ class WorkflowExecutor:
 
                 except ReplanRequired as step_error:
                     # Replanning required - treat as failure for now
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": "ReplanRequired",
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                        "critique": step_error.critique.model_dump(),
-                    }
-                    logger.warning(f"Step {plan_step.step_id} requires replanning: {step_error}")
+                    error_dict = self._redact_secrets(
+                        {
+                            "message": str(step_error),
+                            "type": "ReplanRequired",
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
+                            "critique": step_error.critique.model_dump(),
+                        }
+                    )
+                    logger.warning(
+                        f"Step {plan_step.step_id} requires replanning: {error_dict['message']}"
+                    )
                     await self._fail_run(run_id, error_dict, emitter)
                     return
 
                 except Exception as step_error:
                     # Handle step failure based on error_handling policy
-                    error_dict = {
-                        "message": str(step_error),
-                        "type": type(step_error).__name__,
-                        "step": plan_step.step_id,
-                        "step_number": step_number,
-                        "traceback": "".join(
-                            traceback.format_exception(
-                                type(step_error), step_error, step_error.__traceback__
-                            )[-5:]
-                        ),
-                    }
+                    error_dict = self._redact_secrets(
+                        {
+                            "message": str(step_error),
+                            "type": type(step_error).__name__,
+                            "step": plan_step.step_id,
+                            "step_number": step_number,
+                            "traceback": "".join(
+                                traceback.format_exception(
+                                    type(step_error), step_error, step_error.__traceback__
+                                )[-5:]
+                            ),
+                        }
+                    )
 
                     if plan_step.error_handling == ErrorHandling.FAIL:
-                        logger.error(f"Step {plan_step.step_id} failed, failing run: {step_error}")
+                        logger.error(
+                            f"Step {plan_step.step_id} failed, failing run: {error_dict['message']}"
+                        )
                         await self._fail_run(run_id, error_dict, emitter)
                         return
 
                     elif plan_step.error_handling == ErrorHandling.ESCALATE:
-                        logger.error(f"Step {plan_step.step_id} requires escalation: {step_error}")
+                        logger.error(
+                            f"Step {plan_step.step_id} requires escalation: {error_dict['message']}"
+                        )
                         # Route through proper suspension machinery. A bare
                         # mark_suspended leaves an unresumable run: no
                         # callback_id (so no webhook/resume can target it) and
@@ -782,7 +849,9 @@ class WorkflowExecutor:
                         return
 
                     elif plan_step.error_handling == ErrorHandling.CONTINUE:
-                        logger.warning(f"Step {plan_step.step_id} failed, continuing: {step_error}")
+                        logger.warning(
+                            f"Step {plan_step.step_id} failed, continuing: {error_dict['message']}"
+                        )
                         # Store error in step result under the standard
                         # ["output"] wrapper so $step('id').error templates
                         # in downstream steps still resolve.
@@ -798,7 +867,9 @@ class WorkflowExecutor:
                     else:
                         # RETRY is handled within _execute_plan_step
                         # If we reach here, retries exhausted
-                        logger.error(f"Step {plan_step.step_id} retries exhausted: {step_error}")
+                        logger.error(
+                            f"Step {plan_step.step_id} retries exhausted: {error_dict['message']}"
+                        )
                         await self._fail_run(run_id, error_dict, emitter)
                         return
 
@@ -806,7 +877,7 @@ class WorkflowExecutor:
             await self._complete_run(run_id, emitter)
 
         except Exception as e:
-            logger.exception(f"Fatal error executing run {run_id}: {e}")
+            logger.exception(f"Fatal error executing run {run_id}: {self._redact_secrets(str(e))}")
             tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
             tb_snippet = "".join(tb_lines[-5:])
 
@@ -1010,7 +1081,10 @@ class WorkflowExecutor:
                 last_error = e
                 step.retry_count = attempt  # 0-based index of failed attempt
                 self.uow.commit()
-                logger.warning(f"Step {step_id} attempt {attempt + 1}/{max_attempts} failed: {e}")
+                logger.warning(
+                    f"Step {step_id} attempt {attempt + 1}/{max_attempts} failed: "
+                    f"{self._redact_secrets(str(e))}"
+                )
 
                 # Capture critique feedback for the next retry so the
                 # AI-op prompt can include it for self-correction.
@@ -1037,12 +1111,14 @@ class WorkflowExecutor:
                     tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
                     tb_snippet = "".join(tb_lines[-5:])
 
-                    error_dict = {
-                        "message": str(e),
-                        "type": type(e).__name__,
-                        "traceback": tb_snippet,
-                        "attempts": max_attempts,
-                    }
+                    error_dict = self._redact_secrets(
+                        {
+                            "message": str(e),
+                            "type": type(e).__name__,
+                            "traceback": tb_snippet,
+                            "attempts": max_attempts,
+                        }
+                    )
                     step.error = error_dict
                     self.uow.commit()
 
@@ -1318,7 +1394,7 @@ class WorkflowExecutor:
             emitter.tool_failed(
                 step_id=current_step.id,
                 tool_name=tool_call.tool,
-                error=str(tool_error),
+                error=self._redact_secrets(str(tool_error)),
                 error_type=type(tool_error).__name__,
                 attempt=tool_attempt,
             )
@@ -1577,6 +1653,24 @@ class WorkflowExecutor:
                 )
 
             elif verification.verdict == Verdict.ESCALATE:
+                if plan_step.step_id in context.get("escalation_approvals", set()):
+                    # A human already approved this step's escalation on a
+                    # prior segment; the verifier (stateless across segments)
+                    # escalated again. Honor the recorded approval instead of
+                    # ping-ponging suspend → approve → suspend forever.
+                    emitter.verifier_approved(
+                        step_id=current_step.id,
+                        tool_name=tool_call.tool,
+                        confidence=verification.confidence,
+                        approved_by="human_escalation_approval",
+                    )
+                    await emitter.commit_and_broadcast()
+                    logger.info(
+                        f"Step {plan_step.step_id}: verifier escalated but a recorded "
+                        f"human approval exists; proceeding with execution"
+                    )
+                    return tool_call, step
+
                 # Escalate — block and suspend for human review
                 emitter.verifier_escalated(
                     step_id=current_step.id,
@@ -1587,6 +1681,7 @@ class WorkflowExecutor:
                 raise EscalationRequired(
                     f"Pre-execution escalation: {verification.reasoning}",
                     critique=verification,
+                    pre_execution=True,
                 )
 
             elif verification.verdict == Verdict.REPLAN:
@@ -2012,6 +2107,9 @@ class WorkflowExecutor:
             error: Error details
             emitter: Event emitter for broadcasting events
         """
+        # Final choke point: no failure payload reaches the DB, the API, or
+        # the event stream with a resolved secret value in it.
+        error = self._redact_secrets(error)
         assert self.uow.runs is not None
         self.uow.runs.mark_failed(run_id, error)
         self.uow.commit()

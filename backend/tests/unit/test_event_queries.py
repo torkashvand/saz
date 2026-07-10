@@ -248,3 +248,59 @@ def test_get_by_correlation(db_engine):
 
         assert len(correlated) == 3
         assert all(e.correlation_id == "corr_123" for e in correlated)
+
+
+def test_pagination_returns_every_event_exactly_once(db_engine, sample_events):
+    """Paginating to exhaustion must yield all events, in order, no loss.
+
+    Pins two historical cursor bugs: (a) the cursor was taken from the
+    probe row (limit+1th) instead of the last returned row, silently
+    dropping one event per page; (b) a timestamp-only cursor with a
+    strict > filter skipped events sharing the boundary timestamp.
+    """
+    with Session(db_engine) as session:
+        queries = EventQueries(session)
+
+        all_events, cursor = queries.get_by_run("run_1", limit=100)
+        assert cursor is None
+        expected_ids = [e.id for e in all_events]
+        assert len(expected_ids) == 7
+
+        collected: list[str] = []
+        cursor = None
+        for _ in range(10):
+            page, cursor = queries.get_by_run("run_1", limit=3, cursor=cursor)
+            collected.extend(e.id for e in page)
+            if cursor is None:
+                break
+        assert collected == expected_ids
+
+
+def test_pagination_does_not_skip_same_timestamp_events(db_engine):
+    """Events sharing one timestamp (the case seq exists for) must all be
+    returned across page boundaries."""
+    seed_run(db_engine, "run_ts")
+    ts = datetime(2025, 1, 1, 12, 0, 0)
+    with Session(db_engine) as session:
+        repo = EventRepository(session)
+        for i in range(7):
+            repo.add(
+                Event(
+                    event_type=EventType.PROGRESS_UPDATED,
+                    run_id="run_ts",
+                    timestamp=ts,
+                    summary=f"tick {i}",
+                )
+            )
+        session.commit()
+
+    with Session(db_engine) as session:
+        queries = EventQueries(session)
+        collected: list[str] = []
+        cursor = None
+        for _ in range(10):
+            page, cursor = queries.get_by_run("run_ts", limit=3, cursor=cursor)
+            collected.extend(e.summary for e in page)
+            if cursor is None:
+                break
+        assert collected == [f"tick {i}" for i in range(7)]

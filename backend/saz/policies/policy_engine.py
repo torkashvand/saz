@@ -191,6 +191,24 @@ class PolicyEngine:
         # Detokenize only allowed paths
         detokenized = vault.detokenize_dict(arguments, allowed_paths)
 
+        # Any token still present has no vault mapping — the vault is
+        # run-scoped and in-memory, so a resume after suspension starts
+        # empty. Sending the literal __PII_*__ placeholder to an external
+        # system is silent data corruption; fail loudly instead.
+        unresolved = vault.scan_for_tokens(detokenized)
+        if unresolved:
+            self.logger.error(
+                "pii_tokens_unresolved",
+                run_id=run_id,
+                tool=tool_name,
+                unresolved_paths=unresolved,
+            )
+            raise PolicyViolation(
+                f"Unresolved PII tokens for {tool_name} at paths {unresolved}: the token "
+                f"vault has no mapping for them (this happens when a run resumes after "
+                f"suspension). Refusing to send placeholder tokens to an external system."
+            )
+
         self.logger.info(
             "pii_detokenized_for_outbound",
             run_id=run_id,

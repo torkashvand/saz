@@ -5,6 +5,45 @@ from saz.domain.literals import RunStatus
 from saz.repositories.read.dtos import RunDetailDTO, RunListItemDTO
 
 
+def resolve_suspended_step_on_approval(
+    uow: UnitOfWork, step_id: str, run_error: dict | None, resume_data: dict
+) -> None:
+    """Resolve a suspended step when its run is approved/resumed.
+
+    A pre-execution escalation suspended the step BEFORE its tool ran.
+    Completing it would make the executor skip it forever — the approval
+    payload would masquerade as tool output. Mark it failed with an
+    ``escalation_approved`` marker instead: the executor re-runs failed
+    steps as a new attempt and honors the recorded approval when the
+    verifier escalates again.
+
+    Every other suspension (human approval gates, webhook waits,
+    post-execution escalation where the tool already ran) completes the
+    step so execution advances past it — re-running those would double
+    the side effect.
+    """
+    assert uow.steps is not None
+    step_entity = uow.steps.get(step_id)
+    if step_entity is None:
+        return
+
+    error = run_error or {}
+    if error.get("type") == "EscalationRequired" and error.get("pre_execution"):
+        step_entity.output = {**resume_data, "escalation_approved": True}
+        uow.steps.mark_failed(
+            step_id,
+            {
+                "message": "Pre-execution escalation approved; step will re-execute",
+                "type": "EscalationApproved",
+                "category": "escalation",
+                "retryable": True,
+            },
+        )
+    else:
+        step_entity.output = resume_data
+        uow.steps.mark_completed(step_id)
+
+
 class RunService:
     """Service for run operations."""
 
@@ -145,17 +184,19 @@ class RunService:
             status = current.status if current is not None else "missing"
             raise ValueError(f"Run {run_id} is not suspended (status: {status})")
 
-        # Now that we own the transition, complete the suspended step. Leaving
+        # Now that we own the transition, resolve the suspended step. Leaving
         # it suspended while requeuing the run causes the executor to either
         # re-enter the same gate or never advance it (only completed steps are
         # skipped on restart). When the caller does not provide explicit
         # resume_data, store a minimal "resumed" marker so the output is a dict.
         suspended_step = next((s for s in run_detail.steps if s.status == "suspended"), None)
         if suspended_step:
-            step_entity = self.uow.steps.get(suspended_step.id)
-            if step_entity:
-                step_entity.output = resume_data or {"resumed": True}
-                self.uow.steps.mark_completed(suspended_step.id)
+            resolve_suspended_step_on_approval(
+                self.uow,
+                suspended_step.id,
+                run_detail.error,
+                resume_data or {"resumed": True},
+            )
 
         # Apply payload override now that the run is queued.
         if override_payload:

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from saz.db.models import Event
@@ -22,7 +22,7 @@ class EventQueries:
         until: datetime | None = None,
         severity: str | None = None,
         limit: int = 100,
-        cursor: str | None = None,  # ISO timestamp for cursor-based pagination
+        cursor: str | None = None,  # "<ISO timestamp>|<seq>" from a previous page
     ) -> tuple[list[Event], str | None]:
         """
         Fetch events for a run with filtering and pagination.
@@ -34,7 +34,7 @@ class EventQueries:
             until: Optional end timestamp filter
             severity: Optional severity filter (info, warn, error)
             limit: Maximum number of events to return
-            cursor: ISO timestamp cursor for pagination
+            cursor: opaque cursor from a previous page ("<ISO timestamp>|<seq>")
 
         Returns:
             Tuple of (events list, next_cursor)
@@ -51,28 +51,38 @@ class EventQueries:
         if severity:
             query = query.filter(Event.severity == severity)
 
-        # Cursor-based pagination (continue after cursor timestamp)
+        # Cursor-based pagination: continue strictly after (timestamp, seq) of
+        # the last event returned on the previous page. A timestamp-only
+        # cursor would skip events sharing the boundary timestamp — the very
+        # case seq exists for. Rows predating seq sort as -1.
+        seq_order = func.coalesce(Event.seq, -1)
         if cursor:
+            raw_ts, sep, raw_seq = cursor.partition("|")
             try:
-                cursor_dt = datetime.fromisoformat(cursor.replace("Z", "+00:00"))
-                query = query.filter(Event.timestamp > cursor_dt)
+                cursor_dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                cursor_seq = int(raw_seq) if sep else -1
             except ValueError:
                 pass  # Invalid cursor, ignore
+            else:
+                query = query.filter(tuple_(Event.timestamp, seq_order) > (cursor_dt, cursor_seq))
 
         # Deterministic order: timestamp first (stable across rows written
         # before seq existed), then the monotonic per-run seq, then id as a
         # final tie-breaker. limit + 1 checks for a next page.
-        query = query.order_by(Event.timestamp.asc(), Event.seq.asc(), Event.id.asc()).limit(
+        query = query.order_by(Event.timestamp.asc(), seq_order.asc(), Event.id.asc()).limit(
             limit + 1
         )
 
         events = query.all()
 
-        # Determine next cursor
+        # Next cursor points at the last event actually returned, so the
+        # strict > filter above resumes exactly one event later.
         next_cursor = None
         if len(events) > limit:
-            next_cursor = events[-1].timestamp.isoformat()
             events = events[:limit]
+            last = events[-1]
+            last_seq = last.seq if last.seq is not None else -1
+            next_cursor = f"{last.timestamp.isoformat()}|{last_seq}"
 
         return events, next_cursor
 

@@ -58,6 +58,30 @@ class BudgetTracker:
             max_steps=self.max_steps,
         )
 
+    def seed_usage(self, run_id: str, tokens: int, cost_usd: float, steps: int) -> None:
+        """Carry usage persisted by previous execution segments into this
+        (fresh, in-memory) tracker.
+
+        Budgets are per run, not per segment: resume after suspension and
+        same-run retry both build a new tracker, and without replaying prior
+        spend a capped run gets a full fresh budget every segment.
+        """
+        if run_id not in self._budgets:
+            self.initialize_run(run_id)
+        budget = self._budgets[run_id]
+        budget["tokens_used"] += max(0, tokens)
+        budget["cost_usd"] += max(0.0, cost_usd)
+        budget["steps_executed"] += max(0, steps)
+        budget["last_updated"] = datetime.now(UTC)
+
+        self.logger.info(
+            "budget_seeded_from_prior_segments",
+            run_id=run_id,
+            tokens=tokens,
+            cost_usd=cost_usd,
+            steps=steps,
+        )
+
     def record_tokens(self, run_id: str, tokens: int) -> None:
         """
         Record token usage.
